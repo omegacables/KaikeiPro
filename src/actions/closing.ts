@@ -1,0 +1,198 @@
+"use server";
+
+import { createServerSupabaseClient } from "@/lib/supabase";
+import type { Database } from "@/types/database";
+
+type FiscalYearRow = Database["public"]["Tables"]["fiscal_years"]["Row"];
+type FixedAssetRow = Database["public"]["Tables"]["fixed_assets"]["Row"];
+
+export async function getActiveFiscalYear(clientId: string): Promise<FiscalYearRow | null> {
+  const supabase = await createServerSupabaseClient();
+
+  // Get the most recent fiscal year (prefer open, then closed)
+  const { data, error } = await supabase
+    .from("fiscal_years")
+    .select("*")
+    .eq("client_id", clientId)
+    .in("status", ["open", "closed"])
+    .order("end_date", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  return data;
+}
+
+export interface ClosingEntry {
+  id: string;
+  date: string;
+  description: string;
+  debit: string;
+  credit: string;
+  amount: number;
+  type: string;
+  status: "confirmed" | "draft";
+}
+
+export async function getClosingEntries(
+  clientId: string,
+  endDate: string
+): Promise<ClosingEntry[]> {
+  const supabase = await createServerSupabaseClient();
+
+  // Get journal entries on the closing date with source='closing' or description containing 決算
+  const { data, error } = await supabase
+    .from("journal_entries")
+    .select(`
+      id,
+      entry_date,
+      description,
+      status,
+      source,
+      journal_entry_lines (
+        debit_amount,
+        credit_amount,
+        accounts:account_id ( name )
+      )
+    `)
+    .eq("client_id", clientId)
+    .eq("entry_date", endDate)
+    .order("created_at", { ascending: true });
+
+  if (error) throw new Error(error.message);
+
+  return (data ?? [])
+    .filter((e) => e.source === "closing" || (e.description ?? "").includes("決算"))
+    .map((entry) => {
+      const lines = entry.journal_entry_lines ?? [];
+      const debitLine = lines.find((l) => l.debit_amount > 0);
+      const creditLine = lines.find((l) => l.credit_amount > 0);
+      const amount = debitLine?.debit_amount ?? creditLine?.credit_amount ?? 0;
+
+      // Extract type from description
+      let type = "その他";
+      const desc = entry.description ?? "";
+      if (desc.includes("前払")) type = "前払費用";
+      else if (desc.includes("未払")) type = "未払費用";
+      else if (desc.includes("引当金")) type = "引当金";
+      else if (desc.includes("前受")) type = "前受収益";
+      else if (desc.includes("棚卸")) type = "棚卸";
+      else if (desc.includes("減価償却")) type = "減価償却";
+
+      const debitAccount = debitLine?.accounts as { name: string } | null;
+      const creditAccount = creditLine?.accounts as { name: string } | null;
+
+      return {
+        id: entry.id,
+        date: entry.entry_date.replace(/-/g, "/"),
+        description: desc,
+        debit: debitAccount?.name ?? "",
+        credit: creditAccount?.name ?? "",
+        amount,
+        type,
+        status: entry.status === "confirmed" ? "confirmed" as const : "draft" as const,
+      };
+    });
+}
+
+export interface DepreciationItem {
+  category: string;
+  amount: number;
+  count: number;
+}
+
+export interface DepreciationSummary {
+  totalAssets: number;
+  totalDepreciation: number;
+  items: DepreciationItem[];
+}
+
+export async function getDepreciationSummary(
+  clientId: string,
+  fiscalYearEndDate: string
+): Promise<DepreciationSummary> {
+  const supabase = await createServerSupabaseClient();
+
+  const { data, error } = await supabase
+    .from("fixed_assets")
+    .select("*")
+    .eq("client_id", clientId)
+    .is("disposed_at", null);
+
+  if (error) throw new Error(error.message);
+
+  const assets = data ?? [];
+  const endDate = new Date(fiscalYearEndDate);
+
+  // Group by category and calculate depreciation
+  const categoryMap = new Map<string, { amount: number; count: number }>();
+
+  for (const asset of assets) {
+    const depreciation = calculateAnnualDepreciation(asset, endDate);
+    const cat = asset.category || "その他";
+    const existing = categoryMap.get(cat) ?? { amount: 0, count: 0 };
+    existing.amount += depreciation;
+    existing.count += 1;
+    categoryMap.set(cat, existing);
+  }
+
+  const items: DepreciationItem[] = [];
+  let totalDepreciation = 0;
+
+  for (const [category, { amount, count }] of categoryMap) {
+    items.push({ category, amount, count });
+    totalDepreciation += amount;
+  }
+
+  return {
+    totalAssets: assets.length,
+    totalDepreciation,
+    items,
+  };
+}
+
+function calculateAnnualDepreciation(
+  asset: FixedAssetRow,
+  fiscalYearEnd: Date
+): number {
+  const acquisitionDate = new Date(asset.acquisition_date);
+  const yearsElapsed = (fiscalYearEnd.getTime() - acquisitionDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+
+  if (yearsElapsed < 0 || yearsElapsed > asset.useful_life) return 0;
+
+  if (asset.depreciation_method === "straight_line") {
+    return Math.floor(
+      (asset.acquisition_cost - asset.salvage_value) / asset.useful_life
+    );
+  }
+
+  // Declining balance: rate = 1 - (salvage / cost)^(1/life)
+  const rate =
+    asset.salvage_value > 0
+      ? 1 - Math.pow(asset.salvage_value / asset.acquisition_cost, 1 / asset.useful_life)
+      : 2 / asset.useful_life; // 200% declining balance if no salvage
+
+  const yearsCompleted = Math.floor(yearsElapsed);
+  let bookValue = asset.acquisition_cost;
+  for (let i = 0; i < yearsCompleted; i++) {
+    bookValue -= Math.floor(bookValue * rate);
+  }
+
+  return Math.floor(bookValue * rate);
+}
+
+export async function updateFiscalYearStatus(
+  fiscalYearId: string,
+  status: "open" | "closed" | "locked"
+) {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("fiscal_years")
+    .update({ status })
+    .eq("id", fiscalYearId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+  return data;
+}

@@ -1,0 +1,141 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(html[data-theme="dark"] *));
+
+@theme {
+  --color-cream: #f6f2c5;
+  --color-sage: #bec8be;
+  --color-green-600: #66911b;
+  --color-green-700: #527120;
+  --color-green-800: #4f6913;
+  --color-green-500: #6c992f;
+  --color-charcoal: #323736;
+  --color-slate-purple: #4e4d5c;
+
+  --color-primary: #527120;
+  --color-primary-light: #6c992f;
+  --color-primary-dark: #4f6913;
+  --color-primary-foreground: #ffffff;
+  --color-accent: #66911b;
+  --color-accent-foreground: #ffffff;
+
+  --color-background: #f6f2c5;
+  --color-foreground: #323736;
+  --color-card: #ffffff;
+  --color-card-foreground: #323736;
+  --color-muted: #bec8be;
+  --color-muted-foreground: #4e4d5c;
+  --color-border: #bec8be;
+  --color-input: #bec8be;
+  --color-ring: #527120;
+
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+  --color-warning: #d97706;
+  --color-success: #6c992f;
+
+  --color-sidebar-bg: #323736;
+  --color-sidebar-foreground: #f6f2c5;
+  --color-sidebar-muted: #4e4d5c;
+  --color-sidebar-accent: #6c992f;
+
+  --font-sans: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
+
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+}
+
+/* Dark mode overrides */
+html[data-theme="dark"] {
+  --color-cream: #e0e6ed;
+  --color-sage: #9a9ab0;
+  --color-charcoal: #e0e6ed;
+  --color-slate-purple: #9a9ab0;
+
+  --color-background: #1a1a2e;
+  --color-foreground: #e0e6ed;
+  --color-card: #252540;
+  --color-card-foreground: #e0e6ed;
+  --color-muted: #3a3a5c;
+  --color-muted-foreground: #9a9ab0;
+  --color-border: #3a3a5c;
+  --color-input: #3a3a5c;
+
+  --color-destructive: #ef4444;
+  --color-warning: #f59e0b;
+  --color-success: #84cc16;
+
+  --color-sidebar-bg: #12121f;
+  --color-sidebar-muted: #2a2a45;
+}
+
+@layer base {
+  *,
+  ::after,
+  ::before {
+    border-color: var(--color-border);
+  }
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family: var(--font-sans);
+  }
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-muted);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-slate-purple);
+}
+
+/* Print styles */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+    font-size: 11pt;
+  }
+  nav,
+  aside,
+  .no-print,
+  button,
+  [data-sidebar] {
+    display: none !important;
+  }
+  main {
+    margin: 0 !important;
+    padding: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  table {
+    page-break-inside: auto;
+    border-collapse: collapse;
+  }
+  tr {
+    page-break-inside: avoid;
+  }
+  th,
+  td {
+    border: 1px solid #ccc !important;
+    padding: 4px 8px !important;
+  }
+  .print-title {
+    display: block !important;
+    font-size: 16pt;
+    font-weight: bold;
+    margin-bottom: 12pt;
+  }
+}

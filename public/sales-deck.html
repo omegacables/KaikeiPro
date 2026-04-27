@@ -1,0 +1,1079 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Raqto会計（AIバージョン）- 営業資料</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@300;400;500;700;900&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  :root {
+    --primary: #527120;
+    --primary-light: #6c992f;
+    --primary-dark: #4f6913;
+    --bg-cream: #f6f2c5;
+    --sidebar: #323736;
+    --muted: #bec8be;
+    --slate-purple: #4e4d5c;
+    --accent: #66911b;
+    --white: #ffffff;
+    --gray-50: #f9fafb;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-600: #4b5563;
+    --gray-800: #1f2937;
+  }
+
+  body {
+    font-family: 'Noto Sans JP', sans-serif;
+    background: var(--sidebar);
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+  }
+
+  .slide-container {
+    width: 100vw;
+    height: 100vh;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .slide {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    padding: 60px 80px;
+    opacity: 0;
+    transform: translateX(60px);
+    transition: all 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    pointer-events: none;
+  }
+
+  .slide.active {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+  }
+
+  .slide.prev {
+    opacity: 0;
+    transform: translateX(-60px);
+  }
+
+  /* Navigation */
+  .nav-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: 56px;
+    background: rgba(50, 55, 54, 0.95);
+    backdrop-filter: blur(10px);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 32px;
+    z-index: 100;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+
+  .nav-btn {
+    background: none;
+    border: 1px solid rgba(255,255,255,0.2);
+    color: white;
+    padding: 8px 20px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    transition: all 0.2s;
+  }
+  .nav-btn:hover { background: rgba(255,255,255,0.1); border-color: rgba(255,255,255,0.4); }
+  .nav-btn:disabled { opacity: 0.3; cursor: default; }
+
+  .slide-counter {
+    color: rgba(255,255,255,0.5);
+    font-size: 13px;
+    font-weight: 400;
+    letter-spacing: 2px;
+  }
+
+  .progress-track {
+    position: fixed;
+    top: 0; left: 0; right: 0;
+    height: 3px;
+    background: rgba(255,255,255,0.1);
+    z-index: 100;
+  }
+  .progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--primary-light), var(--accent));
+    transition: width 0.5s ease;
+  }
+
+  /* ===== SLIDE STYLES ===== */
+
+  /* Slide 1: Title */
+  .slide-title {
+    background: linear-gradient(135deg, var(--sidebar) 0%, #1a1f1e 100%);
+    text-align: center;
+  }
+  .slide-title .logo-mark {
+    width: 80px; height: 80px;
+    background: var(--primary);
+    border-radius: 20px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 32px;
+    box-shadow: 0 8px 32px rgba(82, 113, 32, 0.4);
+  }
+  .slide-title .logo-mark svg { width: 44px; height: 44px; }
+  .slide-title h1 {
+    font-size: 52px;
+    font-weight: 900;
+    color: var(--white);
+    letter-spacing: -1px;
+    margin-bottom: 8px;
+  }
+  .slide-title h1 span { color: var(--primary-light); }
+  .slide-title .subtitle {
+    font-size: 22px;
+    color: rgba(255,255,255,0.6);
+    font-weight: 300;
+    margin-bottom: 48px;
+    letter-spacing: 4px;
+  }
+  .slide-title .tagline {
+    font-size: 17px;
+    color: rgba(255,255,255,0.4);
+    font-weight: 300;
+    border-top: 1px solid rgba(255,255,255,0.1);
+    padding-top: 32px;
+    max-width: 500px;
+  }
+
+  /* Slide generic: dark bg */
+  .slide-dark {
+    background: linear-gradient(160deg, #1a1f1e 0%, var(--sidebar) 100%);
+    color: var(--white);
+  }
+
+  /* Slide generic: light bg */
+  .slide-light {
+    background: linear-gradient(160deg, var(--gray-50) 0%, var(--white) 100%);
+    color: var(--gray-800);
+  }
+
+  /* Slide generic: green bg */
+  .slide-green {
+    background: linear-gradient(135deg, var(--primary-dark) 0%, var(--primary) 60%, var(--accent) 100%);
+    color: var(--white);
+  }
+
+  .slide-cream {
+    background: linear-gradient(160deg, #faf8e0 0%, var(--bg-cream) 100%);
+    color: var(--gray-800);
+  }
+
+  /* Section header */
+  .section-label {
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    opacity: 0.5;
+  }
+  .slide-dark .section-label,
+  .slide-green .section-label { color: var(--primary-light); opacity: 1; }
+  .slide-light .section-label,
+  .slide-cream .section-label { color: var(--primary); }
+
+  .slide-heading {
+    font-size: 40px;
+    font-weight: 900;
+    line-height: 1.3;
+    margin-bottom: 32px;
+    letter-spacing: -0.5px;
+  }
+  .slide-heading em { font-style: normal; color: var(--primary-light); }
+  .slide-green .slide-heading em { color: var(--bg-cream); }
+  .slide-cream .slide-heading em { color: var(--primary); }
+
+  .slide-body {
+    font-size: 18px;
+    line-height: 1.8;
+    max-width: 800px;
+    opacity: 0.8;
+  }
+
+  /* Layout helpers */
+  .content-left {
+    align-items: flex-start;
+    text-align: left;
+  }
+
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 48px;
+    width: 100%;
+    max-width: 1100px;
+  }
+
+  .three-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 32px;
+    width: 100%;
+    max-width: 1100px;
+  }
+
+  .four-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr 1fr;
+    gap: 24px;
+    width: 100%;
+    max-width: 1100px;
+  }
+
+  /* Cards */
+  .card {
+    background: rgba(255,255,255,0.06);
+    border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 16px;
+    padding: 32px;
+  }
+  .slide-light .card,
+  .slide-cream .card {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    box-shadow: 0 4px 16px rgba(0,0,0,0.06);
+  }
+  .slide-green .card {
+    background: rgba(255,255,255,0.12);
+    border: 1px solid rgba(255,255,255,0.15);
+  }
+
+  .card-icon {
+    width: 52px; height: 52px;
+    background: var(--primary);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 20px;
+    font-size: 24px;
+  }
+  .slide-light .card-icon,
+  .slide-cream .card-icon { background: rgba(82,113,32,0.1); }
+
+  .card h3 {
+    font-size: 20px;
+    font-weight: 700;
+    margin-bottom: 12px;
+  }
+
+  .card p {
+    font-size: 15px;
+    line-height: 1.7;
+    opacity: 0.7;
+  }
+
+  /* Stats */
+  .stat-number {
+    font-size: 56px;
+    font-weight: 900;
+    color: var(--primary-light);
+    line-height: 1;
+    margin-bottom: 8px;
+  }
+  .slide-green .stat-number { color: var(--bg-cream); }
+  .slide-light .stat-number,
+  .slide-cream .stat-number { color: var(--primary); }
+
+  .stat-label {
+    font-size: 15px;
+    opacity: 0.6;
+    font-weight: 400;
+  }
+
+  /* Flow diagram */
+  .flow {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    width: 100%;
+    max-width: 1000px;
+    justify-content: center;
+  }
+  .flow-step {
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 14px;
+    padding: 24px 20px;
+    text-align: center;
+    flex: 1;
+  }
+  .slide-light .flow-step,
+  .slide-cream .flow-step {
+    background: var(--white);
+    border: 1px solid var(--gray-200);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+  }
+  .flow-step .step-icon { font-size: 32px; margin-bottom: 10px; }
+  .flow-step .step-label { font-size: 14px; font-weight: 700; }
+  .flow-step .step-desc { font-size: 12px; opacity: 0.5; margin-top: 4px; }
+  .flow-arrow { color: var(--primary-light); font-size: 22px; flex-shrink: 0; }
+  .slide-light .flow-arrow,
+  .slide-cream .flow-arrow { color: var(--primary); }
+
+  /* Pain points */
+  .pain-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    margin-bottom: 28px;
+  }
+  .pain-icon {
+    width: 40px; height: 40px; min-width: 40px;
+    border-radius: 10px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+  }
+  .pain-icon.red { background: rgba(239, 68, 68, 0.15); }
+  .pain-icon.yellow { background: rgba(245, 158, 11, 0.15); }
+  .pain-item h4 { font-size: 17px; font-weight: 700; margin-bottom: 4px; }
+  .pain-item p { font-size: 14px; opacity: 0.6; line-height: 1.6; }
+
+  /* Check list */
+  .check-list { list-style: none; }
+  .check-list li {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 0;
+    font-size: 17px;
+    border-bottom: 1px solid rgba(255,255,255,0.06);
+  }
+  .slide-light .check-list li,
+  .slide-cream .check-list li { border-color: var(--gray-200); }
+  .check-list li::before {
+    content: "✓";
+    width: 28px; height: 28px; min-width: 28px;
+    background: var(--primary);
+    color: white;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; font-weight: 700;
+  }
+
+  /* Highlight box */
+  .highlight-box {
+    background: rgba(102, 145, 27, 0.12);
+    border-left: 4px solid var(--accent);
+    border-radius: 0 12px 12px 0;
+    padding: 24px 32px;
+    margin-top: 24px;
+    width: 100%;
+    max-width: 800px;
+  }
+  .highlight-box p { font-size: 16px; line-height: 1.7; opacity: 0.9; }
+
+  /* Portal mockup */
+  .phone-frame {
+    width: 260px;
+    height: 520px;
+    background: var(--sidebar);
+    border-radius: 36px;
+    border: 3px solid #555;
+    padding: 16px 12px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  }
+  .phone-header {
+    background: var(--sidebar);
+    padding: 8px 12px 12px;
+    text-align: center;
+  }
+  .phone-header span { color: white; font-size: 14px; font-weight: 700; }
+  .phone-body {
+    flex: 1;
+    background: var(--gray-50);
+    border-radius: 8px 8px 0 0;
+    padding: 16px;
+    overflow: hidden;
+  }
+  .phone-nav {
+    background: white;
+    display: flex;
+    justify-content: space-around;
+    padding: 8px 0 12px;
+    border-radius: 0 0 8px 8px;
+  }
+  .phone-nav-item { text-align: center; font-size: 9px; color: var(--gray-600); }
+  .phone-nav-item.active { color: var(--primary); font-weight: 700; }
+  .phone-nav-item .nav-icon { font-size: 18px; margin-bottom: 2px; }
+
+  .mock-receipt {
+    background: white;
+    border-radius: 8px;
+    padding: 12px;
+    margin-bottom: 8px;
+    border: 1px solid var(--gray-200);
+  }
+  .mock-receipt .mr-top { display: flex; justify-content: space-between; font-size: 11px; font-weight: 600; }
+  .mock-receipt .mr-bottom { display: flex; justify-content: space-between; font-size: 10px; color: var(--gray-600); margin-top: 4px; }
+  .mock-badge {
+    font-size: 9px;
+    padding: 2px 8px;
+    border-radius: 99px;
+    font-weight: 600;
+  }
+  .mock-badge.green { background: rgba(82,113,32,0.12); color: var(--primary); }
+  .mock-badge.yellow { background: rgba(245,158,11,0.12); color: #b45309; }
+  .mock-badge.blue { background: rgba(59,130,246,0.12); color: #1d4ed8; }
+
+  /* Full-width center */
+  .center-content {
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+  }
+
+  /* Comparison table */
+  .compare-table {
+    width: 100%;
+    max-width: 900px;
+    border-collapse: separate;
+    border-spacing: 0;
+    border-radius: 12px;
+    overflow: hidden;
+    margin-top: 8px;
+  }
+  .compare-table th {
+    padding: 16px 24px;
+    text-align: left;
+    font-size: 14px;
+    font-weight: 700;
+  }
+  .compare-table td {
+    padding: 14px 24px;
+    font-size: 14px;
+  }
+  .slide-dark .compare-table th { background: rgba(255,255,255,0.08); }
+  .slide-dark .compare-table td { border-bottom: 1px solid rgba(255,255,255,0.06); }
+  .slide-cream .compare-table th { background: var(--primary); color: white; }
+  .slide-cream .compare-table td { border-bottom: 1px solid var(--gray-200); background: white; }
+  .compare-table .col-feature { width: 35%; }
+  .compare-table .col-old { width: 30%; opacity: 0.5; }
+  .compare-table .col-raqto { width: 35%; color: var(--primary-light); font-weight: 600; }
+  .slide-cream .compare-table .col-raqto { color: var(--primary); }
+
+  /* CTA slide */
+  .cta-box {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    border-radius: 20px;
+    padding: 48px 64px;
+    text-align: center;
+    max-width: 600px;
+  }
+  .cta-box h2 { font-size: 28px; font-weight: 900; margin-bottom: 16px; }
+  .cta-box p { font-size: 16px; opacity: 0.7; margin-bottom: 32px; line-height: 1.7; }
+  .cta-btn {
+    display: inline-block;
+    background: var(--primary-light);
+    color: white;
+    padding: 16px 48px;
+    border-radius: 12px;
+    font-size: 18px;
+    font-weight: 700;
+    text-decoration: none;
+    transition: all 0.2s;
+    border: none;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .cta-btn:hover { background: var(--accent); transform: translateY(-2px); box-shadow: 0 8px 24px rgba(102,145,27,0.4); }
+
+  /* Keyboard hint */
+  .key-hint {
+    position: fixed;
+    bottom: 68px;
+    right: 32px;
+    color: rgba(255,255,255,0.25);
+    font-size: 11px;
+    z-index: 100;
+  }
+
+  /* Responsive */
+  @media (max-width: 900px) {
+    .slide { padding: 40px 32px; }
+    .slide-heading { font-size: 28px; }
+    .two-col, .three-col { grid-template-columns: 1fr; gap: 24px; }
+    .four-col { grid-template-columns: 1fr 1fr; }
+    .flow { flex-wrap: wrap; }
+    .stat-number { font-size: 40px; }
+    .phone-frame { display: none; }
+  }
+
+  @media print {
+    .slide { position: relative; page-break-after: always; opacity: 1; transform: none; pointer-events: auto; height: 100vh; }
+    .nav-bar, .progress-track, .key-hint { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<div class="progress-track"><div class="progress-fill" id="progress"></div></div>
+
+<div class="slide-container" id="slides">
+
+  <!-- SLIDE 1: Title -->
+  <div class="slide slide-title active" data-index="0">
+    <div class="logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+    </div>
+    <h1>Raqto会計<span>（AIバージョン）</span></h1>
+    <p class="subtitle">AI × 税理士事務所</p>
+    <p class="tagline">レシート撮影から仕訳完了まで、AIが自動化。<br>税理士事務所の業務効率を根本から変える次世代クラウド会計。</p>
+  </div>
+
+  <!-- SLIDE 2: Problem -->
+  <div class="slide slide-dark content-left" data-index="1">
+    <div style="max-width:900px; width:100%;">
+      <p class="section-label">課題</p>
+      <h2 class="slide-heading">税理士事務所が抱える<em>3つの課題</em></h2>
+      <div style="margin-top:16px;">
+        <div class="pain-item">
+          <div class="pain-icon red">⏱</div>
+          <div>
+            <h4>手入力の膨大な工数</h4>
+            <p>領収書・請求書を1枚ずつ確認し、勘定科目を判断して手入力。<br>顧問先が増えるほど、スタッフの残業時間が増えていく。</p>
+          </div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon red">📋</div>
+          <div>
+            <h4>顧問先とのやりとりが煩雑</h4>
+            <p>「領収書まだですか？」「この取引は何ですか？」──<br>メール・電話・FAXが入り乱れ、確認漏れが発生。</p>
+          </div>
+        </div>
+        <div class="pain-item">
+          <div class="pain-icon yellow">⚠</div>
+          <div>
+            <h4>インボイス制度への対応負荷</h4>
+            <p>適格請求書の登録番号確認、経過措置の税率管理──<br>制度対応だけで膨大な確認作業が発生している。</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 3: Solution Overview -->
+  <div class="slide slide-green center-content" data-index="2">
+    <p class="section-label">ソリューション</p>
+    <h2 class="slide-heading">Raqto会計なら、<em>すべて解決</em></h2>
+    <p class="slide-body" style="margin-bottom:48px;">
+      AIが領収書を自動で読み取り、仕訳まで提案。<br>
+      顧問先はスマホで撮影するだけ。税理士はワンクリックで承認。
+    </p>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-icon">📸</div>
+        <div class="step-label">スマホ撮影</div>
+        <div class="step-desc">顧問先が領収書を撮影</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-icon">🤖</div>
+        <div class="step-label">AI-OCR</div>
+        <div class="step-desc">日付・金額・取引先を自動抽出</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-icon">📝</div>
+        <div class="step-label">AI仕訳提案</div>
+        <div class="step-desc">勘定科目を自動判定</div>
+      </div>
+      <div class="flow-arrow">→</div>
+      <div class="flow-step">
+        <div class="step-icon">✅</div>
+        <div class="step-label">ワンクリック承認</div>
+        <div class="step-desc">税理士が確認・承認</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 4: AI Features -->
+  <div class="slide slide-dark content-left" data-index="3">
+    <div style="width:100%; max-width:1100px;">
+      <p class="section-label">AI機能</p>
+      <h2 class="slide-heading">AIが<em>経理業務</em>を根本から変える</h2>
+      <div class="three-col" style="margin-top:16px;">
+        <div class="card">
+          <div class="card-icon">🔍</div>
+          <h3>AI-OCR読み取り</h3>
+          <p>レシート・領収書・請求書を画像またはPDFでアップロード。AIが日付、金額、取引先名、税率、明細を自動で抽出。<strong>信頼度スコア</strong>も表示。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🧠</div>
+          <h3>AI仕訳自動生成</h3>
+          <p>OCR結果と顧問先の<strong>勘定科目体系</strong>をAIに渡し、最適な勘定科目を自動判定。税理士はワンクリックで仕訳を承認。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🏦</div>
+          <h3>銀行明細AI照合</h3>
+          <p>銀行取引ごとにAIが勘定科目を推定し、<strong>信頼度パーセンテージ</strong>を表示。ワンクリックで承認、またはオーバーライド可能。</p>
+        </div>
+      </div>
+      <div class="highlight-box">
+        <p>💡 <strong>外貨取引にも自動対応</strong> ── 外貨レシートを自動検知し、リアルタイム為替レートを取得。円換算額と為替レートを摘要に自動記載。外貨取引は消費税非課税として自動処理。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 5: Client Portal -->
+  <div class="slide slide-cream content-left" data-index="4">
+    <div style="width:100%; max-width:1100px;">
+      <div class="two-col" style="align-items:center;">
+        <div>
+          <p class="section-label">顧問先ポータル</p>
+          <h2 class="slide-heading">顧問先は<em>スマホだけ</em>でOK</h2>
+          <p class="slide-body" style="margin-bottom:32px;">
+            アプリのインストール不要。ブラウザで事務所専用URLにアクセスするだけで、すべての機能が使えます。
+          </p>
+          <ul class="check-list">
+            <li>スマホカメラで領収書をその場で撮影</li>
+            <li>アップロード履歴とステータスを即確認</li>
+            <li>税理士への質問をチャット形式で送信</li>
+            <li>請求書の閲覧とPDFダウンロード</li>
+            <li>ドラッグ＆ドロップでPC対応も万全</li>
+          </ul>
+        </div>
+        <div style="display:flex; justify-content:center;">
+          <div class="phone-frame">
+            <div class="phone-header">
+              <span>Raqto会計</span>
+            </div>
+            <div class="phone-body">
+              <div style="font-size:13px; font-weight:700; margin-bottom:12px; color:var(--gray-800);">📋 アップロード履歴</div>
+              <div class="mock-receipt">
+                <div class="mr-top"><span>スターバックス</span><span class="mock-badge green">仕訳済</span></div>
+                <div class="mr-bottom"><span>2026/02/25</span><span>¥680</span></div>
+              </div>
+              <div class="mock-receipt">
+                <div class="mr-top"><span>Amazon.co.jp</span><span class="mock-badge blue">OCR完了</span></div>
+                <div class="mr-bottom"><span>2026/02/24</span><span>¥12,980</span></div>
+              </div>
+              <div class="mock-receipt">
+                <div class="mr-top"><span>JR東日本</span><span class="mock-badge yellow">処理中</span></div>
+                <div class="mr-bottom"><span>2026/02/23</span><span>¥3,200</span></div>
+              </div>
+              <div class="mock-receipt">
+                <div class="mr-top"><span>ヤマダ電機</span><span class="mock-badge green">仕訳済</span></div>
+                <div class="mr-bottom"><span>2026/02/22</span><span>¥54,780</span></div>
+              </div>
+            </div>
+            <div class="phone-nav">
+              <div class="phone-nav-item"><div class="nav-icon">📷</div>撮影</div>
+              <div class="phone-nav-item active"><div class="nav-icon">📋</div>履歴</div>
+              <div class="phone-nav-item"><div class="nav-icon">💬</div>質問</div>
+              <div class="phone-nav-item"><div class="nav-icon">📄</div>請求書</div>
+              <div class="phone-nav-item"><div class="nav-icon">⚙</div>設定</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 6: Bank Integration -->
+  <div class="slide slide-dark content-left" data-index="5">
+    <div style="width:100%; max-width:1100px;">
+      <p class="section-label">銀行連携</p>
+      <h2 class="slide-heading"><em>2,500+</em>の金融機関と自動連携</h2>
+      <div class="two-col" style="margin-top:16px;">
+        <div>
+          <p class="slide-body" style="margin-bottom:32px;">
+            Moneytree LINK・マネーフォワード・Zaimの3つの口座アグリゲーションサービスに対応。銀行明細を自動取得し、AI照合で仕訳を効率化。
+          </p>
+          <div class="card" style="margin-bottom:16px;">
+            <h3 style="margin-bottom:16px;">対応アグリゲーション</h3>
+            <div style="display:flex; flex-direction:column; gap:12px;">
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:36px;height:36px;background:var(--primary);border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;">M</div>
+                <div><div style="font-weight:700;font-size:14px;">Moneytree LINK</div><div style="font-size:12px;opacity:0.5;">2,500+金融機関対応</div></div>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:36px;height:36px;background:#4e4d5c;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;">MF</div>
+                <div><div style="font-weight:700;font-size:14px;">マネーフォワード クラウド</div><div style="font-size:12px;opacity:0.5;">主要銀行対応</div></div>
+              </div>
+              <div style="display:flex; align-items:center; gap:12px;">
+                <div style="width:36px;height:36px;background:#66911b;border-radius:8px;display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:14px;">Z</div>
+                <div><div style="font-weight:700;font-size:14px;">Zaim</div><div style="font-size:12px;opacity:0.5;">家計簿連携</div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:16px;">
+            <h3>主な機能</h3>
+            <ul class="check-list">
+              <li>銀行明細の自動取得</li>
+              <li>AIによる勘定科目推定</li>
+              <li>CSV一括インポート</li>
+              <li>口座別フィルター表示</li>
+              <li>同期間隔の柔軟設定</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 7: Full Accounting Suite -->
+  <div class="slide slide-light content-left" data-index="6">
+    <div style="width:100%; max-width:1100px;">
+      <p class="section-label">会計機能</p>
+      <h2 class="slide-heading">本格的な<em>会計機能</em>をフル装備</h2>
+      <div class="four-col" style="margin-top:16px;">
+        <div class="card">
+          <div class="card-icon">📊</div>
+          <h3>財務諸表</h3>
+          <p>残高試算表・貸借対照表・損益計算書・月次推移表を自動生成。PDF出力対応。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📒</div>
+          <h3>帳簿 6種</h3>
+          <p>仕訳帳・総勘定元帳・現金出納帳・預金出納帳・売掛帳・買掛帳。CSV出力対応。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🏢</div>
+          <h3>固定資産管理</h3>
+          <p>定額法・定率法の減価償却を自動計算。年度別償却スケジュールを一覧表示。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">🔒</div>
+          <h3>決算処理</h3>
+          <p>4ステップのビジュアルワークフロー。年度ロック機能で誤操作を防止。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">💰</div>
+          <h3>消費税計算</h3>
+          <p>本則課税・簡易課税の両方に対応。インボイス経過措置の税率テーブルを内蔵。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">💳</div>
+          <h3>入金消込</h3>
+          <p>取引先ID×金額で自動マッチング提案。手動配分にも対応。消込履歴を完全記録。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📄</div>
+          <h3>請求書管理</h3>
+          <p>Raqto受発注から自動取込。支払期限超過アラートで入金漏れを防止。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">👥</div>
+          <h3>取引先管理</h3>
+          <p>インボイス登録番号(T+13桁)を管理。適格請求書発行事業者かを一目で確認。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 8: Invoice Compliance -->
+  <div class="slide slide-green center-content" data-index="7">
+    <p class="section-label">インボイス制度対応</p>
+    <h2 class="slide-heading"><em>インボイス制度</em>にフル対応</h2>
+    <p class="slide-body" style="margin-bottom:40px; max-width:700px;">
+      適格請求書の登録番号管理から経過措置の税率計算まで、<br>制度対応に必要なすべてを標準搭載しています。
+    </p>
+    <div class="three-col" style="max-width:900px;">
+      <div class="card" style="text-align:center;">
+        <div class="stat-number">T+13</div>
+        <div class="stat-label" style="margin-bottom:12px;">桁の登録番号管理</div>
+        <p>取引先ごとにインボイス登録番号を記録。適格発行事業者かを即時確認。</p>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="stat-number">80→50→0</div>
+        <div class="stat-label" style="margin-bottom:12px;">%経過措置テーブル</div>
+        <p>2023〜2029年の経過措置期間の仕入税額控除率を自動計算。</p>
+      </div>
+      <div class="card" style="text-align:center;">
+        <div class="stat-number">自動</div>
+        <div class="stat-label" style="margin-bottom:12px;">税区分判定</div>
+        <p>登録番号の有無からAIが税区分を自動判定。課税/非課税/免税/不課税を分類。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 9: Dashboard & Workflow -->
+  <div class="slide slide-dark content-left" data-index="8">
+    <div style="width:100%; max-width:1100px;">
+      <p class="section-label">ダッシュボード</p>
+      <h2 class="slide-heading"><em>3つの画面</em>で全員の業務を最適化</h2>
+      <div class="three-col" style="margin-top:16px;">
+        <div class="card">
+          <div class="card-icon">👑</div>
+          <h3>管理者ダッシュボード</h3>
+          <p>全事務所の顧問先数を俯瞰。新規事務所の追加もワンクリック。</p>
+        </div>
+        <div class="card" style="border-color: var(--primary-light);">
+          <div class="card-icon">📈</div>
+          <h3>スタッフダッシュボード</h3>
+          <p>顧問先ごとの進捗バーで「順調」「確認待ち」「要対応」を一目で把握。カスタマイズ可能なウィジェット。</p>
+        </div>
+        <div class="card">
+          <div class="card-icon">📱</div>
+          <h3>顧問先ダッシュボード</h3>
+          <p>未確認領収書・AI仕訳確認待ち・未回答質問をカード表示。次にやることが一目瞭然。</p>
+        </div>
+      </div>
+      <div class="highlight-box" style="margin-top:32px;">
+        <p>🧩 <strong>ウィジェットで自分好みに</strong> ── 税務カレンダー / 口座残高サマリー / 請求書ステータス / AI仕訳レビューの4種類から選んで配置。</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 10: Raqto Integration -->
+  <div class="slide slide-cream center-content" data-index="9">
+    <p class="section-label">Raqto連携</p>
+    <h2 class="slide-heading"><em>Raqto受発注</em>との完全連携</h2>
+    <p class="slide-body" style="margin-bottom:48px; max-width:700px;">
+      Raqto受発注システムとワンクリックで連携。<br>
+      受注データ・取引先情報・請求書を自動取込し、二重入力を完全に排除。
+    </p>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="step-icon">📦</div>
+        <div class="step-label">Raqto受発注</div>
+        <div class="step-desc">受注・発注管理</div>
+      </div>
+      <div class="flow-arrow">⇄</div>
+      <div class="flow-step" style="border-color:var(--primary);">
+        <div class="step-icon">🔗</div>
+        <div class="step-label">自動同期</div>
+        <div class="step-desc">メールで紐付け</div>
+      </div>
+      <div class="flow-arrow">⇄</div>
+      <div class="flow-step">
+        <div class="step-icon">📒</div>
+        <div class="step-label">Raqto会計</div>
+        <div class="step-desc">仕訳・会計処理</div>
+      </div>
+    </div>
+    <div style="margin-top:40px; display:flex; gap:48px;">
+      <div style="text-align:center;">
+        <div class="stat-number">取引先</div>
+        <div class="stat-label">自動インポート</div>
+      </div>
+      <div style="text-align:center;">
+        <div class="stat-number">請求書</div>
+        <div class="stat-label">自動取込</div>
+      </div>
+      <div style="text-align:center;">
+        <div class="stat-number">登録番号</div>
+        <div class="stat-label">自動連携</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 11: Comparison -->
+  <div class="slide slide-cream content-left" data-index="10">
+    <div style="width:100%; max-width:1100px;">
+      <p class="section-label">比較</p>
+      <h2 class="slide-heading">従来のやり方 vs <em>Raqto会計</em></h2>
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th class="col-feature">業務</th>
+            <th class="col-old">従来の方法</th>
+            <th class="col-raqto">Raqto会計（AI）</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="col-feature">領収書の入力</td>
+            <td class="col-old">手入力（1枚あたり2〜3分）</td>
+            <td class="col-raqto">📸 撮影 → AIが自動入力（数秒）</td>
+          </tr>
+          <tr>
+            <td class="col-feature">仕訳の作成</td>
+            <td class="col-old">勘定科目を手動判断</td>
+            <td class="col-raqto">🧠 AIが科目を自動提案 → ワンクリック承認</td>
+          </tr>
+          <tr>
+            <td class="col-feature">銀行明細の処理</td>
+            <td class="col-old">CSVダウンロード → 手動照合</td>
+            <td class="col-raqto">🏦 自動取得 → AI照合 → ワンクリック</td>
+          </tr>
+          <tr>
+            <td class="col-feature">顧問先への確認</td>
+            <td class="col-old">メール・電話・FAXで都度連絡</td>
+            <td class="col-raqto">💬 ポータル内チャットで一元管理</td>
+          </tr>
+          <tr>
+            <td class="col-feature">領収書の受け渡し</td>
+            <td class="col-old">月1回まとめて郵送 or 持参</td>
+            <td class="col-raqto">📱 発生都度スマホで撮影・即送信</td>
+          </tr>
+          <tr>
+            <td class="col-feature">インボイス確認</td>
+            <td class="col-old">手動で登録番号を確認・記録</td>
+            <td class="col-raqto">✅ 登録番号から自動判定・経過措置も対応</td>
+          </tr>
+          <tr>
+            <td class="col-feature">受発注データ連携</td>
+            <td class="col-old">別システムから手動で転記</td>
+            <td class="col-raqto">🔗 Raqto受発注から自動取込</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- SLIDE 12: Numbers -->
+  <div class="slide slide-dark center-content" data-index="11">
+    <p class="section-label">導入効果</p>
+    <h2 class="slide-heading">Raqto会計が実現する<em>業務効率化</em></h2>
+    <div class="three-col" style="margin-top:40px; max-width:900px;">
+      <div class="card" style="text-align:center; padding:40px 32px;">
+        <div class="stat-number">90%</div>
+        <div class="stat-label" style="font-size:17px; margin-top:8px;">手入力作業の削減</div>
+        <p style="margin-top:16px;">AI-OCR＋AI仕訳で、<br>手入力はほぼゼロに</p>
+      </div>
+      <div class="card" style="text-align:center; padding:40px 32px;">
+        <div class="stat-number">24h</div>
+        <div class="stat-label" style="font-size:17px; margin-top:8px;">リアルタイム連携</div>
+        <p style="margin-top:16px;">月1回の郵送待ちから、<br>発生都度のリアルタイム処理へ</p>
+      </div>
+      <div class="card" style="text-align:center; padding:40px 32px;">
+        <div class="stat-number">0円</div>
+        <div class="stat-label" style="font-size:17px; margin-top:8px;">顧問先の追加コスト</div>
+        <p style="margin-top:16px;">アプリ不要。ブラウザで<br>すぐ使えるポータル</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 13: Security & Architecture -->
+  <div class="slide slide-light content-left" data-index="12">
+    <div style="width:100%; max-width:1100px;">
+      <p class="section-label">安心の基盤</p>
+      <h2 class="slide-heading">セキュリティと<em>マルチテナント</em>設計</h2>
+      <div class="two-col" style="margin-top:16px;">
+        <div>
+          <div class="card" style="margin-bottom:20px;">
+            <h3 style="margin-bottom:16px;">セキュリティ</h3>
+            <ul class="check-list">
+              <li>Supabaseによるメール＋パスワード認証</li>
+              <li>ロールベースアクセス制御（3段階）</li>
+              <li>APIキーのマスキング表示</li>
+              <li>年度ロックによるデータ保護</li>
+            </ul>
+          </div>
+        </div>
+        <div>
+          <div class="card" style="margin-bottom:20px;">
+            <h3 style="margin-bottom:16px;">アーキテクチャ</h3>
+            <ul class="check-list">
+              <li>Next.js 16 + React 19（最新技術）</li>
+              <li>マルチテナント：1つの基盤で複数事務所</li>
+              <li>事務所専用URL（/portal/[firm]/）</li>
+              <li>Server Actions でエンドツーエンド型安全</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SLIDE 14: CTA -->
+  <div class="slide slide-title" data-index="13" style="background: linear-gradient(135deg, var(--primary-dark) 0%, var(--sidebar) 100%);">
+    <div class="logo-mark" style="margin-bottom:40px;">
+      <svg viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/>
+        <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/>
+      </svg>
+    </div>
+    <div class="cta-box">
+      <h2>AI会計の新時代を、<br>一緒に始めませんか？</h2>
+      <p>まずは無料デモで、Raqto会計の<br>すべての機能をお試しください。</p>
+      <button class="cta-btn" onclick="alert('デモのお申し込みありがとうございます！\n担当者より折り返しご連絡いたします。')">無料デモを申し込む</button>
+    </div>
+    <p style="margin-top:40px; color:rgba(255,255,255,0.35); font-size:14px;">
+      Raqto会計（AIバージョン）── レシート撮影から仕訳完了まで、AIにおまかせ。
+    </p>
+  </div>
+
+</div>
+
+<!-- Navigation -->
+<div class="nav-bar">
+  <button class="nav-btn" id="prevBtn" onclick="navigate(-1)">← 前へ</button>
+  <span class="slide-counter" id="counter">1 / 14</span>
+  <button class="nav-btn" id="nextBtn" onclick="navigate(1)">次へ →</button>
+</div>
+
+<div class="key-hint">← → キーで移動</div>
+
+<script>
+  let current = 0;
+  const slides = document.querySelectorAll('.slide');
+  const total = slides.length;
+  const progress = document.getElementById('progress');
+  const counter = document.getElementById('counter');
+  const prevBtn = document.getElementById('prevBtn');
+  const nextBtn = document.getElementById('nextBtn');
+
+  function showSlide(index) {
+    slides.forEach((s, i) => {
+      s.classList.remove('active', 'prev');
+      if (i === index) s.classList.add('active');
+      else if (i < index) s.classList.add('prev');
+    });
+    progress.style.width = ((index + 1) / total * 100) + '%';
+    counter.textContent = (index + 1) + ' / ' + total;
+    prevBtn.disabled = index === 0;
+    nextBtn.disabled = index === total - 1;
+  }
+
+  function navigate(dir) {
+    const next = current + dir;
+    if (next >= 0 && next < total) {
+      current = next;
+      showSlide(current);
+    }
+  }
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); navigate(1); }
+    if (e.key === 'ArrowLeft') { e.preventDefault(); navigate(-1); }
+    if (e.key === 'Home') { e.preventDefault(); current = 0; showSlide(0); }
+    if (e.key === 'End') { e.preventDefault(); current = total - 1; showSlide(current); }
+  });
+
+  // Touch swipe support
+  let touchStartX = 0;
+  document.addEventListener('touchstart', (e) => { touchStartX = e.touches[0].clientX; });
+  document.addEventListener('touchend', (e) => {
+    const diff = touchStartX - e.changedTouches[0].clientX;
+    if (Math.abs(diff) > 50) navigate(diff > 0 ? 1 : -1);
+  });
+
+  showSlide(0);
+</script>
+</body>
+</html>
