@@ -80,7 +80,7 @@ export async function processReceiptOcr(
 
     // 5. Gemini 3 Flash API呼び出し（画像・PDF両対応）
     const genAI = getGeminiClient();
-    const model = genAI.getGenerativeModel({ model: "gemini-3-flash-preview" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
     const isPdf = mimeType === "application/pdf";
 
