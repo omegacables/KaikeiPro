@@ -454,7 +454,7 @@ export interface Database {
           entry_date: string;
           description: string | null;
           status: "draft" | "confirmed" | "locked";
-          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing";
+          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card";
           receipt_id: string | null;
           raqto_source_id: string | null;
           metadata: Json | null;
@@ -471,7 +471,7 @@ export interface Database {
           entry_date: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
           metadata?: Json | null;
@@ -488,7 +488,7 @@ export interface Database {
           entry_date?: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
           metadata?: Json | null;
