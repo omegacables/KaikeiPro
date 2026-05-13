@@ -53,39 +53,54 @@ export default function JournalsPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
 
-  // ---- Receipt upload state ----
-  const [receiptFile, setReceiptFile] = useState<File | null>(null);
-  const [receiptPreviewUrl, setReceiptPreviewUrl] = useState<string | null>(null);
+  // ---- Receipt upload state (multi-file) ----
+  type ReceiptItem = {
+    id: string;
+    file: File;
+    previewUrl: string | null;
+    status: "pending" | "uploading" | "done" | "error";
+    error?: string;
+  };
+  const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [receiptDragOver, setReceiptDragOver] = useState(false);
-  const [receiptSuccess, setReceiptSuccess] = useState(false);
-  const [receiptSuccessWithMemo, setReceiptSuccessWithMemo] = useState(false);
-  const [receiptError, setReceiptError] = useState<string | null>(null);
+  const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number; withMemo: boolean } | null>(null);
   const [receiptMemo, setReceiptMemo] = useState("");
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
+  const addReceiptFiles = (files: FileList | File[]) => {
+    const arr = Array.from(files);
+    if (arr.length === 0) return;
+    setReceiptSummary(null);
+    setReceiptItems((prev) => [
+      ...prev,
+      ...arr.map((file) => ({
+        id: crypto.randomUUID(),
+        file,
+        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+        status: "pending" as const,
+      })),
+    ]);
+  };
+
   const handleReceiptFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) processReceiptFile(file);
+    if (e.target.files) addReceiptFiles(e.target.files);
   };
 
-  const processReceiptFile = (file: File) => {
-    setReceiptError(null);
-    setReceiptSuccess(false);
-    setReceiptFile(file);
-    if (file.type.startsWith("image/")) {
-      setReceiptPreviewUrl(URL.createObjectURL(file));
-    } else {
-      setReceiptPreviewUrl(null);
-    }
+  const handleRemoveReceiptItem = (itemId: string) => {
+    setReceiptItems((prev) => {
+      const target = prev.find((p) => p.id === itemId);
+      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
+      return prev.filter((p) => p.id !== itemId);
+    });
   };
 
-  const handleClearReceiptFile = () => {
-    setReceiptFile(null);
-    if (receiptPreviewUrl) {
-      URL.revokeObjectURL(receiptPreviewUrl);
-      setReceiptPreviewUrl(null);
-    }
+  const handleClearAllReceipts = () => {
+    receiptItems.forEach((it) => {
+      if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
+    });
+    setReceiptItems([]);
+    setReceiptSummary(null);
     if (receiptInputRef.current) receiptInputRef.current.value = "";
   };
 
@@ -105,8 +120,7 @@ export default function JournalsPage() {
     e.preventDefault();
     e.stopPropagation();
     setReceiptDragOver(false);
-    const file = e.dataTransfer.files?.[0];
-    if (file) processReceiptFile(file);
+    if (e.dataTransfer.files) addReceiptFiles(e.dataTransfer.files);
   }, []);
 
   // ---- CSV/Excel import state ----
@@ -228,37 +242,52 @@ export default function JournalsPage() {
   };
 
   const handleReceiptUpload = async () => {
-    if (!receiptFile || !user?.id) return;
+    if (receiptItems.length === 0 || !user?.id) return;
     setReceiptUploading(true);
-    setReceiptError(null);
+    setReceiptSummary(null);
     const hasMemo = receiptMemo.trim().length > 0;
     const memo = hasMemo ? receiptMemo.trim() : undefined;
-    const fileType = receiptFile.type;
-    try {
-      // ファイルアップロード（これだけ await）
-      const formData = new FormData();
-      formData.append("file", receiptFile);
-      formData.append("client_id", id);
-      formData.append("uploaded_by", user.id);
-      const result = await uploadReceipt(formData);
 
-      // OCR → AI仕訳はバックグラウンドで実行（await しない）
-      if (fileType.startsWith("image/") || fileType === "application/pdf") {
-        processReceiptOcr(result.id, memo).catch((err) =>
-          console.error("OCR/仕訳エラー:", err instanceof Error ? err.message : err)
+    let doneCount = 0;
+    let failedCount = 0;
+
+    // 順次処理（並列実行はVercel Functionタイムアウト/レート制限の原因になるため避ける）
+    for (const item of receiptItems) {
+      // status=uploading
+      setReceiptItems((prev) =>
+        prev.map((p) => (p.id === item.id ? { ...p, status: "uploading", error: undefined } : p))
+      );
+
+      try {
+        const formData = new FormData();
+        formData.append("file", item.file);
+        formData.append("client_id", id);
+        formData.append("uploaded_by", user.id);
+        const result = await uploadReceipt(formData);
+
+        // OCR/仕訳はバックグラウンド（await しない）
+        if (item.file.type.startsWith("image/") || item.file.type === "application/pdf") {
+          processReceiptOcr(result.id, memo).catch((err) =>
+            console.error("OCR/仕訳エラー:", err instanceof Error ? err.message : err)
+          );
+        }
+
+        setReceiptItems((prev) =>
+          prev.map((p) => (p.id === item.id ? { ...p, status: "done" } : p))
         );
+        doneCount++;
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : "アップロードに失敗しました";
+        setReceiptItems((prev) =>
+          prev.map((p) => (p.id === item.id ? { ...p, status: "error", error: msg } : p))
+        );
+        failedCount++;
       }
-
-      setReceiptSuccessWithMemo(hasMemo);
-      setReceiptSuccess(true);
-      handleClearReceiptFile();
-      setReceiptMemo("");
-      setTimeout(() => { setReceiptSuccess(false); setReceiptSuccessWithMemo(false); }, 6000);
-    } catch (err) {
-      setReceiptError(err instanceof Error ? err.message : "アップロードに失敗しました");
-    } finally {
-      setReceiptUploading(false);
     }
+
+    setReceiptSummary({ done: doneCount, failed: failedCount, withMemo: hasMemo });
+    setReceiptUploading(false);
+    setReceiptMemo("");
   };
 
   // Load accounts from DB
@@ -497,86 +526,124 @@ export default function JournalsPage() {
         </div>
       </div>
 
-      {/* 領収書アップロード */}
+      {/* 領収書アップロード（複数ファイル対応） */}
       <Card className="mb-6 border-dashed border-primary/40">
         <CardHeader className="pb-3">
-          <CardTitle className="text-base flex items-center gap-2">
-            <Receipt className="size-5 text-primary" />
-            領収書アップロード
-          </CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Receipt className="size-5 text-primary" />
+              領収書アップロード
+              {receiptItems.length > 0 && (
+                <span className="text-xs font-normal text-muted-foreground">
+                  （{receiptItems.length}件）
+                </span>
+              )}
+            </CardTitle>
+            {receiptItems.length > 0 && !receiptUploading && (
+              <button
+                onClick={handleClearAllReceipts}
+                className="text-xs text-muted-foreground hover:text-destructive"
+              >
+                すべてクリア
+              </button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
-          {/* Hidden file input */}
           <input
             ref={receiptInputRef}
             type="file"
             accept="image/jpeg,image/png,application/pdf"
+            multiple
             onChange={handleReceiptFileSelect}
             className="hidden"
           />
 
           <div className="flex flex-col md:flex-row gap-4">
-            {/* Drop zone / preview */}
             <div className="flex-1 min-w-0">
-              {receiptFile && receiptPreviewUrl ? (
-                <div className="relative rounded-lg overflow-hidden border border-border">
-                  <img
-                    src={receiptPreviewUrl}
-                    alt="プレビュー"
-                    className="w-full max-h-40 object-contain bg-muted/30"
-                  />
-                  <button
-                    onClick={handleClearReceiptFile}
-                    className="absolute top-1.5 right-1.5 size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
-                  >
-                    <X className="size-3.5" />
-                  </button>
-                  <div className="px-3 py-1.5 bg-card border-t border-border">
-                    <p className="text-xs text-muted-foreground truncate">
-                      {receiptFile.name} ({(receiptFile.size / 1024).toFixed(0)} KB)
-                    </p>
-                  </div>
+              {/* Drop zone（常時表示、追加可能） */}
+              <div
+                className={cn(
+                  "flex items-center justify-center gap-3 p-4 cursor-pointer transition-all rounded-lg",
+                  "border-2 border-dashed",
+                  receiptDragOver
+                    ? "border-primary bg-primary/10"
+                    : "border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
+                )}
+                onClick={() => receiptInputRef.current?.click()}
+                onDragOver={handleReceiptDragOver}
+                onDragLeave={handleReceiptDragLeave}
+                onDrop={handleReceiptDrop}
+              >
+                <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                  <Camera className="size-5" />
                 </div>
-              ) : receiptFile ? (
-                <div className="relative flex items-center gap-3 p-4 rounded-lg border border-border bg-muted/30">
-                  <FileText className="size-8 text-primary shrink-0" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{receiptFile.name}</p>
-                    <p className="text-xs text-muted-foreground">PDF / {(receiptFile.size / 1024).toFixed(0)} KB</p>
-                  </div>
-                  <button
-                    onClick={handleClearReceiptFile}
-                    className="absolute top-1.5 right-1.5 size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
-                  >
-                    <X className="size-3.5" />
-                  </button>
+                <div>
+                  <p className="text-sm font-medium text-foreground">
+                    {receiptItems.length > 0
+                      ? "ファイルを追加（クリックまたはドラッグ&ドロップ）"
+                      : "クリックまたはドラッグ&ドロップで選択（複数可）"}
+                  </p>
+                  <p className="text-xs text-muted-foreground mt-0.5">
+                    JPG, PNG, PDF対応 / 各最大10MB / 1PDF内の複数レシートも自動分割
+                  </p>
                 </div>
-              ) : (
-                <div
-                  className={cn(
-                    "flex items-center justify-center gap-3 p-6 cursor-pointer transition-all rounded-lg",
-                    "border-2 border-dashed",
-                    receiptDragOver
-                      ? "border-primary bg-primary/10"
-                      : "border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
-                  )}
-                  onClick={() => receiptInputRef.current?.click()}
-                  onDragOver={handleReceiptDragOver}
-                  onDragLeave={handleReceiptDragLeave}
-                  onDrop={handleReceiptDrop}
-                >
-                  <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Camera className="size-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      クリックまたはドラッグ&ドロップで選択
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      JPG, PNG, PDF対応 / 最大10MB
-                    </p>
-                  </div>
-                </div>
+              </div>
+
+              {/* ファイル一覧 */}
+              {receiptItems.length > 0 && (
+                <ul className="mt-3 space-y-2 max-h-60 overflow-y-auto">
+                  {receiptItems.map((item) => (
+                    <li
+                      key={item.id}
+                      className={cn(
+                        "flex items-center gap-3 p-2 rounded-lg border",
+                        item.status === "done"
+                          ? "border-emerald-500/30 bg-emerald-500/5"
+                          : item.status === "error"
+                          ? "border-destructive/30 bg-destructive/5"
+                          : item.status === "uploading"
+                          ? "border-primary/30 bg-primary/5"
+                          : "border-border bg-muted/30"
+                      )}
+                    >
+                      {item.previewUrl ? (
+                        <img
+                          src={item.previewUrl}
+                          alt=""
+                          className="size-10 object-cover rounded shrink-0"
+                        />
+                      ) : (
+                        <FileText className="size-8 text-primary shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium truncate">{item.file.name}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {(item.file.size / 1024).toFixed(0)} KB
+                          {item.error && ` — ${item.error}`}
+                        </p>
+                      </div>
+                      <div className="shrink-0">
+                        {item.status === "uploading" ? (
+                          <Loader2 className="size-4 animate-spin text-primary" />
+                        ) : item.status === "done" ? (
+                          <Check className="size-4 text-emerald-600" />
+                        ) : item.status === "error" ? (
+                          <AlertTriangle className="size-4 text-destructive" />
+                        ) : (
+                          !receiptUploading && (
+                            <button
+                              onClick={() => handleRemoveReceiptItem(item.id)}
+                              className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
+                            >
+                              <X className="size-3.5" />
+                            </button>
+                          )
+                        )}
+                      </div>
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
 
@@ -585,17 +652,17 @@ export default function JournalsPage() {
               <Button
                 size="sm"
                 onClick={handleReceiptUpload}
-                disabled={!receiptFile || receiptUploading}
+                disabled={receiptItems.length === 0 || receiptUploading}
               >
                 {receiptUploading ? (
                   <>
                     <Loader2 className="size-4 animate-spin" />
-                    アップロード中...
+                    処理中...
                   </>
                 ) : (
                   <>
                     <Upload className="size-4" />
-                    アップロード
+                    {receiptItems.length > 1 ? `${receiptItems.length}件アップロード` : "アップロード"}
                   </>
                 )}
               </Button>
@@ -603,10 +670,10 @@ export default function JournalsPage() {
           </div>
 
           {/* 確認メモ（任意） */}
-          {receiptFile && (
+          {receiptItems.length > 0 && (
             <div className="mt-3">
               <label className="text-xs font-bold text-muted-foreground mb-1 block">
-                確認メモ（任意）
+                確認メモ（任意・全ファイル共通）
               </label>
               <textarea
                 value={receiptMemo}
@@ -623,27 +690,30 @@ export default function JournalsPage() {
             </div>
           )}
 
-          {/* Error */}
-          {receiptError && (
-            <div className="mt-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
-              <p className="text-sm text-destructive">{receiptError}</p>
-            </div>
-          )}
-
-          {/* Success */}
-          {receiptSuccess && (
+          {/* Summary */}
+          {receiptSummary && (
             <div className={cn(
               "mt-3 p-2.5 rounded-lg flex items-center justify-between",
-              receiptSuccessWithMemo
+              receiptSummary.failed > 0
+                ? "bg-amber-500/10 border border-amber-500/20"
+                : receiptSummary.withMemo
                 ? "bg-amber-500/10 border border-amber-500/20"
                 : "bg-emerald-500/10 border border-emerald-500/20"
             )}>
               <div className="flex items-center gap-2">
-                <Check className={cn("size-4 shrink-0", receiptSuccessWithMemo ? "text-amber-600" : "text-emerald-600")} />
-                <p className={cn("text-sm", receiptSuccessWithMemo ? "text-amber-700 dark:text-amber-400" : "text-emerald-700 dark:text-emerald-400")}>
-                  {receiptSuccessWithMemo
-                    ? "アップロード完了 — 税理士の確認後に仕訳帳に反映されます"
-                    : "アップロード完了 — バックグラウンドで読取・仕訳を処理中"}
+                {receiptSummary.failed > 0 ? (
+                  <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                ) : (
+                  <Check className="size-4 shrink-0 text-emerald-600" />
+                )}
+                <p className="text-sm">
+                  {receiptSummary.done} 件アップロード完了
+                  {receiptSummary.failed > 0 && ` / ${receiptSummary.failed} 件失敗`}
+                  {receiptSummary.failed === 0 && (
+                    receiptSummary.withMemo
+                      ? " — 税理士の確認後に仕訳帳に反映されます"
+                      : " — バックグラウンドで読取・仕訳を処理中"
+                  )}
                 </p>
               </div>
               <Link

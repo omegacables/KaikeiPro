@@ -95,25 +95,33 @@ export async function processReceiptOcr(
         },
       },
       {
-        text: `${isPdf ? "このPDF" : "この画像"}は領収書・レシートです。言語や通貨を問わず、以下の情報をJSON形式で抽出してください。
+        text: `${isPdf ? "このPDF" : "この画像"}には1つまたは複数の領収書・レシートが含まれている可能性があります。
+それぞれを別の取引として認識し、すべてのレシートを配列として返してください。
 
-必ず以下のJSON形式で回答してください。値が読み取れない場合はnullにしてください。
+必ず以下のJSON形式（オブジェクトの配列）で回答してください。値が読み取れない場合はnullにしてください。
 
 {
-  "date": "YYYY-MM-DD形式の日付",
-  "vendor_name": "店名・発行者名（そのまま）",
-  "amount_total": 合計金額（税込、数値のみ、原通貨のまま）,
-  "amount_tax_excluded": 税抜金額（数値のみ、原通貨のまま）,
-  "tax_amount": 税額（数値のみ、原通貨のまま）,
-  "tax_rate": 税率（小数。例: 10% → 0.10, 8.875% → 0.08875）,
-  "currency": "通貨コード（ISO 4217。例: JPY, USD, EUR, GBP, CNY, KRW, TWD）",
-  "items": ["品目1", "品目2"],
-  "invoice_number": "インボイス番号（日本のT+13桁、あれば）",
-  "payment_method": "cash / card / e_money / bank_transfer / null",
-  "confidence": 0.0〜1.0の信頼度
+  "receipts": [
+    {
+      "date": "YYYY-MM-DD形式の日付",
+      "vendor_name": "店名・発行者名（そのまま）",
+      "amount_total": 合計金額（税込、数値のみ、原通貨のまま）,
+      "amount_tax_excluded": 税抜金額（数値のみ、原通貨のまま）,
+      "tax_amount": 税額（数値のみ、原通貨のまま）,
+      "tax_rate": 税率（小数。例: 10% → 0.10, 8.875% → 0.08875）,
+      "currency": "通貨コード（ISO 4217。例: JPY, USD, EUR, GBP, CNY, KRW, TWD）",
+      "items": ["品目1", "品目2"],
+      "invoice_number": "インボイス番号（日本のT+13桁、あれば）",
+      "payment_method": "cash / card / e_money / bank_transfer / null",
+      "confidence": 0.0〜1.0の信頼度
+    }
+  ]
 }
 
 重要:
+- レシートが1つしか見つからない場合も、必ず1要素の配列として返してください
+- 1ページ内に複数のレシート画像がある場合、それぞれを別の要素として返してください
+- 同じレシートの裏表や続きと判断できるものは1つにまとめてください
 - 金額は数値のみ（カンマや通貨記号は除く）
 - 日付は西暦YYYY-MM-DD形式に変換（令和・平成は西暦に変換）
 - 通貨は$ならUSD、¥で日本の店ならJPY、€ならEUR等を正確に判定
@@ -131,89 +139,150 @@ export async function processReceiptOcr(
 
     const responseText = result.response.text();
 
-    // 6. JSONパース
+    // 6. JSONパース（配列形式: { receipts: [...] }）
     const jsonMatch = responseText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {
       throw new Error("OCR結果のJSON解析に失敗しました");
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    const parsedRoot = JSON.parse(jsonMatch[0]);
+    const receiptsArray: unknown[] = Array.isArray(parsedRoot)
+      ? parsedRoot
+      : Array.isArray(parsedRoot?.receipts)
+      ? parsedRoot.receipts
+      : [parsedRoot];
 
-    // 7. 通貨判定 + 為替レート取得
-    const currency: string = parsed.currency ?? "JPY";
-    const originalAmount =
-      typeof parsed.amount_total === "number" ? parsed.amount_total : undefined;
+    if (receiptsArray.length === 0) {
+      throw new Error("レシートが検出できませんでした");
+    }
 
-    let exchangeRate: number | undefined;
-    let amountJpy: number | undefined;
+    // 7. 各レシートをOcrResultに変換
+    const buildOcrFromParsed = async (
+      parsed: Record<string, unknown>
+    ): Promise<{
+      ocrResult: OcrResult;
+      detectedPayment: "cash" | "card" | "e_money" | "bank_transfer" | null;
+    }> => {
+      const currency: string = (parsed.currency as string) ?? "JPY";
+      const originalAmount =
+        typeof parsed.amount_total === "number" ? parsed.amount_total : undefined;
 
-    if (currency !== "JPY" && originalAmount != null) {
-      // 外貨の場合、為替レートを取得
-      const rate = await fetchExchangeRate(currency, "JPY");
-      if (rate) {
-        exchangeRate = Math.round(rate * 100) / 100;
-        amountJpy = Math.round(originalAmount * rate);
+      let exchangeRate: number | undefined;
+      let amountJpy: number | undefined;
+
+      if (currency !== "JPY" && originalAmount != null) {
+        const rate = await fetchExchangeRate(currency, "JPY");
+        if (rate) {
+          exchangeRate = Math.round(rate * 100) / 100;
+          amountJpy = Math.round(originalAmount * rate);
+        }
+      } else if (currency === "JPY") {
+        amountJpy = originalAmount;
       }
-    } else if (currency === "JPY") {
-      amountJpy = originalAmount;
-    }
 
-    // 支払い方法の判別
-    const validPaymentMethods = ["cash", "card", "e_money", "bank_transfer"];
-    const detectedPayment = validPaymentMethods.includes(parsed.payment_method)
-      ? (parsed.payment_method as "cash" | "card" | "e_money" | "bank_transfer")
-      : null;
+      const validPaymentMethods = ["cash", "card", "e_money", "bank_transfer"];
+      const detectedPayment = validPaymentMethods.includes(
+        parsed.payment_method as string
+      )
+        ? (parsed.payment_method as "cash" | "card" | "e_money" | "bank_transfer")
+        : null;
 
-    const ocrResult: OcrResult = {
-      date: parsed.date || undefined,
-      vendor_name: parsed.vendor_name || undefined,
-      payment_method: detectedPayment,
-      amount_total: amountJpy ?? originalAmount,
-      amount_tax_excluded:
+      const taxExcluded =
         typeof parsed.amount_tax_excluded === "number"
-          ? currency !== "JPY" && exchangeRate
-            ? Math.round(parsed.amount_tax_excluded * exchangeRate)
-            : parsed.amount_tax_excluded
-          : undefined,
-      tax_amount:
-        typeof parsed.tax_amount === "number"
-          ? currency !== "JPY" && exchangeRate
-            ? Math.round(parsed.tax_amount * exchangeRate)
-            : parsed.tax_amount
-          : undefined,
-      tax_rate:
-        typeof parsed.tax_rate === "number" ? parsed.tax_rate : undefined,
-      items: Array.isArray(parsed.items) ? parsed.items : undefined,
-      invoice_number: parsed.invoice_number || undefined,
-      confidence:
-        typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
-      // 多通貨フィールド
-      currency,
-      original_amount: currency !== "JPY" ? originalAmount : undefined,
-      exchange_rate: exchangeRate,
-      amount_jpy: amountJpy,
+          ? parsed.amount_tax_excluded
+          : undefined;
+      const taxAmt =
+        typeof parsed.tax_amount === "number" ? parsed.tax_amount : undefined;
+
+      const ocrResult: OcrResult = {
+        date: (parsed.date as string) || undefined,
+        vendor_name: (parsed.vendor_name as string) || undefined,
+        payment_method: detectedPayment,
+        amount_total: amountJpy ?? originalAmount,
+        amount_tax_excluded:
+          taxExcluded != null
+            ? currency !== "JPY" && exchangeRate
+              ? Math.round(taxExcluded * exchangeRate)
+              : taxExcluded
+            : undefined,
+        tax_amount:
+          taxAmt != null
+            ? currency !== "JPY" && exchangeRate
+              ? Math.round(taxAmt * exchangeRate)
+              : taxAmt
+            : undefined,
+        tax_rate:
+          typeof parsed.tax_rate === "number" ? parsed.tax_rate : undefined,
+        items: Array.isArray(parsed.items) ? (parsed.items as string[]) : undefined,
+        invoice_number: (parsed.invoice_number as string) || undefined,
+        confidence:
+          typeof parsed.confidence === "number" ? parsed.confidence : 0.5,
+        currency,
+        original_amount: currency !== "JPY" ? originalAmount : undefined,
+        exchange_rate: exchangeRate,
+        amount_jpy: amountJpy,
+      };
+      return { ocrResult, detectedPayment };
     };
 
-    // 8. OCR結果をDB保存 + ステータス更新 + 支払い方法補完
-    const updateData: Record<string, unknown> = {
-      ocr_result: ocrResult as unknown as import("@/types/database").Json,
-      status: "ocr_done",
-    };
-    // ユーザーが支払い方法を未選択の場合、OCR検出値で補完
-    if (!receipt.payment_method && detectedPayment) {
-      updateData.payment_method = detectedPayment;
+    // 8. 1件目は元レコード更新、2件目以降はsibling行作成
+    const firstReceiptId = receiptId;
+    const allReceiptIds: string[] = [firstReceiptId];
+
+    for (let i = 0; i < receiptsArray.length; i++) {
+      const parsed = (receiptsArray[i] as Record<string, unknown>) ?? {};
+      const { ocrResult, detectedPayment } = await buildOcrFromParsed(parsed);
+
+      let currentId: string;
+      if (i === 0) {
+        currentId = firstReceiptId;
+      } else {
+        // 兄弟レコード作成（同じimage_path・file_hash・payment_method等を継承）
+        const { data: sibling, error: createErr } = await supabase
+          .from("receipts")
+          .insert({
+            client_id: receipt.client_id,
+            uploaded_by: receipt.uploaded_by,
+            image_path: receipt.image_path,
+            payment_method: receipt.payment_method,
+            status: "uploaded",
+            original_filename: receipt.original_filename
+              ? `${receipt.original_filename} (#${i + 1})`
+              : null,
+            file_size: receipt.file_size,
+            mime_type: receipt.mime_type,
+            file_hash: receipt.file_hash,
+            hash_algorithm: receipt.hash_algorithm,
+          })
+          .select("id")
+          .single();
+        if (createErr || !sibling) {
+          console.error(`[ocr] sibling作成失敗 (#${i + 1}):`, createErr);
+          continue;
+        }
+        currentId = sibling.id;
+        allReceiptIds.push(currentId);
+      }
+
+      const updateData: Record<string, unknown> = {
+        ocr_result: ocrResult as unknown as import("@/types/database").Json,
+        status: "ocr_done",
+      };
+      if (!receipt.payment_method && detectedPayment) {
+        updateData.payment_method = detectedPayment;
+      }
+      await supabase.from("receipts").update(updateData).eq("id", currentId);
+
+      console.log(`[ocr] OCR完了 (${i + 1}/${receiptsArray.length}): ${currentId}`);
+      await generateJournalSuggestion(currentId, memo);
+      console.log(`[ocr] 仕訳提案→記帳完了: ${currentId}`);
     }
-    await supabase
-      .from("receipts")
-      .update(updateData)
-      .eq("id", receiptId);
 
-    // 9. 仕訳提案を自動生成 → 仕訳帳に自動記録
-    console.log(`[ocr] OCR完了、仕訳提案開始: ${receiptId}`);
-    await generateJournalSuggestion(receiptId, memo);
-    console.log(`[ocr] 仕訳提案→記帳完了: ${receiptId}`);
-
-    return ocrResult;
+    // 1件目のOcrResultを返す（後方互換）
+    const { ocrResult: firstResult } = await buildOcrFromParsed(
+      receiptsArray[0] as Record<string, unknown>
+    );
+    return firstResult;
   } catch (error) {
     // 失敗時: ステータスを「アップロード済」に戻す
     await supabase
