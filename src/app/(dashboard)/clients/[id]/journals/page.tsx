@@ -35,6 +35,10 @@ import {
   type BankCsvSuggestion,
   type BankImportResult,
 } from "@/actions/bank-csv-ai";
+import {
+  analyzeJournalCsv,
+  type JournalCsvSuggestion,
+} from "@/actions/journal-csv-ai";
 import { getAccounts } from "@/actions/accounts";
 import { uploadReceipt } from "@/actions/receipt-storage";
 import { processReceiptOcr } from "@/actions/ocr";
@@ -131,70 +135,49 @@ export default function JournalsPage() {
     if (e.dataTransfer.files) addReceiptFiles(e.dataTransfer.files);
   }, []);
 
-  // ---- CSV/Excel import state ----
+  // ---- CSV/Excel AI解析インポート state ----
+  type EditableJournalSuggestion = JournalCsvSuggestion & { selected: boolean };
   const [importFile, setImportFile] = useState<File | null>(null);
-  const [importParsedRows, setImportParsedRows] = useState<JournalImportRow[]>([]);
+  const [importAnalyzing, setImportAnalyzing] = useState(false);
+  const [importSuggestions, setImportSuggestions] = useState<EditableJournalSuggestion[]>([]);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
   const [importParseError, setImportParseError] = useState<string | null>(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<JournalImportResult | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const parseCsvText = (text: string): JournalImportRow[] => {
-    const lines = text.replace(/﻿/g, "").split(/\r?\n/).filter((l) => l.trim());
-    if (lines.length === 0) return [];
-    // ヘッダ行はスキップ
-    const dataLines = lines.slice(1);
-    const rows: JournalImportRow[] = [];
-    for (const line of dataLines) {
-      const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-      if (cols.length < 5) continue;
-      rows.push({
-        date: cols[0] ?? "",
-        debitAccountCode: cols[1] ?? "",
-        debitAmount: Number(cols[2] ?? 0),
-        creditAccountCode: cols[3] ?? "",
-        creditAmount: Number(cols[4] ?? 0),
-        description: cols[5] ?? null,
-      });
+  const parseFileToRows = async (file: File): Promise<{ header: string[]; rows: string[][] }> => {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext === "csv") {
+      const text = await file.text();
+      const lines = text.replace(/﻿/g, "").split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length === 0) return { header: [], rows: [] };
+      const splitCsv = (line: string) => line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+      return { header: splitCsv(lines[0]), rows: lines.slice(1).map(splitCsv) };
     }
-    return rows;
-  };
-
-  const parseExcelFile = async (file: File): Promise<JournalImportRow[]> => {
-    const ExcelJS = (await import("exceljs")).default;
-    const buffer = await file.arrayBuffer();
-    const wb = new ExcelJS.Workbook();
-    await wb.xlsx.load(buffer);
-    const sheet = wb.worksheets[0];
-    if (!sheet) return [];
-    const rows: JournalImportRow[] = [];
-    sheet.eachRow((row, rowNumber) => {
-      if (rowNumber === 1) return; // ヘッダ
-      const values = row.values as unknown[];
-      // exceljs values は1-indexed配列: [empty, col1, col2, ...]
-      const v = (i: number) => {
-        const x = values[i];
-        if (x == null) return "";
-        if (x instanceof Date) return x.toISOString().slice(0, 10);
-        return String(x);
-      };
-      const date = v(1);
-      const debitCode = v(2);
-      const debitAmt = Number(v(3));
-      const creditCode = v(4);
-      const creditAmt = Number(v(5));
-      const desc = v(6);
-      if (!date && !debitCode && !creditCode) return;
-      rows.push({
-        date,
-        debitAccountCode: debitCode,
-        debitAmount: debitAmt,
-        creditAccountCode: creditCode,
-        creditAmount: creditAmt,
-        description: desc || null,
+    if (ext === "xlsx" || ext === "xlsm") {
+      const ExcelJS = (await import("exceljs")).default;
+      const buffer = await file.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer);
+      const sheet = wb.worksheets[0];
+      if (!sheet) return { header: [], rows: [] };
+      const allRows: string[][] = [];
+      sheet.eachRow((row) => {
+        const values = row.values as unknown[];
+        const cols: string[] = [];
+        for (let i = 1; i < values.length; i++) {
+          const x = values[i];
+          if (x == null) cols.push("");
+          else if (x instanceof Date) cols.push(x.toISOString().slice(0, 10));
+          else cols.push(String(x));
+        }
+        allRows.push(cols);
       });
-    });
-    return rows;
+      if (allRows.length === 0) return { header: [], rows: [] };
+      return { header: allRows[0], rows: allRows.slice(1) };
+    }
+    throw new Error("対応形式: .csv / .xlsx");
   };
 
   const handleImportFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -203,44 +186,57 @@ export default function JournalsPage() {
     setImportFile(file);
     setImportParseError(null);
     setImportResult(null);
-    setImportParsedRows([]);
+    setImportSuggestions([]);
+    setImportWarnings([]);
+
+    setImportAnalyzing(true);
     try {
-      const ext = file.name.split(".").pop()?.toLowerCase();
-      let rows: JournalImportRow[] = [];
-      if (ext === "csv") {
-        const text = await file.text();
-        rows = parseCsvText(text);
-      } else if (ext === "xlsx" || ext === "xlsm") {
-        rows = await parseExcelFile(file);
-      } else {
-        throw new Error("対応形式は .csv / .xlsx です");
-      }
+      const { header, rows } = await parseFileToRows(file);
       if (rows.length === 0) throw new Error("有効なデータ行が見つかりません");
-      setImportParsedRows(rows);
+      const analysis = await analyzeJournalCsv(id, header, rows);
+      setImportSuggestions(
+        analysis.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 }))
+      );
+      setImportWarnings(analysis.warnings);
     } catch (err) {
-      setImportParseError(err instanceof Error ? err.message : "ファイル解析に失敗しました");
+      setImportParseError(err instanceof Error ? err.message : "AI解析に失敗しました");
+    } finally {
+      setImportAnalyzing(false);
     }
   };
 
   const handleClearImport = () => {
     setImportFile(null);
-    setImportParsedRows([]);
+    setImportSuggestions([]);
+    setImportWarnings([]);
     setImportParseError(null);
     setImportResult(null);
     if (importInputRef.current) importInputRef.current.value = "";
   };
 
+  const updateImportSuggestion = (rowIdx: number, patch: Partial<EditableJournalSuggestion>) => {
+    setImportSuggestions((prev) =>
+      prev.map((s) => (s.rowIdx === rowIdx ? { ...s, ...patch } : s))
+    );
+  };
+
   const handleRunImport = async () => {
-    if (importParsedRows.length === 0) return;
+    const selected = importSuggestions.filter((s) => s.selected);
+    if (selected.length === 0) return;
     setImporting(true);
     try {
-      const result = await importJournalEntries(id, importParsedRows);
+      const rows: JournalImportRow[] = selected.map((s) => ({
+        date: s.date,
+        debitAccountCode: s.debitAccountCode,
+        debitAmount: s.debitAmount,
+        creditAccountCode: s.creditAccountCode,
+        creditAmount: s.creditAmount,
+        description: s.description,
+      }));
+      const result = await importJournalEntries(id, rows);
       setImportResult(result);
       if (result.errors.length === 0) {
-        // 全件成功時はファイルクリア
-        setImportFile(null);
-        setImportParsedRows([]);
-        if (importInputRef.current) importInputRef.current.value = "";
+        handleClearImport();
       }
     } catch (err) {
       setImportParseError(err instanceof Error ? err.message : "インポートに失敗しました");
@@ -851,13 +847,17 @@ export default function JournalsPage() {
         </CardContent>
       </Card>
 
-      {/* CSV/Excel 一括インポート */}
+      {/* CSV/Excel AI仕訳インポート */}
       <Card className="mb-6 border-dashed border-primary/40">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-base flex items-center gap-2">
               <FileSpreadsheet className="size-5 text-primary" />
               CSV / Excel から仕訳を一括登録
+              <span className="inline-flex items-center gap-1 text-xs font-normal text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                <Sparkles className="size-3" />
+                AI解析
+              </span>
             </CardTitle>
             <a
               href="/journal-import-template.csv"
@@ -868,6 +868,9 @@ export default function JournalsPage() {
               テンプレートをダウンロード
             </a>
           </div>
+          <p className="text-muted-foreground text-xs mt-1">
+            列の並び・名称は任意。AIが自動マッピングし、勘定科目名→コード解決も行います。最大50行/回。
+          </p>
         </CardHeader>
         <CardContent>
           <input
@@ -887,15 +890,18 @@ export default function JournalsPage() {
                     <p className="text-sm font-medium truncate">{importFile.name}</p>
                     <p className="text-xs text-muted-foreground">
                       {(importFile.size / 1024).toFixed(0)} KB
-                      {importParsedRows.length > 0 && ` / 解析済み ${importParsedRows.length} 行`}
+                      {importAnalyzing && " / AI解析中..."}
+                      {!importAnalyzing && importSuggestions.length > 0 && ` / ${importSuggestions.length}件の仕訳候補`}
                     </p>
                   </div>
-                  <button
-                    onClick={handleClearImport}
-                    className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
-                  >
-                    <X className="size-3.5" />
-                  </button>
+                  {!importAnalyzing && !importing && (
+                    <button
+                      onClick={handleClearImport}
+                      className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
                 </div>
               ) : (
                 <div
@@ -910,7 +916,7 @@ export default function JournalsPage() {
                       クリックしてCSV / Excelファイルを選択
                     </p>
                     <p className="text-xs text-muted-foreground mt-0.5">
-                      列: 日付, 借方コード, 借方金額, 貸方コード, 貸方金額, 摘要
+                      フォーマット自由 / AIが列を自動判別・勘定科目を解決
                     </p>
                   </div>
                 </div>
@@ -921,7 +927,7 @@ export default function JournalsPage() {
               <Button
                 size="sm"
                 onClick={handleRunImport}
-                disabled={importParsedRows.length === 0 || importing}
+                disabled={importSuggestions.length === 0 || importing || importAnalyzing}
               >
                 {importing ? (
                   <>
@@ -931,47 +937,133 @@ export default function JournalsPage() {
                 ) : (
                   <>
                     <Plus className="size-4" />
-                    一括登録
+                    選択行を一括登録（{importSuggestions.filter((s) => s.selected).length}件）
                   </>
                 )}
               </Button>
             </div>
           </div>
 
-          {/* プレビュー（最大10行） */}
-          {importParsedRows.length > 0 && (
+          {importAnalyzing && (
+            <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <p className="text-sm">AIが仕訳データを解析中... (10〜30秒)</p>
+            </div>
+          )}
+
+          {/* AIプレビュー（編集可能） */}
+          {importSuggestions.length > 0 && (
             <div className="mt-4 overflow-x-auto rounded-lg border border-border">
               <table className="w-full text-xs">
-                <thead className="bg-muted/30">
+                <thead className="bg-muted/30 sticky top-0">
                   <tr>
-                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">行</th>
+                    <th className="px-2 py-1.5 w-8">
+                      <input
+                        type="checkbox"
+                        checked={importSuggestions.every((s) => s.selected)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setImportSuggestions((prev) => prev.map((s) => ({ ...s, selected: checked })));
+                        }}
+                      />
+                    </th>
                     <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">日付</th>
-                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">借方コード</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">借方</th>
                     <th className="text-right px-2 py-1.5 font-bold text-muted-foreground">借方金額</th>
-                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">貸方コード</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">貸方</th>
                     <th className="text-right px-2 py-1.5 font-bold text-muted-foreground">貸方金額</th>
                     <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">摘要</th>
+                    <th className="text-center px-2 py-1.5 font-bold text-muted-foreground">信頼度</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {importParsedRows.slice(0, 10).map((r, i) => (
-                    <tr key={i} className="border-t border-border/50">
-                      <td className="px-2 py-1 text-muted-foreground">{i + 2}</td>
-                      <td className="px-2 py-1">{r.date}</td>
-                      <td className="px-2 py-1">{r.debitAccountCode}</td>
-                      <td className="px-2 py-1 text-right">{formatCurrency(r.debitAmount)}</td>
-                      <td className="px-2 py-1">{r.creditAccountCode}</td>
-                      <td className="px-2 py-1 text-right">{formatCurrency(r.creditAmount)}</td>
-                      <td className="px-2 py-1 truncate max-w-[200px]">{r.description ?? ""}</td>
+                  {importSuggestions.map((s) => (
+                    <tr key={s.rowIdx} className={cn("border-t border-border/50", !s.selected && "opacity-50")}>
+                      <td className="px-2 py-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={s.selected}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { selected: e.target.checked })}
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="date"
+                          value={s.date}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { date: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-28"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="text"
+                          value={s.debitAccountCode}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { debitAccountCode: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-16"
+                          title={s.debitAccountName}
+                        />
+                        <span className="text-muted-foreground text-[10px] block">{s.debitAccountName}</span>
+                      </td>
+                      <td className="px-2 py-1 text-right">
+                        <input
+                          type="number"
+                          value={s.debitAmount}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { debitAmount: Number(e.target.value) })}
+                          className="bg-transparent border-0 text-xs w-24 text-right"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="text"
+                          value={s.creditAccountCode}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { creditAccountCode: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-16"
+                          title={s.creditAccountName}
+                        />
+                        <span className="text-muted-foreground text-[10px] block">{s.creditAccountName}</span>
+                      </td>
+                      <td className="px-2 py-1 text-right">
+                        <input
+                          type="number"
+                          value={s.creditAmount}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { creditAmount: Number(e.target.value) })}
+                          className="bg-transparent border-0 text-xs w-24 text-right"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="text"
+                          value={s.description}
+                          onChange={(e) => updateImportSuggestion(s.rowIdx, { description: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-full"
+                        />
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        <span className={cn(
+                          "inline-block px-1.5 py-0.5 rounded text-[10px]",
+                          s.confidence >= 0.7 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" :
+                          s.confidence >= 0.5 ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
+                          "bg-destructive/10 text-destructive"
+                        )}>
+                          {(s.confidence * 100).toFixed(0)}%
+                        </span>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
               </table>
-              {importParsedRows.length > 10 && (
-                <p className="text-xs text-muted-foreground px-2 py-1.5 bg-muted/20">
-                  ...他 {importParsedRows.length - 10} 行
-                </p>
-              )}
+            </div>
+          )}
+
+          {/* AI警告 */}
+          {importWarnings.length > 0 && (
+            <div className="mt-3 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 max-h-40 overflow-y-auto">
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">AI警告:</p>
+              <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+                {importWarnings.map((w, i) => (
+                  <li key={i}>・{w}</li>
+                ))}
+              </ul>
             </div>
           )}
 
