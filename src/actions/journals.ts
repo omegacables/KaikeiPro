@@ -176,6 +176,151 @@ export async function deleteJournalEntries(ids: string[]): Promise<void> {
   }
 }
 
+export type JournalImportRow = {
+  date: string;
+  debitAccountCode: string;
+  debitAmount: number;
+  creditAccountCode: string;
+  creditAmount: number;
+  description?: string | null;
+};
+
+export type JournalImportResult = {
+  created: number;
+  errors: { row: number; message: string }[];
+};
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function normalizeDate(input: string): string | null {
+  const s = input.trim();
+  if (!s) return null;
+  if (DATE_RE.test(s)) return s;
+  const slash = s.match(/^(\d{4})[\/.](\d{1,2})[\/.](\d{1,2})$/);
+  if (slash) {
+    const [, y, m, d] = slash;
+    return `${y}-${m.padStart(2, "0")}-${d.padStart(2, "0")}`;
+  }
+  return null;
+}
+
+/**
+ * CSV/Excel から仕訳を一括インポート。
+ * 各行 = 1仕訳（借方1行・貸方1行のシンプルな複式）。
+ * 借方金額と貸方金額が一致する必要がある。
+ */
+export async function importJournalEntries(
+  clientId: string,
+  rows: JournalImportRow[]
+): Promise<JournalImportResult> {
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("認証が必要です");
+
+  // 勘定科目マスタ取得（コード→IDの解決用）
+  const { data: accounts, error: accErr } = await supabase
+    .from("accounts")
+    .select("id, code")
+    .eq("client_id", clientId);
+  if (accErr) throw new Error(accErr.message);
+
+  const codeToId = new Map<string, string>();
+  for (const a of accounts ?? []) {
+    if (a.code) codeToId.set(String(a.code).trim(), a.id);
+  }
+
+  const errors: { row: number; message: string }[] = [];
+  let created = 0;
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i];
+    const lineNo = i + 2; // 1-based + ヘッダ行
+
+    const date = normalizeDate(row.date);
+    if (!date) {
+      errors.push({ row: lineNo, message: `日付が不正です: "${row.date}"` });
+      continue;
+    }
+
+    const debitId = codeToId.get(String(row.debitAccountCode).trim());
+    if (!debitId) {
+      errors.push({ row: lineNo, message: `借方勘定科目コードが見つかりません: "${row.debitAccountCode}"` });
+      continue;
+    }
+
+    const creditId = codeToId.get(String(row.creditAccountCode).trim());
+    if (!creditId) {
+      errors.push({ row: lineNo, message: `貸方勘定科目コードが見つかりません: "${row.creditAccountCode}"` });
+      continue;
+    }
+
+    const debitAmt = Number(row.debitAmount);
+    const creditAmt = Number(row.creditAmount);
+    if (!Number.isFinite(debitAmt) || debitAmt <= 0) {
+      errors.push({ row: lineNo, message: `借方金額が不正です: "${row.debitAmount}"` });
+      continue;
+    }
+    if (!Number.isFinite(creditAmt) || creditAmt <= 0) {
+      errors.push({ row: lineNo, message: `貸方金額が不正です: "${row.creditAmount}"` });
+      continue;
+    }
+    if (Math.round(debitAmt) !== Math.round(creditAmt)) {
+      errors.push({ row: lineNo, message: `借方金額と貸方金額が一致しません (借: ${debitAmt} / 貸: ${creditAmt})` });
+      continue;
+    }
+
+    const { data: entry, error: entryErr } = await supabase
+      .from("journal_entries")
+      .insert({
+        client_id: clientId,
+        entry_date: date,
+        description: row.description?.trim() || null,
+        status: "draft",
+        source: "import",
+        created_by: user.id,
+      })
+      .select("id")
+      .single();
+
+    if (entryErr || !entry) {
+      errors.push({ row: lineNo, message: `仕訳作成エラー: ${entryErr?.message ?? "unknown"}` });
+      continue;
+    }
+
+    const { error: linesErr } = await supabase
+      .from("journal_entry_lines")
+      .insert([
+        {
+          journal_entry_id: entry.id,
+          account_id: debitId,
+          debit_amount: Math.round(debitAmt),
+          credit_amount: 0,
+          sort_order: 0,
+        },
+        {
+          journal_entry_id: entry.id,
+          account_id: creditId,
+          debit_amount: 0,
+          credit_amount: Math.round(creditAmt),
+          sort_order: 1,
+        },
+      ]);
+
+    if (linesErr) {
+      // ロールバック: 作成済みエントリを削除
+      await supabase.from("journal_entries").delete().eq("id", entry.id);
+      errors.push({ row: lineNo, message: `仕訳明細作成エラー: ${linesErr.message}` });
+      continue;
+    }
+
+    created++;
+  }
+
+  return { created, errors };
+}
+
 export async function getRecentJournals(clientId: string, limit = 10) {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase

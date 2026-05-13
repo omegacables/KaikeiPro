@@ -13,12 +13,20 @@ import {
   FileText,
   Check,
   Receipt,
+  FileSpreadsheet,
+  Download,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { cn, formatCurrency } from "@/lib/utils";
-import { createJournalEntry } from "@/actions/journals";
+import {
+  createJournalEntry,
+  importJournalEntries,
+  type JournalImportRow,
+  type JournalImportResult,
+} from "@/actions/journals";
 import { getAccounts } from "@/actions/accounts";
 import { uploadReceipt } from "@/actions/receipt-storage";
 import { processReceiptOcr } from "@/actions/ocr";
@@ -100,6 +108,124 @@ export default function JournalsPage() {
     const file = e.dataTransfer.files?.[0];
     if (file) processReceiptFile(file);
   }, []);
+
+  // ---- CSV/Excel import state ----
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importParsedRows, setImportParsedRows] = useState<JournalImportRow[]>([]);
+  const [importParseError, setImportParseError] = useState<string | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importResult, setImportResult] = useState<JournalImportResult | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
+  const parseCsvText = (text: string): JournalImportRow[] => {
+    const lines = text.replace(/﻿/g, "").split(/\r?\n/).filter((l) => l.trim());
+    if (lines.length === 0) return [];
+    // ヘッダ行はスキップ
+    const dataLines = lines.slice(1);
+    const rows: JournalImportRow[] = [];
+    for (const line of dataLines) {
+      const cols = line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+      if (cols.length < 5) continue;
+      rows.push({
+        date: cols[0] ?? "",
+        debitAccountCode: cols[1] ?? "",
+        debitAmount: Number(cols[2] ?? 0),
+        creditAccountCode: cols[3] ?? "",
+        creditAmount: Number(cols[4] ?? 0),
+        description: cols[5] ?? null,
+      });
+    }
+    return rows;
+  };
+
+  const parseExcelFile = async (file: File): Promise<JournalImportRow[]> => {
+    const ExcelJS = (await import("exceljs")).default;
+    const buffer = await file.arrayBuffer();
+    const wb = new ExcelJS.Workbook();
+    await wb.xlsx.load(buffer);
+    const sheet = wb.worksheets[0];
+    if (!sheet) return [];
+    const rows: JournalImportRow[] = [];
+    sheet.eachRow((row, rowNumber) => {
+      if (rowNumber === 1) return; // ヘッダ
+      const values = row.values as unknown[];
+      // exceljs values は1-indexed配列: [empty, col1, col2, ...]
+      const v = (i: number) => {
+        const x = values[i];
+        if (x == null) return "";
+        if (x instanceof Date) return x.toISOString().slice(0, 10);
+        return String(x);
+      };
+      const date = v(1);
+      const debitCode = v(2);
+      const debitAmt = Number(v(3));
+      const creditCode = v(4);
+      const creditAmt = Number(v(5));
+      const desc = v(6);
+      if (!date && !debitCode && !creditCode) return;
+      rows.push({
+        date,
+        debitAccountCode: debitCode,
+        debitAmount: debitAmt,
+        creditAccountCode: creditCode,
+        creditAmount: creditAmt,
+        description: desc || null,
+      });
+    });
+    return rows;
+  };
+
+  const handleImportFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFile(file);
+    setImportParseError(null);
+    setImportResult(null);
+    setImportParsedRows([]);
+    try {
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      let rows: JournalImportRow[] = [];
+      if (ext === "csv") {
+        const text = await file.text();
+        rows = parseCsvText(text);
+      } else if (ext === "xlsx" || ext === "xlsm") {
+        rows = await parseExcelFile(file);
+      } else {
+        throw new Error("対応形式は .csv / .xlsx です");
+      }
+      if (rows.length === 0) throw new Error("有効なデータ行が見つかりません");
+      setImportParsedRows(rows);
+    } catch (err) {
+      setImportParseError(err instanceof Error ? err.message : "ファイル解析に失敗しました");
+    }
+  };
+
+  const handleClearImport = () => {
+    setImportFile(null);
+    setImportParsedRows([]);
+    setImportParseError(null);
+    setImportResult(null);
+    if (importInputRef.current) importInputRef.current.value = "";
+  };
+
+  const handleRunImport = async () => {
+    if (importParsedRows.length === 0) return;
+    setImporting(true);
+    try {
+      const result = await importJournalEntries(id, importParsedRows);
+      setImportResult(result);
+      if (result.errors.length === 0) {
+        // 全件成功時はファイルクリア
+        setImportFile(null);
+        setImportParsedRows([]);
+        if (importInputRef.current) importInputRef.current.value = "";
+      }
+    } catch (err) {
+      setImportParseError(err instanceof Error ? err.message : "インポートに失敗しました");
+    } finally {
+      setImporting(false);
+    }
+  };
 
   const handleReceiptUpload = async () => {
     if (!receiptFile || !user?.id) return;
@@ -526,6 +652,177 @@ export default function JournalsPage() {
               >
                 領収書管理で確認 →
               </Link>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* CSV/Excel 一括インポート */}
+      <Card className="mb-6 border-dashed border-primary/40">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileSpreadsheet className="size-5 text-primary" />
+              CSV / Excel から仕訳を一括登録
+            </CardTitle>
+            <a
+              href="/journal-import-template.csv"
+              download
+              className="inline-flex items-center gap-1.5 text-xs font-bold text-primary hover:underline"
+            >
+              <Download className="size-3.5" />
+              テンプレートをダウンロード
+            </a>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xlsm"
+            onChange={handleImportFileSelect}
+            className="hidden"
+          />
+
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 min-w-0">
+              {importFile ? (
+                <div className="relative flex items-center gap-3 p-4 rounded-lg border border-border bg-muted/30">
+                  <FileSpreadsheet className="size-8 text-primary shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{importFile.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(importFile.size / 1024).toFixed(0)} KB
+                      {importParsedRows.length > 0 && ` / 解析済み ${importParsedRows.length} 行`}
+                    </p>
+                  </div>
+                  <button
+                    onClick={handleClearImport}
+                    className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
+                  >
+                    <X className="size-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div
+                  className="flex items-center justify-center gap-3 p-6 cursor-pointer transition-all rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
+                  onClick={() => importInputRef.current?.click()}
+                >
+                  <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                    <Upload className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      クリックしてCSV / Excelファイルを選択
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      列: 日付, 借方コード, 借方金額, 貸方コード, 貸方金額, 摘要
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-end shrink-0">
+              <Button
+                size="sm"
+                onClick={handleRunImport}
+                disabled={importParsedRows.length === 0 || importing}
+              >
+                {importing ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    登録中...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="size-4" />
+                    一括登録
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {/* プレビュー（最大10行） */}
+          {importParsedRows.length > 0 && (
+            <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/30">
+                  <tr>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">行</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">日付</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">借方コード</th>
+                    <th className="text-right px-2 py-1.5 font-bold text-muted-foreground">借方金額</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">貸方コード</th>
+                    <th className="text-right px-2 py-1.5 font-bold text-muted-foreground">貸方金額</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">摘要</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {importParsedRows.slice(0, 10).map((r, i) => (
+                    <tr key={i} className="border-t border-border/50">
+                      <td className="px-2 py-1 text-muted-foreground">{i + 2}</td>
+                      <td className="px-2 py-1">{r.date}</td>
+                      <td className="px-2 py-1">{r.debitAccountCode}</td>
+                      <td className="px-2 py-1 text-right">{formatCurrency(r.debitAmount)}</td>
+                      <td className="px-2 py-1">{r.creditAccountCode}</td>
+                      <td className="px-2 py-1 text-right">{formatCurrency(r.creditAmount)}</td>
+                      <td className="px-2 py-1 truncate max-w-[200px]">{r.description ?? ""}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {importParsedRows.length > 10 && (
+                <p className="text-xs text-muted-foreground px-2 py-1.5 bg-muted/20">
+                  ...他 {importParsedRows.length - 10} 行
+                </p>
+              )}
+            </div>
+          )}
+
+          {/* パースエラー */}
+          {importParseError && (
+            <div className="mt-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-sm text-destructive">{importParseError}</p>
+            </div>
+          )}
+
+          {/* インポート結果 */}
+          {importResult && (
+            <div className="mt-3 space-y-2">
+              <div className={cn(
+                "p-2.5 rounded-lg border flex items-center gap-2",
+                importResult.errors.length === 0
+                  ? "bg-emerald-500/10 border-emerald-500/20"
+                  : "bg-amber-500/10 border-amber-500/20"
+              )}>
+                {importResult.errors.length === 0 ? (
+                  <Check className="size-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="size-4 text-amber-600 shrink-0" />
+                )}
+                <p className={cn(
+                  "text-sm",
+                  importResult.errors.length === 0
+                    ? "text-emerald-700 dark:text-emerald-400"
+                    : "text-amber-700 dark:text-amber-400"
+                )}>
+                  {importResult.created} 件登録
+                  {importResult.errors.length > 0 && ` / ${importResult.errors.length} 件エラー`}
+                </p>
+              </div>
+              {importResult.errors.length > 0 && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 max-h-40 overflow-y-auto">
+                  <ul className="text-xs divide-y divide-amber-500/10">
+                    {importResult.errors.map((e, i) => (
+                      <li key={i} className="px-3 py-1.5">
+                        <span className="font-bold">行 {e.row}:</span> {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
             </div>
           )}
         </CardContent>
