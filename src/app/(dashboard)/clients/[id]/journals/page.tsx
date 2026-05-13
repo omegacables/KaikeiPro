@@ -16,6 +16,8 @@ import {
   FileSpreadsheet,
   Download,
   AlertTriangle,
+  Banknote,
+  Sparkles,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +29,12 @@ import {
   type JournalImportRow,
   type JournalImportResult,
 } from "@/actions/journals";
+import {
+  analyzeBankCsv,
+  importBankJournalEntries,
+  type BankCsvSuggestion,
+  type BankImportResult,
+} from "@/actions/bank-csv-ai";
 import { getAccounts } from "@/actions/accounts";
 import { uploadReceipt } from "@/actions/receipt-storage";
 import { processReceiptOcr } from "@/actions/ocr";
@@ -238,6 +246,122 @@ export default function JournalsPage() {
       setImportParseError(err instanceof Error ? err.message : "インポートに失敗しました");
     } finally {
       setImporting(false);
+    }
+  };
+
+  // ---- 銀行CSV AIインポート state ----
+  type EditableSuggestion = BankCsvSuggestion & { selected: boolean };
+  const [bankFile, setBankFile] = useState<File | null>(null);
+  const [bankAnalyzing, setBankAnalyzing] = useState(false);
+  const [bankSuggestions, setBankSuggestions] = useState<EditableSuggestion[]>([]);
+  const [bankWarnings, setBankWarnings] = useState<string[]>([]);
+  const [bankParseError, setBankParseError] = useState<string | null>(null);
+  const [bankImporting, setBankImporting] = useState(false);
+  const [bankResult, setBankResult] = useState<BankImportResult | null>(null);
+  const bankInputRef = useRef<HTMLInputElement>(null);
+
+  const parseBankFile = async (file: File): Promise<{ header: string[]; rows: string[][] }> => {
+    const ext = file.name.split(".").pop()?.toLowerCase();
+    if (ext === "csv") {
+      const text = await file.text();
+      const lines = text.replace(/﻿/g, "").split(/\r?\n/).filter((l) => l.trim());
+      if (lines.length === 0) return { header: [], rows: [] };
+      const splitCsv = (line: string) => line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
+      return {
+        header: splitCsv(lines[0]),
+        rows: lines.slice(1).map(splitCsv),
+      };
+    }
+    if (ext === "xlsx" || ext === "xlsm") {
+      const ExcelJS = (await import("exceljs")).default;
+      const buffer = await file.arrayBuffer();
+      const wb = new ExcelJS.Workbook();
+      await wb.xlsx.load(buffer);
+      const sheet = wb.worksheets[0];
+      if (!sheet) return { header: [], rows: [] };
+      const allRows: string[][] = [];
+      sheet.eachRow((row) => {
+        const values = row.values as unknown[];
+        const cols: string[] = [];
+        for (let i = 1; i < values.length; i++) {
+          const x = values[i];
+          if (x == null) cols.push("");
+          else if (x instanceof Date) cols.push(x.toISOString().slice(0, 10));
+          else cols.push(String(x));
+        }
+        allRows.push(cols);
+      });
+      if (allRows.length === 0) return { header: [], rows: [] };
+      return { header: allRows[0], rows: allRows.slice(1) };
+    }
+    throw new Error("対応形式: .csv / .xlsx");
+  };
+
+  const handleBankFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setBankFile(file);
+    setBankSuggestions([]);
+    setBankWarnings([]);
+    setBankParseError(null);
+    setBankResult(null);
+
+    setBankAnalyzing(true);
+    try {
+      const { header, rows } = await parseBankFile(file);
+      if (rows.length === 0) throw new Error("有効なデータ行が見つかりません");
+
+      const analysis = await analyzeBankCsv(id, header, rows);
+      setBankSuggestions(
+        analysis.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 }))
+      );
+      setBankWarnings(analysis.warnings);
+    } catch (err) {
+      setBankParseError(err instanceof Error ? err.message : "AI解析に失敗しました");
+    } finally {
+      setBankAnalyzing(false);
+    }
+  };
+
+  const handleClearBank = () => {
+    setBankFile(null);
+    setBankSuggestions([]);
+    setBankWarnings([]);
+    setBankParseError(null);
+    setBankResult(null);
+    if (bankInputRef.current) bankInputRef.current.value = "";
+  };
+
+  const updateSuggestion = (rowIdx: number, patch: Partial<EditableSuggestion>) => {
+    setBankSuggestions((prev) =>
+      prev.map((s) => (s.rowIdx === rowIdx ? { ...s, ...patch } : s))
+    );
+  };
+
+  const handleBankImport = async () => {
+    const selected = bankSuggestions.filter((s) => s.selected);
+    if (selected.length === 0) return;
+    setBankImporting(true);
+    try {
+      const result = await importBankJournalEntries(
+        id,
+        selected.map((s) => ({
+          date: s.date,
+          debitAccountCode: s.debitAccountCode,
+          creditAccountCode: s.creditAccountCode,
+          amount: s.amount,
+          description: s.memo,
+        }))
+      );
+      setBankResult(result);
+      if (result.errors.length === 0) {
+        // 全件成功時はクリア
+        handleClearBank();
+      }
+    } catch (err) {
+      setBankParseError(err instanceof Error ? err.message : "登録に失敗しました");
+    } finally {
+      setBankImporting(false);
     }
   };
 
@@ -886,6 +1010,255 @@ export default function JournalsPage() {
                 <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 max-h-40 overflow-y-auto">
                   <ul className="text-xs divide-y divide-amber-500/10">
                     {importResult.errors.map((e, i) => (
+                      <li key={i} className="px-3 py-1.5">
+                        <span className="font-bold">行 {e.row}:</span> {e.message}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* 銀行取引CSV → AI仕訳 */}
+      <Card className="mb-6 border-dashed border-primary/40">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-base flex items-center gap-2">
+            <Banknote className="size-5 text-primary" />
+            銀行取引CSV
+            <span className="inline-flex items-center gap-1 text-xs font-normal text-primary bg-primary/10 rounded px-1.5 py-0.5">
+              <Sparkles className="size-3" />
+              AI仕訳
+            </span>
+          </CardTitle>
+          <p className="text-muted-foreground text-xs mt-1">
+            銀行明細のCSV/Excel（フォーマット任意・最大50行）をアップロードすると、AIが摘要を解析して仕訳を自動提案します。
+          </p>
+        </CardHeader>
+        <CardContent>
+          <input
+            ref={bankInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xlsm"
+            onChange={handleBankFileSelect}
+            className="hidden"
+          />
+
+          <div className="flex flex-col md:flex-row gap-4">
+            <div className="flex-1 min-w-0">
+              {bankFile ? (
+                <div className="relative flex items-center gap-3 p-4 rounded-lg border border-border bg-muted/30">
+                  <Banknote className="size-8 text-primary shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium truncate">{bankFile.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(bankFile.size / 1024).toFixed(0)} KB
+                      {bankAnalyzing && " / AI解析中..."}
+                      {!bankAnalyzing && bankSuggestions.length > 0 && ` / ${bankSuggestions.length}件の仕訳候補`}
+                    </p>
+                  </div>
+                  {!bankAnalyzing && !bankImporting && (
+                    <button
+                      onClick={handleClearBank}
+                      className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
+                    >
+                      <X className="size-3.5" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div
+                  className="flex items-center justify-center gap-3 p-6 cursor-pointer transition-all rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
+                  onClick={() => bankInputRef.current?.click()}
+                >
+                  <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                    <Upload className="size-5" />
+                  </div>
+                  <div>
+                    <p className="text-sm font-medium text-foreground">
+                      銀行明細CSV / Excel ファイルを選択
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-0.5">
+                      列の並びは自由 / 日付・摘要・金額が含まれていればAIが自動マッピング
+                    </p>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-end shrink-0">
+              <Button
+                size="sm"
+                onClick={handleBankImport}
+                disabled={bankSuggestions.length === 0 || bankImporting || bankAnalyzing}
+              >
+                {bankImporting ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" />
+                    登録中...
+                  </>
+                ) : (
+                  <>
+                    <Plus className="size-4" />
+                    選択行を一括登録（{bankSuggestions.filter((s) => s.selected).length}件）
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+
+          {bankAnalyzing && (
+            <div className="mt-4 p-3 rounded-lg bg-primary/5 border border-primary/20 flex items-center gap-2">
+              <Loader2 className="size-4 animate-spin text-primary" />
+              <p className="text-sm">AIが摘要・取引内容を解析中... (10〜30秒)</p>
+            </div>
+          )}
+
+          {/* AIプレビュー */}
+          {bankSuggestions.length > 0 && (
+            <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-xs">
+                <thead className="bg-muted/30 sticky top-0">
+                  <tr>
+                    <th className="px-2 py-1.5 w-8">
+                      <input
+                        type="checkbox"
+                        checked={bankSuggestions.every((s) => s.selected)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setBankSuggestions((prev) => prev.map((s) => ({ ...s, selected: checked })));
+                        }}
+                      />
+                    </th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">日付</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">摘要</th>
+                    <th className="text-right px-2 py-1.5 font-bold text-muted-foreground">金額</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">借方</th>
+                    <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">貸方</th>
+                    <th className="text-center px-2 py-1.5 font-bold text-muted-foreground">信頼度</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {bankSuggestions.map((s) => (
+                    <tr
+                      key={s.rowIdx}
+                      className={cn(
+                        "border-t border-border/50",
+                        !s.selected && "opacity-50"
+                      )}
+                    >
+                      <td className="px-2 py-1 text-center">
+                        <input
+                          type="checkbox"
+                          checked={s.selected}
+                          onChange={(e) => updateSuggestion(s.rowIdx, { selected: e.target.checked })}
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="date"
+                          value={s.date}
+                          onChange={(e) => updateSuggestion(s.rowIdx, { date: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-28"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="text"
+                          value={s.memo}
+                          onChange={(e) => updateSuggestion(s.rowIdx, { memo: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-full"
+                        />
+                      </td>
+                      <td className="px-2 py-1 text-right">
+                        <input
+                          type="number"
+                          value={s.amount}
+                          onChange={(e) => updateSuggestion(s.rowIdx, { amount: Number(e.target.value) })}
+                          className="bg-transparent border-0 text-xs w-24 text-right"
+                        />
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="text"
+                          value={s.debitAccountCode}
+                          onChange={(e) => updateSuggestion(s.rowIdx, { debitAccountCode: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-16"
+                          title={s.debitAccountName}
+                        />
+                        <span className="text-muted-foreground text-[10px] block">{s.debitAccountName}</span>
+                      </td>
+                      <td className="px-2 py-1">
+                        <input
+                          type="text"
+                          value={s.creditAccountCode}
+                          onChange={(e) => updateSuggestion(s.rowIdx, { creditAccountCode: e.target.value })}
+                          className="bg-transparent border-0 text-xs w-16"
+                          title={s.creditAccountName}
+                        />
+                        <span className="text-muted-foreground text-[10px] block">{s.creditAccountName}</span>
+                      </td>
+                      <td className="px-2 py-1 text-center">
+                        <span className={cn(
+                          "inline-block px-1.5 py-0.5 rounded text-[10px]",
+                          s.confidence >= 0.7 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" :
+                          s.confidence >= 0.5 ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
+                          "bg-destructive/10 text-destructive"
+                        )}>
+                          {(s.confidence * 100).toFixed(0)}%
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* 警告 */}
+          {bankWarnings.length > 0 && (
+            <div className="mt-3 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 max-h-40 overflow-y-auto">
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">AI警告:</p>
+              <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+                {bankWarnings.map((w, i) => (
+                  <li key={i}>・{w}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {/* パースエラー */}
+          {bankParseError && (
+            <div className="mt-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-sm text-destructive">{bankParseError}</p>
+            </div>
+          )}
+
+          {/* 登録結果 */}
+          {bankResult && (
+            <div className="mt-3 space-y-2">
+              <div className={cn(
+                "p-2.5 rounded-lg border flex items-center gap-2",
+                bankResult.errors.length === 0
+                  ? "bg-emerald-500/10 border-emerald-500/20"
+                  : "bg-amber-500/10 border-amber-500/20"
+              )}>
+                {bankResult.errors.length === 0 ? (
+                  <Check className="size-4 text-emerald-600 shrink-0" />
+                ) : (
+                  <AlertTriangle className="size-4 text-amber-600 shrink-0" />
+                )}
+                <p className="text-sm">
+                  {bankResult.created} 件登録（status: draft）
+                  {bankResult.errors.length > 0 && ` / ${bankResult.errors.length} 件エラー`}
+                </p>
+              </div>
+              {bankResult.errors.length > 0 && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 max-h-40 overflow-y-auto">
+                  <ul className="text-xs divide-y divide-amber-500/10">
+                    {bankResult.errors.map((e, i) => (
                       <li key={i} className="px-3 py-1.5">
                         <span className="font-bold">行 {e.row}:</span> {e.message}
                       </li>

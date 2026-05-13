@@ -43,7 +43,8 @@ const clientNav = [
   { href: "/tax", label: "消費税計算", icon: Percent },
   { href: "/closing", label: "決算処理", icon: Archive },
   { href: "/payments", label: "入金消込", icon: Wallet },
-  { href: "/bank-transactions", label: "口座取引", icon: Banknote },
+  // 銀行連携は一旦非表示（コードは残す。仕訳入力ページのCSV取込で代替）
+  // { href: "/bank-transactions", label: "口座取引", icon: Banknote },
   { href: "/card-transactions", label: "カード取引", icon: CreditCard },
   { href: "/partners", label: "取引先管理", icon: Handshake },
   { href: "/questions", label: "質問管理", icon: MessageSquare },

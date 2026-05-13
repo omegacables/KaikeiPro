@@ -1309,6 +1309,8 @@ export default function SettingsPage() {
                         );
                       })()}
                     </div>
+                    {/* 銀行API連携の行は一旦非表示 */}
+                    {false && (
                     <div className="flex items-center gap-4 p-4 rounded-lg border border-border">
                       <div className="p-2 rounded-lg bg-primary/10 text-primary">
                         <Banknote className="size-5" />
@@ -1327,11 +1329,13 @@ export default function SettingsPage() {
                         <Badge variant="muted">未接続</Badge>
                       )}
                     </div>
+                    )}
                   </div>
                 </CardContent>
               </Card>
 
-              {/* Aggregation provider connection */}
+              {/* Aggregation provider connection — 一旦非表示 */}
+              {false && (
               <Card>
                 <CardHeader>
                   <CardTitle>アグリゲーションサービス接続</CardTitle>
@@ -1696,8 +1700,10 @@ export default function SettingsPage() {
                   </div>
                 </CardContent>
               </Card>
+              )}
 
-              {/* Bank accounts management panel */}
+              {/* Bank accounts management panel — 一旦非表示 */}
+              {false && (
               <Card>
                 <CardHeader>
                   <div className="flex items-center justify-between">
@@ -1884,6 +1890,7 @@ export default function SettingsPage() {
                   )}
                 </CardContent>
               </Card>
+              )}
 
               {/* Credit card management panel */}
               <Card>

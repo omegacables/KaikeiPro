@@ -75,7 +75,8 @@ const WIDGET_DEFINITIONS: {
   href: string;
 }[] = [
   { key: "calendar", label: "税務カレンダー", desc: "次回の申告期限・届出予定を確認", icon: Calendar, href: "/clients" },
-  { key: "bank", label: "口座残高サマリー", desc: "登録口座の最新残高を一覧表示", icon: Banknote, href: "/settings" },
+  // 銀行連携は一旦非表示
+  // { key: "bank", label: "口座残高サマリー", desc: "登録口座の最新残高を一覧表示", icon: Banknote, href: "/settings" },
   { key: "invoices", label: "請求書ステータス", desc: "未送信・未入金の請求書を確認", icon: FileText, href: "/clients" },
   { key: "ai_review", label: "AI仕訳レビュー", desc: "AIが提案した仕訳の確認待ち一覧", icon: Calculator, href: "/clients" },
 ];
@@ -278,7 +279,8 @@ const clientMenuItems = [
   { href: "assets", label: "固定資産台帳", icon: Landmark, desc: "資産管理・償却計算" },
   { href: "invoices", label: "請求書管理", icon: FileText, desc: "請求書作成・発行履歴" },
   { href: "payments", label: "入金消込", icon: CreditCard, desc: "入金照合・消込処理" },
-  { href: "bank-transactions", label: "口座取引", icon: Banknote, desc: "銀行口座の取引照合・仕訳連携" },
+  // 銀行連携は一旦非表示（CSVインポートは仕訳入力ページに統合）
+  // { href: "bank-transactions", label: "口座取引", icon: Banknote, desc: "銀行口座の取引照合・仕訳連携" },
   { href: "partners", label: "取引先管理", icon: Handshake, desc: "得意先・仕入先・インボイス登録" },
 ];
 
