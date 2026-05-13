@@ -67,7 +67,7 @@ const clientTabs = [
 
 const defaultMembers: { id: string; name: string; email: string; role: string; active: boolean }[] = [];
 
-type ProviderKey = "moneytree" | "moneyforward" | "zaim";
+type ProviderKey = "moneyforward" | "zaim";
 
 type ProviderInfo = {
   key: ProviderKey;
@@ -87,21 +87,11 @@ type ProviderConnectionForm = {
 };
 
 const providerAuthUrls: Record<ProviderKey, string> = {
-  moneytree: "https://link.getmoneytree.com",
   moneyforward: "https://account.moneyforward.com",
   zaim: "https://auth.zaim.net",
 };
 
 const providerApiDocs: Record<ProviderKey, { keyLabel: string; keyPlaceholder: string; instructions: string[] }> = {
-  moneytree: {
-    keyLabel: "Moneytree LINK APIキー",
-    keyPlaceholder: "mtl_live_xxxxxxxxxxxxxxxxxxxx",
-    instructions: [
-      "1. Moneytree LINK 開発者ポータルにログイン",
-      "2. 「アプリケーション設定」からAPIキーを取得",
-      "3. コールバックURLに https://app.raqto.com/api/callback/moneytree を登録",
-    ],
-  },
   moneyforward: {
     keyLabel: "マネーフォワード クラウドAPIキー",
     keyPlaceholder: "mf_xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
@@ -131,13 +121,6 @@ const syncIntervalLabels: Record<string, string> = {
 
 
 const defaultProviders: ProviderInfo[] = [
-  {
-    key: "moneytree",
-    name: "Moneytree LINK",
-    description: "2,500以上の金融機関に対応。メガバンク・地方銀行・信用金庫まで幅広くカバー。",
-    features: ["メガバンク", "地方銀行", "信用金庫", "ネット銀行"],
-    connected: false,
-  },
   {
     key: "moneyforward",
     name: "マネーフォワード クラウド",
