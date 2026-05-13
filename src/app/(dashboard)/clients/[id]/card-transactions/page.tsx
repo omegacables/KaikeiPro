@@ -128,7 +128,7 @@ export default function CardTransactionsPage({
           card_number_masked: c.card_number_masked,
         }))
       );
-      setTransactions(txns as TransactionRow[]);
+      setTransactions(txns as unknown as TransactionRow[]);
     } catch {
       // DB not available
     } finally {

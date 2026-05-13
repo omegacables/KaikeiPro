@@ -48,9 +48,9 @@ function ChangeSummary({ action, oldData, newData }: { action: string; oldData: 
     const d = newData as Record<string, unknown>;
     return (
       <div className="text-xs text-muted-foreground">
-        {d.description && <span>摘要: {String(d.description)}</span>}
-        {d.entry_date && <span className="ml-3">日付: {String(d.entry_date)}</span>}
-        {d.status && <span className="ml-3">状態: {String(d.status)}</span>}
+        {!!d.description && <span>摘要: {String(d.description)}</span>}
+        {!!d.entry_date && <span className="ml-3">日付: {String(d.entry_date)}</span>}
+        {!!d.status && <span className="ml-3">状態: {String(d.status)}</span>}
       </div>
     );
   }
@@ -74,8 +74,8 @@ function ChangeSummary({ action, oldData, newData }: { action: string; oldData: 
     const d = oldData as Record<string, unknown>;
     return (
       <div className="text-xs text-muted-foreground">
-        {d.description && <span>摘要: {String(d.description)}</span>}
-        {d.entry_date && <span className="ml-3">日付: {String(d.entry_date)}</span>}
+        {!!d.description && <span>摘要: {String(d.description)}</span>}
+        {!!d.entry_date && <span className="ml-3">日付: {String(d.entry_date)}</span>}
       </div>
     );
   }
