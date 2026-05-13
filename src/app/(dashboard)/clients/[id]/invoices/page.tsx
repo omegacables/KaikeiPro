@@ -24,7 +24,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
-import { getInvoices, createInvoice, deleteInvoice, deleteAllInvoices } from "@/actions/invoices";
+import { getInvoices, createInvoice, deleteInvoice, deleteAllInvoices, issueInvoiceWithJournal } from "@/actions/invoices";
 import { getPartners } from "@/actions/partners";
 import { importRaqtoSalesOrders, type RaqtoSyncResult } from "@/actions/raqto-sync";
 
@@ -101,7 +101,21 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
   ]);
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [issuingId, setIssuingId] = useState<string | null>(null);
   const [clearingAll, setClearingAll] = useState(false);
+
+  const handleIssueInvoice = async (invoiceId: string) => {
+    if (!confirm("この請求書を発行し、売掛金の仕訳を自動作成しますか？")) return;
+    setIssuingId(invoiceId);
+    try {
+      await issueInvoiceWithJournal(invoiceId);
+      refetch();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "発行に失敗しました");
+    } finally {
+      setIssuingId(null);
+    }
+  };
 
   const handleDeleteInvoice = async (invoiceId: string) => {
     if (!confirm("この請求書を削除しますか？")) return;
@@ -537,6 +551,9 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
                   受発注
                 </th>
+                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
+                  発行
+                </th>
                 <th className="w-12" />
               </tr>
             </thead>
@@ -586,6 +603,20 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
                       })() : <span className="text-muted-foreground">-</span>}
                     </td>
                     <td className="px-4 py-3 text-center">
+                      {inv.status === "draft" && (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={issuingId === inv.id}
+                          onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id); }}
+                          className="text-xs"
+                        >
+                          {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                          発行
+                        </Button>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-center">
                       <button
                         onClick={(e) => { e.stopPropagation(); handleDeleteInvoice(inv.id); }}
                         disabled={deletingId === inv.id}
@@ -600,7 +631,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
               {filteredInvoices.length === 0 && (
                 <tr>
                   <td
-                    colSpan={10}
+                    colSpan={11}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     該当する請求書が見つかりません

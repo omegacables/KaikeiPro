@@ -58,6 +58,13 @@ import { deleteJournalEntries } from "@/actions/journals";
 import { getReceipt } from "@/actions/receipts";
 import { getAssets } from "@/actions/assets";
 import type { Database } from "@/types/database";
+import {
+  getReceivablesByPartner,
+  getAgingReport,
+  type PartnerReceivable,
+  type AgingReportRow,
+  type AgingBuckets,
+} from "@/actions/invoices";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -832,6 +839,8 @@ export default function LedgersPage() {
   const [accountList, setAccountList] = useState<string[]>([]);
   const [glData, setGlData] = useState<GeneralLedgerRow[]>([]);
   const [subLedgerData, setSubLedgerData] = useState<GeneralLedgerRow[]>([]);
+  const [partnerReceivables, setPartnerReceivables] = useState<PartnerReceivable[]>([]);
+  const [agingReport, setAgingReport] = useState<AgingReportRow[]>([]);
 
   // Fixed assets data
   const [assetsData, setAssetsData] = useState<AssetDisplay[]>([]);
@@ -1036,6 +1045,18 @@ export default function LedgersPage() {
   useEffect(() => {
     if (activeTab === "assets") {
       getAssets(id).then(mapAssetRows).then(setAssetsData).catch(console.error);
+    }
+  }, [activeTab, id]);
+
+  useEffect(() => {
+    if (activeTab === "receivable") {
+      Promise.all([
+        getReceivablesByPartner(id).catch(() => [] as PartnerReceivable[]),
+        getAgingReport(id).catch(() => [] as AgingReportRow[]),
+      ]).then(([partners, aging]) => {
+        setPartnerReceivables(partners);
+        setAgingReport(aging);
+      });
     }
   }, [activeTab, id]);
 
@@ -1495,11 +1516,102 @@ export default function LedgersPage() {
       )}
 
       {activeTab === "receivable" && (
-        <CashBookLedger
-          data={toCashBookRows(subLedgerData, true)}
-          inLabel="発生"
-          outLabel="回収"
-        />
+        <>
+          {/* 得意先別売掛残高 */}
+          {partnerReceivables.length > 0 && (
+            <Card className="mb-6 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/10">
+                <Building2 className="size-4 text-primary" />
+                <h3 className="text-sm font-bold text-foreground">得意先別売掛残高</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/20 border-b border-border">
+                      <th className="text-left px-4 py-2 text-xs font-bold text-muted-foreground">得意先</th>
+                      <th className="text-right px-4 py-2 text-xs font-bold text-muted-foreground">売掛残高</th>
+                      <th className="text-right px-4 py-2 text-xs font-bold text-muted-foreground">うち期日超過</th>
+                      <th className="text-right px-4 py-2 text-xs font-bold text-muted-foreground">最大遅延日数</th>
+                      <th className="text-center px-4 py-2 text-xs font-bold text-muted-foreground">ステータス</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {partnerReceivables.map((p) => (
+                      <tr key={p.partnerId} className="border-b border-border last:border-0 hover:bg-muted/10">
+                        <td className="px-4 py-2 font-medium text-foreground">{p.partnerName}</td>
+                        <td className="px-4 py-2 text-right font-mono font-bold text-foreground">{formatCurrency(p.remaining)}</td>
+                        <td className={cn("px-4 py-2 text-right font-mono", p.overdueAmount > 0 ? "text-destructive font-bold" : "text-muted-foreground")}>
+                          {p.overdueAmount > 0 ? formatCurrency(p.overdueAmount) : "-"}
+                        </td>
+                        <td className={cn("px-4 py-2 text-right", p.maxDaysOverdue > 0 ? "text-destructive font-bold" : "text-muted-foreground")}>
+                          {p.maxDaysOverdue > 0 ? `${p.maxDaysOverdue}日` : "-"}
+                        </td>
+                        <td className="px-4 py-2 text-center">
+                          {p.overdueAmount > 0
+                            ? <Badge variant="destructive">期日超過</Badge>
+                            : <Badge variant="success">正常</Badge>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {/* エージングレポート（年齢表） */}
+          {agingReport.length > 0 && (
+            <Card className="mb-6 overflow-hidden">
+              <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/10">
+                <Calendar className="size-4 text-primary" />
+                <h3 className="text-sm font-bold text-foreground">エージングレポート（年齢表）</h3>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="bg-muted/20 border-b border-border">
+                      <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">得意先</th>
+                      <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">未到来</th>
+                      <th className="text-right px-3 py-2 text-xs font-bold text-warning">0〜30日</th>
+                      <th className="text-right px-3 py-2 text-xs font-bold text-warning">31〜60日</th>
+                      <th className="text-right px-3 py-2 text-xs font-bold text-destructive">61〜90日</th>
+                      <th className="text-right px-3 py-2 text-xs font-bold text-destructive">90日超</th>
+                      <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">合計</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {agingReport.map((row) => (
+                      <tr key={row.partnerId} className="border-b border-border last:border-0 hover:bg-muted/10">
+                        <td className="px-3 py-2 font-medium text-foreground">{row.partnerName}</td>
+                        <td className="px-3 py-2 text-right font-mono text-muted-foreground">{row.buckets.current > 0 ? formatCurrency(row.buckets.current) : "-"}</td>
+                        <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d0_30 > 0 ? "text-warning" : "text-muted-foreground")}>{row.buckets.d0_30 > 0 ? formatCurrency(row.buckets.d0_30) : "-"}</td>
+                        <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d31_60 > 0 ? "text-warning" : "text-muted-foreground")}>{row.buckets.d31_60 > 0 ? formatCurrency(row.buckets.d31_60) : "-"}</td>
+                        <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d61_90 > 0 ? "text-destructive" : "text-muted-foreground")}>{row.buckets.d61_90 > 0 ? formatCurrency(row.buckets.d61_90) : "-"}</td>
+                        <td className={cn("px-3 py-2 text-right font-mono font-bold", row.buckets.over90 > 0 ? "text-destructive" : "text-muted-foreground")}>{row.buckets.over90 > 0 ? formatCurrency(row.buckets.over90) : "-"}</td>
+                        <td className="px-3 py-2 text-right font-mono font-bold text-foreground">{formatCurrency(row.total)}</td>
+                      </tr>
+                    ))}
+                    <tr className="border-t-2 border-border bg-muted/20 font-bold">
+                      <td className="px-3 py-2 text-foreground text-xs">合計</td>
+                      {(["current", "d0_30", "d31_60", "d61_90", "over90"] as (keyof AgingBuckets)[]).map((k) => {
+                        const total = agingReport.reduce((s, r) => s + r.buckets[k], 0);
+                        return <td key={k} className="px-3 py-2 text-right font-mono text-xs">{total > 0 ? formatCurrency(total) : "-"}</td>;
+                      })}
+                      <td className="px-3 py-2 text-right font-mono text-xs">{formatCurrency(agingReport.reduce((s, r) => s + r.total, 0))}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </Card>
+          )}
+
+          {/* 売掛帳（総勘定元帳） */}
+          <CashBookLedger
+            data={toCashBookRows(subLedgerData, true)}
+            inLabel="発生"
+            outLabel="回収"
+          />
+        </>
       )}
 
       {activeTab === "payable" && (

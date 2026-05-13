@@ -18,7 +18,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
-import { getPayments, createPayment, allocatePayment } from "@/actions/payments";
+import { getPayments, createPayment, allocatePayment, autoMatchBankDeposits } from "@/actions/payments";
 import { getPartners } from "@/actions/partners";
 import { getUnpaidInvoices } from "@/actions/invoices";
 
@@ -55,6 +55,7 @@ export default function PaymentsPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [autoMatching, setAutoMatching] = useState(false);
   const [partnerList, setPartnerList] = useState<{ id: string; name: string }[]>([]);
   const [newPayment, setNewPayment] = useState({
     payment_date: "",
@@ -69,6 +70,25 @@ export default function PaymentsPage() {
       const ps = await getPartners(id);
       setPartnerList(ps.map((p) => ({ id: p.id, name: p.name })));
     } catch { /* ignore */ }
+  }
+
+  async function handleAutoMatch() {
+    if (!confirm("銀行入金データから自動消込を実行しますか？")) return;
+    setAutoMatching(true);
+    try {
+      const result = await autoMatchBankDeposits(id);
+      if (result.matched > 0) {
+        alert(`${result.matched}件を自動消込しました。${result.skipped > 0 ? `（${result.skipped}件はマッチなし）` : ""}`);
+      } else {
+        alert("自動消込できる入金データが見つかりませんでした。");
+      }
+      refetch();
+      refetchInvoices();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "自動消込に失敗しました");
+    } finally {
+      setAutoMatching(false);
+    }
   }
 
   async function handleCreatePayment(e: React.FormEvent) {
@@ -206,10 +226,16 @@ export default function PaymentsPage() {
             入金と請求書の照合・消込処理
           </p>
         </div>
-        <Button onClick={() => { setShowNewForm(!showNewForm); if (!showNewForm) loadPartners(); }}>
-          <Plus className="size-4" />
-          入金登録
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" onClick={handleAutoMatch} disabled={autoMatching}>
+            {autoMatching ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
+            銀行入金から自動消込
+          </Button>
+          <Button onClick={() => { setShowNewForm(!showNewForm); if (!showNewForm) loadPartners(); }}>
+            <Plus className="size-4" />
+            入金登録
+          </Button>
+        </div>
       </div>
 
       {showNewForm && (

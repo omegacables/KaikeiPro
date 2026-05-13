@@ -1366,6 +1366,52 @@ export interface Database {
         };
         Relationships: [];
       };
+      moneytree_connections: {
+        Row: {
+          id: string;
+          client_id: string;
+          access_token: string;
+          refresh_token: string | null;
+          expires_at: string;
+          scope: string | null;
+          moneytree_customer_id: string | null;
+          is_active: boolean;
+          connected_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          access_token: string;
+          refresh_token?: string | null;
+          expires_at: string;
+          scope?: string | null;
+          moneytree_customer_id?: string | null;
+          is_active?: boolean;
+          connected_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          access_token?: string;
+          refresh_token?: string | null;
+          expires_at?: string;
+          scope?: string | null;
+          moneytree_customer_id?: string | null;
+          is_active?: boolean;
+          connected_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "moneytree_connections_client_id_fkey";
+            columns: ["client_id"];
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
     };
     Views: {};
     Functions: {

@@ -17,6 +17,9 @@ import {
   FileText,
   Bot,
   Sparkles,
+  Link2,
+  Link2Off,
+  RefreshCw,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -27,6 +30,12 @@ import {
   updateBankTransaction,
   createBankTransactions,
 } from "@/actions/bank";
+import {
+  getMoneytreeConnection,
+  disconnectMoneytree,
+  syncMoneytreeAccounts,
+  syncAllMoneytreeTransactions,
+} from "@/actions/moneytree";
 import {
   autoCreateJournalFromBankTransaction,
   autoCreateJournalsFromBankTransactions,
@@ -78,6 +87,8 @@ export default function BankTransactionsPage({
   const [updating, setUpdating] = useState<string | null>(null);
   const [showImportForm, setShowImportForm] = useState(false);
   const [importAccountId, setImportAccountId] = useState<string>("");
+  const [moneytreeConnected, setMoneytreeConnected] = useState(false);
+  const [mtSyncing, setMtSyncing] = useState(false);
   const [aiProcessing, setAiProcessing] = useState<string | null>(null);
   const [bulkAiProcessing, setBulkAiProcessing] = useState(false);
   const [csvText, setCsvText] = useState("");
@@ -159,12 +170,36 @@ export default function BankTransactionsPage({
     }
   };
 
+  const handleMoneytreeSync = async () => {
+    setMtSyncing(true);
+    try {
+      await syncMoneytreeAccounts(id);
+      await syncAllMoneytreeTransactions(id);
+      fetchData();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "同期に失敗しました");
+    } finally {
+      setMtSyncing(false);
+    }
+  };
+
+  const handleMoneytreeDisconnect = async () => {
+    if (!confirm("Moneytree連携を解除しますか？")) return;
+    try {
+      await disconnectMoneytree(id);
+      setMoneytreeConnected(false);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "連携解除に失敗しました");
+    }
+  };
+
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [accounts, txns] = await Promise.all([
+      const [accounts, txns, mtConn] = await Promise.all([
         getBankAccounts(id),
         getBankTransactionsByClient(id),
+        getMoneytreeConnection(id),
       ]);
       setBankAccountsList(
         accounts.map((a) => ({
@@ -175,6 +210,7 @@ export default function BankTransactionsPage({
         }))
       );
       setTransactions(txns as TransactionRow[]);
+      setMoneytreeConnected(!!mtConn);
     } catch {
       // DB not available
     } finally {
@@ -257,10 +293,32 @@ export default function BankTransactionsPage({
           <Banknote className="size-6 text-primary" />
           <h1 className="text-2xl font-bold text-foreground">口座取引</h1>
         </div>
-        <Button onClick={() => setShowImportForm((v) => !v)}>
-          <Download className="size-4" />
-          データ取込
-        </Button>
+        <div className="flex items-center gap-2">
+          {moneytreeConnected ? (
+            <>
+              <Button onClick={handleMoneytreeSync} disabled={mtSyncing} variant="outline" size="sm">
+                {mtSyncing ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+                Moneytree同期
+              </Button>
+              <Button onClick={handleMoneytreeDisconnect} variant="ghost" size="sm" className="text-destructive">
+                <Link2Off className="size-4" />
+                連携解除
+              </Button>
+            </>
+          ) : (
+            <a
+              href={`/api/moneytree/authorize?client_id=${id}`}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-border text-sm font-medium hover:bg-muted/20 transition-colors"
+            >
+              <Link2 className="size-4" />
+              Moneytree連携
+            </a>
+          )}
+          <Button onClick={() => setShowImportForm((v) => !v)}>
+            <Download className="size-4" />
+            データ取込
+          </Button>
+        </div>
       </div>
 
       {showImportForm && (
