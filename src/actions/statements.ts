@@ -55,17 +55,34 @@ export async function getTrialBalance(
   const supabase = createAdminSupabaseClient();
 
   // Get all accounts with their categories
-  const { data: accounts, error: accError } = await supabase
+  // pl_classification 列が未マイグレーションのDBでも動作するようフォールバックする
+  type AccRow = {
+    id: string;
+    code: string;
+    name: string;
+    pl_classification?: PlClassification | null;
+    account_categories: { type: string };
+  };
+
+  let accounts: AccRow[] | null = null;
+  const withPl = await supabase
     .from("accounts")
-    .select(`
-      id, code, name, pl_classification,
-      account_categories!inner ( type )
-    `)
+    .select(`id, code, name, pl_classification, account_categories!inner ( type )`)
     .or(`client_id.eq.${clientId},is_default.eq.true`)
     .eq("is_active", true)
     .order("code");
-
-  if (accError) throw new Error(accError.message);
+  if (!withPl.error) {
+    accounts = withPl.data as unknown as AccRow[];
+  } else {
+    const noPl = await supabase
+      .from("accounts")
+      .select(`id, code, name, account_categories!inner ( type )`)
+      .or(`client_id.eq.${clientId},is_default.eq.true`)
+      .eq("is_active", true)
+      .order("code");
+    if (noPl.error) throw new Error(noPl.error.message);
+    accounts = noPl.data as unknown as AccRow[];
+  }
 
   // Get all journal entry lines for this client within date range
   const { data: lines, error: linesError } = await supabase
