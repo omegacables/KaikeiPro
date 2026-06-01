@@ -257,6 +257,36 @@ export interface Database {
         };
         Relationships: [];
       };
+      inventory_counts: {
+        Row: {
+          id: string;
+          client_id: string;
+          count_date: string;
+          product_name: string;
+          quantity: number;
+          unit_price: number;
+          amount: number;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          count_date: string;
+          product_name: string;
+          quantity?: number;
+          unit_price?: number;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          count_date?: string;
+          product_name?: string;
+          quantity?: number;
+          unit_price?: number;
+        };
+        Relationships: [];
+      };
       sub_accounts: {
         Row: {
           id: string;

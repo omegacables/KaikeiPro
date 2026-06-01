@@ -11,6 +11,9 @@ import {
   TrendingUp,
   TrendingDown,
   Minus,
+  Plus,
+  Trash2,
+  Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -26,6 +29,12 @@ import {
   type MonthlyTrendMode,
   type InventoryScheduleRow,
 } from "@/actions/statements";
+import {
+  getInventoryCounts,
+  createInventoryCount,
+  updateInventoryCount,
+  deleteInventoryCount,
+} from "@/actions/inventory";
 
 type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 
@@ -748,6 +757,200 @@ function InventorySchedule({ data }: { data: InventoryScheduleRow[] }) {
   );
 }
 
+interface InventoryDraft {
+  id?: string;
+  count_date: string;
+  product_name: string;
+  quantity: number;
+  unit_price: number;
+  saving?: boolean;
+}
+
+// 実地棚卸表（品目別・手入力）: 棚卸日・商品名・数量・単価・金額（=数量×単価）
+function PhysicalInventory({ clientId }: { clientId: string }) {
+  const [rows, setRows] = useState<InventoryDraft[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let active = true;
+    setLoading(true);
+    getInventoryCounts(clientId)
+      .then((data) => {
+        if (!active) return;
+        setRows(
+          data.map((d) => ({
+            id: d.id,
+            count_date: d.count_date,
+            product_name: d.product_name,
+            quantity: d.quantity,
+            unit_price: d.unit_price,
+          }))
+        );
+      })
+      .catch((e) => console.error("Inventory counts fetch error:", e))
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [clientId]);
+
+  const today = new Date().toISOString().slice(0, 10);
+  const addRow = () =>
+    setRows((r) => [...r, { count_date: today, product_name: "", quantity: 0, unit_price: 0 }]);
+  const setField = (idx: number, patch: Partial<InventoryDraft>) =>
+    setRows((r) => r.map((row, i) => (i === idx ? { ...row, ...patch } : row)));
+
+  async function saveRow(idx: number) {
+    const row = rows[idx];
+    if (!row.product_name.trim()) {
+      alert("商品名を入力してください");
+      return;
+    }
+    setField(idx, { saving: true });
+    const input = {
+      count_date: row.count_date,
+      product_name: row.product_name.trim(),
+      quantity: Number(row.quantity) || 0,
+      unit_price: Number(row.unit_price) || 0,
+    };
+    try {
+      if (row.id) {
+        await updateInventoryCount(row.id, input);
+      } else {
+        const created = await createInventoryCount(clientId, input);
+        setField(idx, { id: created.id });
+      }
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setField(idx, { saving: false });
+    }
+  }
+
+  async function removeRow(idx: number) {
+    const row = rows[idx];
+    if (row.id) {
+      if (!confirm("この行を削除しますか？")) return;
+      try {
+        await deleteInventoryCount(row.id);
+      } catch (e) {
+        alert(e instanceof Error ? e.message : "削除に失敗しました");
+        return;
+      }
+    }
+    setRows((r) => r.filter((_, i) => i !== idx));
+  }
+
+  const total = rows.reduce((s, r) => s + (Number(r.quantity) || 0) * (Number(r.unit_price) || 0), 0);
+
+  if (loading) {
+    return (
+      <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
+        読み込み中...
+      </div>
+    );
+  }
+
+  const inputCls = "w-full px-2 py-1 rounded border border-neutral-300 text-sm";
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Button size="sm" onClick={addRow}>
+          <Plus className="size-4" />
+          行を追加
+        </Button>
+      </div>
+      <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
+        <table className="w-auto text-sm tabular-nums bg-white text-neutral-900">
+          <thead>
+            <tr className="border-b-2 border-neutral-400">
+              <th className="text-left px-3 py-1.5 text-xs font-bold">棚卸日</th>
+              <th className="text-left px-3 py-1.5 text-xs font-bold">商品名</th>
+              <th className="text-right px-3 py-1.5 text-xs font-bold">数量</th>
+              <th className="text-right px-3 py-1.5 text-xs font-bold">単価</th>
+              <th className="text-right px-3 py-1.5 text-xs font-bold">金額</th>
+              <th className="text-center px-3 py-1.5 text-xs font-bold">操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-3 py-8 text-center text-neutral-500">
+                  品目がありません。「行を追加」で入力してください。
+                </td>
+              </tr>
+            )}
+            {rows.map((row, idx) => {
+              const amount = (Number(row.quantity) || 0) * (Number(row.unit_price) || 0);
+              return (
+                <tr key={row.id ?? `draft-${idx}`} className="border-b border-neutral-200">
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="date"
+                      value={row.count_date}
+                      onChange={(e) => setField(idx, { count_date: e.target.value })}
+                      className={inputCls}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="text"
+                      value={row.product_name}
+                      onChange={(e) => setField(idx, { product_name: e.target.value })}
+                      placeholder="商品名"
+                      className={cn(inputCls, "min-w-[160px]")}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="number"
+                      value={row.quantity}
+                      onChange={(e) => setField(idx, { quantity: e.target.value === "" ? 0 : Number(e.target.value) })}
+                      className={cn(inputCls, "text-right w-24")}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <input
+                      type="number"
+                      value={row.unit_price}
+                      onChange={(e) => setField(idx, { unit_price: e.target.value === "" ? 0 : Number(e.target.value) })}
+                      className={cn(inputCls, "text-right w-28")}
+                    />
+                  </td>
+                  <td className="px-3 py-1.5 text-right font-mono font-bold whitespace-nowrap">
+                    {formatCurrency(amount)}
+                  </td>
+                  <td className="px-3 py-1.5">
+                    <div className="flex items-center justify-center gap-1">
+                      <Button size="sm" variant="outline" onClick={() => saveRow(idx)} disabled={row.saving}>
+                        {row.saving ? <Loader2 className="size-4 animate-spin" /> : "保存"}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => removeRow(idx)} disabled={row.saving}>
+                        <Trash2 className="size-4 text-destructive" />
+                      </Button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+            <tr className="font-bold border-t-2 border-neutral-400">
+              <td colSpan={4} className="px-3 py-2 text-right">合計</td>
+              <td className="px-3 py-2 text-right font-mono">{formatCurrency(total)}</td>
+              <td className="px-3 py-2" />
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        ※ 金額は「数量 × 単価」で自動計算されます。各行は「保存」で確定してください。
+      </p>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -770,6 +973,7 @@ export default function StatementsPage() {
   const [trendMode, setTrendMode] = useState<MonthlyTrendMode>("pl");
   const [trendMetric, setTrendMetric] = useState<TrendMetric>("amount");
   const [inventoryData, setInventoryData] = useState<InventoryScheduleRow[]>([]);
+  const [inventoryMode, setInventoryMode] = useState<"physical" | "journal">("physical");
 
   // 会計年度の開始月（4月始まり）を算出
   const fiscalYearStart = useMemo(() => {
@@ -911,7 +1115,35 @@ export default function StatementsPage() {
           onMetricChange={setTrendMetric}
         />
       )}
-      {activeTab === "inventory" && <InventorySchedule data={inventoryData} />}
+      {activeTab === "inventory" && (
+        <div className="space-y-4">
+          <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+            <button
+              onClick={() => setInventoryMode("physical")}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                inventoryMode === "physical" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              実地棚卸（品目別）
+            </button>
+            <button
+              onClick={() => setInventoryMode("journal")}
+              className={cn(
+                "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                inventoryMode === "journal" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              仕訳集計（金額）
+            </button>
+          </div>
+          {inventoryMode === "physical" ? (
+            <PhysicalInventory clientId={id} />
+          ) : (
+            <InventorySchedule data={inventoryData} />
+          )}
+        </div>
+      )}
 
       {/* Footer */}
       <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
