@@ -48,7 +48,7 @@ interface PLItem {
 // ---------------------------------------------------------------------------
 
 const tabConfig: { key: StatementTab; label: string }[] = [
-  { key: "trial_balance", label: "残高試算表" },
+  { key: "trial_balance", label: "合計残高試算表" },
   { key: "bs", label: "貸借対照表（B/S）" },
   { key: "pl", label: "損益計算書（P/L）" },
   { key: "monthly_trend", label: "月次推移表" },
@@ -59,6 +59,19 @@ const tabConfig: { key: StatementTab; label: string }[] = [
 // Sub-components
 // ---------------------------------------------------------------------------
 
+// 合計残高試算表（教科書レイアウト: 借方残高｜借方合計｜勘定科目｜貸方合計｜貸方残高）。
+// 前期繰越は開始残高として借方/貸方の合計に畳み込み、残高はマイナスを使わず借方/貸方に振り分ける。
+function trialBalanceColumns(row: TrialBalanceRow) {
+  const openingDebit = row.prevBalance > 0 ? row.prevBalance : 0;
+  const openingCredit = row.prevBalance < 0 ? -row.prevBalance : 0;
+  return {
+    debitBalance: row.debitBalance,
+    debitTotal: row.debitTotal + openingDebit,
+    creditTotal: row.creditTotal + openingCredit,
+    creditBalance: row.creditBalance,
+  };
+}
+
 function TrialBalance({ data }: { data: TrialBalanceRow[] }) {
   if (data.length === 0) {
     return (
@@ -67,94 +80,65 @@ function TrialBalance({ data }: { data: TrialBalanceRow[] }) {
       </div>
     );
   }
-  const categories: { key: string; label: string }[] = [
-    { key: "asset", label: "資産" },
-    { key: "liability", label: "負債" },
-    { key: "equity", label: "純資産" },
-    { key: "revenue", label: "収益" },
-    { key: "expense", label: "費用" },
-  ];
-
-  const debitTotalAll = data.reduce((s, r) => s + r.debitTotal, 0);
-  const creditTotalAll = data.reduce((s, r) => s + r.creditTotal, 0);
-  const debitBalanceAll = data.reduce((s, r) => s + r.debitBalance, 0);
-  const creditBalanceAll = data.reduce((s, r) => s + r.creditBalance, 0);
+  let debitBalanceAll = 0;
+  let debitTotalAll = 0;
+  let creditTotalAll = 0;
+  let creditBalanceAll = 0;
+  for (const r of data) {
+    const c = trialBalanceColumns(r);
+    debitBalanceAll += c.debitBalance;
+    debitTotalAll += c.debitTotal;
+    creditTotalAll += c.creditTotal;
+    creditBalanceAll += c.creditBalance;
+  }
+  const balanced = debitTotalAll === creditTotalAll && debitBalanceAll === creditBalanceAll;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full text-sm">
+    <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
+      <table className="w-auto text-sm tabular-nums bg-white text-neutral-900 [&_th]:border-r [&_th]:border-neutral-200 [&_td]:border-r [&_td]:border-neutral-200 [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0">
         <thead>
-          <tr className="bg-muted/20 border-b border-border">
-            <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">コード</th>
-            <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">勘定科目</th>
-            <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">借方合計</th>
-            <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">貸方合計</th>
-            <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">借方残高</th>
-            <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">貸方残高</th>
+          <tr className="border-b-2 border-neutral-400">
+            <th className="text-right px-3 py-1.5 text-xs font-bold">借方残高</th>
+            <th className="text-right px-3 py-1.5 text-xs font-bold">借方合計</th>
+            <th className="text-center px-3 py-1.5 text-xs font-bold">勘定科目</th>
+            <th className="text-right px-3 py-1.5 text-xs font-bold">貸方合計</th>
+            <th className="text-right px-3 py-1.5 text-xs font-bold">貸方残高</th>
           </tr>
         </thead>
         <tbody>
-          {categories.map((cat) => {
-            const rows = data.filter((r) => r.category === cat.key);
-            if (rows.length === 0) return null;
+          {data.map((row) => {
+            const c = trialBalanceColumns(row);
             return (
-              <TrialBalanceCategoryRows key={cat.key} label={cat.label} rows={rows} />
+              <tr key={row.code} className="border-b border-neutral-200">
+                <td className="px-3 py-1.5 text-right font-mono">{c.debitBalance > 0 ? formatCurrency(c.debitBalance) : ""}</td>
+                <td className="px-3 py-1.5 text-right font-mono">{c.debitTotal > 0 ? formatCurrency(c.debitTotal) : ""}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {row.name}<span className="font-mono text-xs text-neutral-500">（{row.code}）</span>
+                </td>
+                <td className="px-3 py-1.5 text-right font-mono">{c.creditTotal > 0 ? formatCurrency(c.creditTotal) : ""}</td>
+                <td className="px-3 py-1.5 text-right font-mono">{c.creditBalance > 0 ? formatCurrency(c.creditBalance) : ""}</td>
+              </tr>
             );
           })}
-          <tr className="bg-primary/5 font-bold border-t-2 border-primary/30">
-            <td colSpan={2} className="px-4 py-3 text-foreground text-sm">
+          <tr className="font-bold border-t-2 border-neutral-400">
+            <td className="px-3 py-2 text-right font-mono">{formatCurrency(debitBalanceAll)}</td>
+            <td className="px-3 py-2 text-right font-mono">{formatCurrency(debitTotalAll)}</td>
+            <td className="px-3 py-2 text-center">
               合計
             </td>
-            <td className="px-4 py-3 text-right font-mono">{formatCurrency(debitTotalAll)}</td>
-            <td className="px-4 py-3 text-right font-mono">{formatCurrency(creditTotalAll)}</td>
-            <td className="px-4 py-3 text-right font-mono">{formatCurrency(debitBalanceAll)}</td>
-            <td className="px-4 py-3 text-right font-mono">{formatCurrency(creditBalanceAll)}</td>
+            <td className="px-3 py-2 text-right font-mono">{formatCurrency(creditTotalAll)}</td>
+            <td className="px-3 py-2 text-right font-mono">{formatCurrency(creditBalanceAll)}</td>
           </tr>
           <tr>
-            <td colSpan={6} className="px-4 py-2 text-center">
-              <Badge variant={debitBalanceAll === creditBalanceAll ? "success" : "destructive"}>
-                {debitBalanceAll === creditBalanceAll ? "貸借一致" : "貸借不一致"}
+            <td colSpan={5} className="px-3 py-1.5 text-center">
+              <Badge variant={balanced ? "success" : "destructive"}>
+                {balanced ? "貸借一致" : "貸借不一致"}
               </Badge>
             </td>
           </tr>
         </tbody>
       </table>
     </div>
-  );
-}
-
-function TrialBalanceCategoryRows({ label, rows }: { label: string; rows: TrialBalanceRow[] }) {
-  const subtotalDebitTotal = rows.reduce((s, r) => s + r.debitTotal, 0);
-  const subtotalCreditTotal = rows.reduce((s, r) => s + r.creditTotal, 0);
-  const subtotalDebitBalance = rows.reduce((s, r) => s + r.debitBalance, 0);
-  const subtotalCreditBalance = rows.reduce((s, r) => s + r.creditBalance, 0);
-
-  return (
-    <>
-      <tr className="bg-muted/10 border-t border-border">
-        <td colSpan={6} className="px-4 py-2 text-xs font-bold text-primary uppercase">
-          {label}
-        </td>
-      </tr>
-      {rows.map((row) => (
-        <tr key={row.code} className="border-b border-border/50 bg-card hover:bg-muted/10 transition-colors">
-          <td className="px-4 py-2 font-mono text-xs text-muted-foreground">{row.code}</td>
-          <td className="px-4 py-2 text-foreground">{row.name}</td>
-          <td className="px-4 py-2 text-right font-mono">{row.debitTotal > 0 ? formatCurrency(row.debitTotal) : ""}</td>
-          <td className="px-4 py-2 text-right font-mono">{row.creditTotal > 0 ? formatCurrency(row.creditTotal) : ""}</td>
-          <td className="px-4 py-2 text-right font-mono font-bold">{row.debitBalance > 0 ? formatCurrency(row.debitBalance) : ""}</td>
-          <td className="px-4 py-2 text-right font-mono font-bold">{row.creditBalance > 0 ? formatCurrency(row.creditBalance) : ""}</td>
-        </tr>
-      ))}
-      <tr className="bg-muted/5 border-b border-border font-medium text-xs">
-        <td className="px-4 py-2" />
-        <td className="px-4 py-2 text-muted-foreground">{label}小計</td>
-        <td className="px-4 py-2 text-right font-mono">{subtotalDebitTotal > 0 ? formatCurrency(subtotalDebitTotal) : ""}</td>
-        <td className="px-4 py-2 text-right font-mono">{subtotalCreditTotal > 0 ? formatCurrency(subtotalCreditTotal) : ""}</td>
-        <td className="px-4 py-2 text-right font-mono font-bold">{subtotalDebitBalance > 0 ? formatCurrency(subtotalDebitBalance) : ""}</td>
-        <td className="px-4 py-2 text-right font-mono font-bold">{subtotalCreditBalance > 0 ? formatCurrency(subtotalCreditBalance) : ""}</td>
-      </tr>
-    </>
   );
 }
 
@@ -649,19 +633,17 @@ export default function StatementsPage() {
       </div>
 
       {/* Controls */}
-      <Card className="mb-6">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex flex-wrap items-center gap-4">
-            <div className="flex items-center gap-2">
-              <Calendar className="size-4 text-muted-foreground" />
-              <label className="text-xs text-muted-foreground font-bold">期間:</label>
-              <input
-                type="month"
-                value={period}
-                onChange={(e) => setPeriod(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-              />
-            </div>
+      <Card className="mb-4 w-fit">
+        <CardContent className="py-2 px-3">
+          <div className="flex items-center gap-2">
+            <Calendar className="size-4 text-muted-foreground" />
+            <label className="text-xs text-muted-foreground font-bold">期間:</label>
+            <input
+              type="month"
+              value={period}
+              onChange={(e) => setPeriod(e.target.value)}
+              className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-sm"
+            />
           </div>
         </CardContent>
       </Card>

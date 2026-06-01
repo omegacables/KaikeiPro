@@ -5,8 +5,10 @@ import { createAdminSupabaseClient } from "@/lib/supabase";
 export interface TrialBalanceRow {
   code: string;
   name: string;
-  debitTotal: number;
-  creditTotal: number;
+  prevBalance: number;     // 前期繰越残高（借方プラスの符号付き）
+  debitTotal: number;      // 当期 借方合計
+  creditTotal: number;     // 当期 貸方合計
+  currentBalance: number;  // 当期残高 = 前期繰越 + 借方合計 − 貸方合計（借方プラス）
   debitBalance: number;
   creditBalance: number;
   category: "asset" | "liability" | "equity" | "revenue" | "expense";
@@ -52,6 +54,28 @@ export async function getTrialBalance(
 
   if (linesError) throw new Error(linesError.message);
 
+  // 前期繰越: startDate より前の全仕訳の差引（借方プラス）
+  const dayBefore = new Date(startDate);
+  dayBefore.setDate(dayBefore.getDate() - 1);
+  const beforeDate = dayBefore.toISOString().slice(0, 10);
+
+  const { data: priorLines, error: priorError } = await supabase
+    .from("journal_entry_lines")
+    .select(`
+      account_id, debit_amount, credit_amount,
+      journal_entries!inner ( client_id, entry_date )
+    `)
+    .eq("journal_entries.client_id", clientId)
+    .lte("journal_entries.entry_date", beforeDate);
+
+  if (priorError) throw new Error(priorError.message);
+
+  const prevBalanceMap = new Map<string, number>();
+  for (const line of priorLines ?? []) {
+    const prev = prevBalanceMap.get(line.account_id) ?? 0;
+    prevBalanceMap.set(line.account_id, prev + line.debit_amount - line.credit_amount);
+  }
+
   // Aggregate by account
   const accountTotals = new Map<string, { debit: number; credit: number }>();
   for (const line of lines ?? []) {
@@ -71,32 +95,31 @@ export async function getTrialBalance(
 
   const rows: TrialBalanceRow[] = [];
   for (const acct of accounts ?? []) {
-    const totals = accountTotals.get(acct.id);
-    if (!totals) continue; // Skip accounts with no activity
+    const totals = accountTotals.get(acct.id) ?? { debit: 0, credit: 0 };
+    const prevBalance = prevBalanceMap.get(acct.id) ?? 0;
+
+    // 当期に動きが無く前期繰越も無い科目はスキップ
+    if (totals.debit === 0 && totals.credit === 0 && prevBalance === 0) continue;
 
     const cat = acct.account_categories as unknown as { type: string };
     const category = categoryMap[cat.type] ?? "expense";
 
+    const currentBalance = prevBalance + totals.debit - totals.credit;
+
     rows.push({
       code: acct.code,
       name: acct.name,
+      prevBalance,
       debitTotal: totals.debit,
       creditTotal: totals.credit,
-      debitBalance: 0,
-      creditBalance: 0,
+      currentBalance,
+      debitBalance: currentBalance > 0 ? currentBalance : 0,
+      creditBalance: currentBalance < 0 ? -currentBalance : 0,
       category,
     });
   }
 
-  // Balance: positive net (debit > credit) → debit balance, negative → credit balance
-  return rows.map((r) => {
-    const net = r.debitTotal - r.creditTotal;
-    return {
-      ...r,
-      debitBalance: net > 0 ? net : 0,
-      creditBalance: net < 0 ? -net : 0,
-    };
-  });
+  return rows;
 }
 
 // 棚卸関連の勘定科目名
