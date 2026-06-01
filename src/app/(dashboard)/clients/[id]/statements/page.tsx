@@ -1,7 +1,8 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
 import { useParams } from "next/navigation";
+import type { PlClassification } from "@/types/database";
 import {
   BarChart3,
   FileText,
@@ -272,11 +273,74 @@ function BalanceSheet({ trialData }: { trialData: TrialBalanceRow[] }) {
   );
 }
 
-function ProfitAndLoss({ trialData }: { trialData: TrialBalanceRow[] }) {
-  const revenueItems = trialData.filter((r) => r.category === "revenue");
-  const expenseItems = trialData.filter((r) => r.category === "expense");
+interface PLItemRow {
+  code: string;
+  name: string;
+  amount: number;
+}
 
-  if (revenueItems.length === 0 && expenseItems.length === 0) {
+// 損益計算書の区分（Ⅰ売上高 など）：見出し＋明細行
+function PLSectionRows({
+  numeral,
+  title,
+  items,
+  total,
+}: {
+  numeral: string;
+  title: string;
+  items: PLItemRow[];
+  total: number;
+}) {
+  return (
+    <>
+      <div className="flex items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border">
+        <span>{numeral ? `${numeral} ` : ""}{title}</span>
+        <span className="font-mono">{formatCurrency(total)}</span>
+      </div>
+      {items.map((it) => (
+        <div
+          key={it.code}
+          className="flex items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground"
+          style={{ paddingLeft: "24px", paddingRight: "8px" }}
+        >
+          <span>{it.name}</span>
+          <span className="font-mono">{formatCurrency(it.amount)}</span>
+        </div>
+      ))}
+    </>
+  );
+}
+
+// 段階利益の行（売上総利益・営業利益・経常利益・税引前当期純利益・当期純利益）
+function PLProfitRow({
+  label,
+  amount,
+  emphasize = false,
+}: {
+  label: string;
+  amount: number;
+  emphasize?: boolean;
+}) {
+  return (
+    <div
+      className={cn(
+        "flex items-center justify-between gap-8 px-2 font-bold text-foreground",
+        emphasize
+          ? "py-1.5 my-1 bg-primary/10 border-y-2 border-primary/30 rounded"
+          : "py-1 mt-1 border-y border-border bg-muted/30"
+      )}
+    >
+      <span>{label}</span>
+      <span className={cn("font-mono", amount >= 0 ? "text-success" : "text-destructive")}>
+        {formatCurrency(amount)}
+      </span>
+    </div>
+  );
+}
+
+function ProfitAndLoss({ trialData }: { trialData: TrialBalanceRow[] }) {
+  const hasData = trialData.some((r) => r.category === "revenue" || r.category === "expense");
+  if (!hasData) {
     return (
       <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
         データがありません
@@ -284,56 +348,90 @@ function ProfitAndLoss({ trialData }: { trialData: TrialBalanceRow[] }) {
     );
   }
 
-  const totalRevenue = revenueItems.reduce((s, r) => s + (r.creditBalance - r.debitBalance), 0);
-  const totalExpenses = expenseItems.reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
-  const operatingProfit = totalRevenue - totalExpenses;
+  const amountOf = (r: TrialBalanceRow) =>
+    r.category === "revenue"
+      ? r.creditBalance - r.debitBalance
+      : r.debitBalance - r.creditBalance;
+  const itemsOf = (cls: PlClassification): PLItemRow[] =>
+    trialData
+      .filter((r) => r.plClassification === cls)
+      .map((r) => ({ code: r.code, name: r.name, amount: amountOf(r) }));
+  const sum = (items: PLItemRow[]) => items.reduce((s, i) => s + i.amount, 0);
+
+  const sales = itemsOf("sales");
+  const cogs = itemsOf("cogs");
+  const sga = itemsOf("sga");
+  const nonOpRev = itemsOf("non_op_revenue");
+  const nonOpExp = itemsOf("non_op_expense");
+  const extraGain = itemsOf("extraordinary_gain");
+  const extraLoss = itemsOf("extraordinary_loss");
+  const tax = itemsOf("tax");
+
+  const salesT = sum(sales);
+  const cogsT = sum(cogs);
+  const sgaT = sum(sga);
+  const nonOpRevT = sum(nonOpRev);
+  const nonOpExpT = sum(nonOpExp);
+  const extraGainT = sum(extraGain);
+  const extraLossT = sum(extraLoss);
+  const taxT = sum(tax);
+
+  const grossProfit = salesT - cogsT;          // 売上総利益
+  const operatingProfit = grossProfit - sgaT;  // 営業利益
+  const ordinaryProfit = operatingProfit + nonOpRevT - nonOpExpT; // 経常利益
+  const pretaxProfit = ordinaryProfit + extraGainT - extraLossT;  // 税引前当期純利益
+  const netProfit = pretaxProfit - taxT;       // 当期純利益
+
+  const nums = ["Ⅰ", "Ⅱ", "Ⅲ", "Ⅳ", "Ⅴ", "Ⅵ", "Ⅶ", "Ⅷ"];
+  let ni = 0;
+  const blocks: ReactNode[] = [];
+
+  blocks.push(<PLSectionRows key="sales" numeral={nums[ni++]} title="売上高" items={sales} total={salesT} />);
+  if (cogs.length > 0) {
+    blocks.push(<PLSectionRows key="cogs" numeral={nums[ni++]} title="売上原価" items={cogs} total={cogsT} />);
+  }
+  blocks.push(<PLProfitRow key="gp" label="売上総利益" amount={grossProfit} />);
+  if (sga.length > 0) {
+    blocks.push(<PLSectionRows key="sga" numeral={nums[ni++]} title="販売費及び一般管理費" items={sga} total={sgaT} />);
+  }
+  blocks.push(<PLProfitRow key="op" label="営業利益" amount={operatingProfit} />);
+  if (nonOpRev.length > 0) {
+    blocks.push(<PLSectionRows key="nor" numeral={nums[ni++]} title="営業外収益" items={nonOpRev} total={nonOpRevT} />);
+  }
+  if (nonOpExp.length > 0) {
+    blocks.push(<PLSectionRows key="noe" numeral={nums[ni++]} title="営業外費用" items={nonOpExp} total={nonOpExpT} />);
+  }
+  blocks.push(<PLProfitRow key="ord" label="経常利益" amount={ordinaryProfit} />);
+  if (extraGain.length > 0) {
+    blocks.push(<PLSectionRows key="eg" numeral={nums[ni++]} title="特別利益" items={extraGain} total={extraGainT} />);
+  }
+  if (extraLoss.length > 0) {
+    blocks.push(<PLSectionRows key="el" numeral={nums[ni++]} title="特別損失" items={extraLoss} total={extraLossT} />);
+  }
+  blocks.push(<PLProfitRow key="pre" label="税引前当期純利益" amount={pretaxProfit} />);
+  if (tax.length > 0) {
+    blocks.push(<PLSectionRows key="tax" numeral={nums[ni++]} title="法人税等" items={tax} total={taxT} />);
+  }
+  blocks.push(<PLProfitRow key="net" label="当期純利益" amount={netProfit} emphasize />);
 
   return (
     <Card className="w-fit max-w-full">
       <CardHeader className="px-3 pt-3 pb-2">
-        <CardTitle className="text-sm flex items-center gap-2">
-          損益計算書
-        </CardTitle>
+        <CardTitle className="text-sm flex items-center gap-2">損益計算書</CardTitle>
       </CardHeader>
       <CardContent className="px-3 pb-3 text-sm">
-        {/* Revenue */}
-        <div className="flex items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border">
-          <span>売上高</span>
-          <span className="font-mono">{formatCurrency(totalRevenue)}</span>
-        </div>
-        {revenueItems.map((item) => (
-          <div key={item.code} className="flex items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground" style={{ paddingLeft: "24px", paddingRight: "8px" }}>
-            <span>{item.name}</span>
-            <span className="font-mono">{formatCurrency(item.creditBalance - item.debitBalance)}</span>
-          </div>
-        ))}
-
-        {/* Expenses */}
-        <div className="flex items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border mt-1">
-          <span>費用合計</span>
-          <span className="font-mono">{formatCurrency(totalExpenses)}</span>
-        </div>
-        {expenseItems.map((item) => (
-          <div key={item.code} className="flex items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground" style={{ paddingLeft: "24px", paddingRight: "8px" }}>
-            <span>{item.name}</span>
-            <span className="font-mono">{formatCurrency(item.debitBalance - item.creditBalance)}</span>
-          </div>
-        ))}
-
-        {/* Operating Profit */}
-        <div className="flex items-center justify-between gap-8 py-1.5 px-2 bg-primary/10 border-y-2 border-primary/30 font-bold text-foreground mt-1 rounded">
-          <span>営業利益</span>
-          <span className={cn("font-mono", operatingProfit >= 0 ? "text-success" : "text-destructive")}>
-            {formatCurrency(operatingProfit)}
-          </span>
-        </div>
-
-        {/* Profit ratio */}
-        <div className="mt-2 px-2 flex items-center gap-6 text-xs text-muted-foreground">
+        {blocks}
+        <div className="mt-2 px-2 flex flex-wrap items-center gap-x-6 gap-y-1 text-xs text-muted-foreground">
           <span>
             営業利益率:{" "}
             <span className={cn("font-bold", operatingProfit >= 0 ? "text-success" : "text-destructive")}>
-              {totalRevenue > 0 ? ((operatingProfit / totalRevenue) * 100).toFixed(1) : 0}%
+              {salesT > 0 ? ((operatingProfit / salesT) * 100).toFixed(1) : 0}%
+            </span>
+          </span>
+          <span>
+            経常利益率:{" "}
+            <span className={cn("font-bold", ordinaryProfit >= 0 ? "text-success" : "text-destructive")}>
+              {salesT > 0 ? ((ordinaryProfit / salesT) * 100).toFixed(1) : 0}%
             </span>
           </span>
         </div>

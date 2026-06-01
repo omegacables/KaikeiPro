@@ -9,6 +9,17 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[];
 
+// 損益計算書（報告式・5段階利益）の表示区分
+export type PlClassification =
+  | "sales"               // 売上高
+  | "cogs"                // 売上原価
+  | "sga"                 // 販売費及び一般管理費
+  | "non_op_revenue"      // 営業外収益
+  | "non_op_expense"      // 営業外費用
+  | "extraordinary_gain"  // 特別利益
+  | "extraordinary_loss"  // 特別損失
+  | "tax";                // 法人税等
+
 export interface Database {
   public: {
     Tables: {
@@ -220,6 +231,7 @@ export interface Database {
           name: string;
           is_active: boolean;
           is_default: boolean;
+          pl_classification: PlClassification | null;
           created_at: string;
         };
         Insert: {
@@ -230,6 +242,7 @@ export interface Database {
           name: string;
           is_active?: boolean;
           is_default?: boolean;
+          pl_classification?: PlClassification | null;
           created_at?: string;
         };
         Update: {
@@ -240,6 +253,7 @@ export interface Database {
           name?: string;
           is_active?: boolean;
           is_default?: boolean;
+          pl_classification?: PlClassification | null;
         };
         Relationships: [];
       };

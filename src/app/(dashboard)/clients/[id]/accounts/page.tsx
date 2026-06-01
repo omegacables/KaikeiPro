@@ -17,7 +17,8 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
-import { getAccounts, getAccountCategories, createAccount } from "@/actions/accounts";
+import { getAccounts, getAccountCategories, createAccount, updateAccount } from "@/actions/accounts";
+import type { PlClassification } from "@/types/database";
 
 type SubAccount = {
   code: string;
@@ -26,10 +27,12 @@ type SubAccount = {
 };
 
 type Account = {
+  id: string;
   code: string;
   name: string;
   is_active: boolean;
   is_default: boolean;
+  pl_classification: PlClassification | null;
   sub_accounts: SubAccount[];
 };
 
@@ -42,6 +45,23 @@ const tabs: { key: CategoryKey; label: string }[] = [
   { key: "revenue", label: "収益" },
   { key: "expenses", label: "費用" },
 ];
+
+// 損益計算書のPL区分（タブごとに選択肢を出し分ける）
+const PL_LABELS: Record<PlClassification, string> = {
+  sales: "売上高",
+  cogs: "売上原価",
+  sga: "販売費及び一般管理費",
+  non_op_revenue: "営業外収益",
+  non_op_expense: "営業外費用",
+  extraordinary_gain: "特別利益",
+  extraordinary_loss: "特別損失",
+  tax: "法人税等",
+};
+
+const PL_OPTIONS: Record<"revenue" | "expenses", PlClassification[]> = {
+  revenue: ["sales", "non_op_revenue", "extraordinary_gain"],
+  expenses: ["cogs", "sga", "non_op_expense", "extraordinary_loss", "tax"],
+};
 
 const emptyAccounts: Record<CategoryKey, Account[]> = {
   assets: [], liabilities: [], equity: [], revenue: [], expenses: [],
@@ -97,10 +117,12 @@ export default function AccountsPage() {
           const cat = (r as unknown as { account_categories?: { type?: string } }).account_categories?.type as CategoryKey | undefined;
           if (!cat || !(cat in grouped)) continue;
           grouped[cat].push({
+            id: r.id,
             code: r.code,
             name: r.name,
             is_active: r.is_active,
             is_default: r.is_default,
+            pl_classification: (r as { pl_classification?: PlClassification | null }).pl_classification ?? null,
             sub_accounts: [],
           });
         }
@@ -108,6 +130,23 @@ export default function AccountsPage() {
       }),
     emptyAccounts
   );
+
+  // PL区分の変更（収益・費用科目のみ）。ローカルに反映しつつ保存する。
+  const [plOverrides, setPlOverrides] = useState<Record<string, PlClassification | null>>({});
+  const [plSavingId, setPlSavingId] = useState<string | null>(null);
+
+  async function handlePlChange(accountId: string, value: string) {
+    const next = value === "" ? null : (value as PlClassification);
+    setPlOverrides((prev) => ({ ...prev, [accountId]: next }));
+    setPlSavingId(accountId);
+    try {
+      await updateAccount(accountId, { pl_classification: next });
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "PL区分の更新に失敗しました");
+    } finally {
+      setPlSavingId(null);
+    }
+  }
 
   const toggleRow = (code: string) => {
     setExpandedRows((prev) => {
@@ -138,6 +177,9 @@ export default function AccountsPage() {
 
   const totalActive = allAccounts[activeTab].filter((a) => a.is_active).length;
   const totalInactive = allAccounts[activeTab].filter((a) => !a.is_active).length;
+
+  const showPl = activeTab === "revenue" || activeTab === "expenses";
+  const colCount = showPl ? 7 : 6;
 
   return (
     <>
@@ -253,6 +295,11 @@ export default function AccountsPage() {
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
                   種別
                 </th>
+                {showPl && (
+                  <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
+                    PL区分
+                  </th>
+                )}
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
                   補助科目数
                 </th>
@@ -308,6 +355,21 @@ export default function AccountsPage() {
                         <Badge variant="accent">カスタム</Badge>
                       )}
                     </td>
+                    {showPl && (
+                      <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                        <select
+                          value={plOverrides[account.id] ?? account.pl_classification ?? ""}
+                          onChange={(e) => handlePlChange(account.id, e.target.value)}
+                          disabled={plSavingId === account.id}
+                          className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-xs"
+                        >
+                          <option value="">自動（未設定）</option>
+                          {PL_OPTIONS[activeTab as "revenue" | "expenses"].map((cls) => (
+                            <option key={cls} value={cls}>{PL_LABELS[cls]}</option>
+                          ))}
+                        </select>
+                      </td>
+                    )}
                     <td className="px-4 py-3 text-center text-muted-foreground">
                       {account.sub_accounts.length > 0
                         ? `${account.sub_accounts.length}件`
@@ -356,6 +418,7 @@ export default function AccountsPage() {
                           <td className="px-4 py-2 text-center">
                             <Badge variant="muted">補助</Badge>
                           </td>
+                          {showPl && <td className="px-4 py-2"></td>}
                           <td className="px-4 py-2"></td>
                         </tr>
                       ))}
@@ -364,7 +427,7 @@ export default function AccountsPage() {
               {accounts.length === 0 && (
                 <tr>
                   <td
-                    colSpan={6}
+                    colSpan={colCount}
                     className="px-4 py-12 text-center text-muted-foreground"
                   >
                     該当する勘定科目が見つかりません

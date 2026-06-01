@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import type { PlClassification } from "@/types/database";
 
 export interface TrialBalanceRow {
   code: string;
@@ -12,6 +13,27 @@ export interface TrialBalanceRow {
   debitBalance: number;
   creditBalance: number;
   category: "asset" | "liability" | "equity" | "revenue" | "expense";
+  plClassification: PlClassification | null; // 損益計算書の表示区分（収益・費用のみ）
+}
+
+// pl_classification 未設定の収益・費用科目を、コード・名前から推定する。
+function inferPlClassification(
+  category: string,
+  code: string,
+  name: string
+): PlClassification | null {
+  if (category === "revenue") {
+    if (/利息|配当|雑収入|為替差益|有価証券/.test(name)) return "non_op_revenue";
+    return "sales";
+  }
+  if (category === "expense") {
+    if (/法人税|住民税|事業税/.test(name)) return "tax";
+    if (/仕入|売上原価|期首商品|期末商品/.test(name)) return "cogs";
+    if (/支払利息|為替差損|有価証券|手形売却損/.test(name)) return "non_op_expense";
+    if (code.startsWith("51")) return "cogs";
+    return "sga";
+  }
+  return null;
 }
 
 export interface MonthlyTrendRow {
@@ -32,7 +54,7 @@ export async function getTrialBalance(
   const { data: accounts, error: accError } = await supabase
     .from("accounts")
     .select(`
-      id, code, name,
+      id, code, name, pl_classification,
       account_categories!inner ( type )
     `)
     .or(`client_id.eq.${clientId},is_default.eq.true`)
@@ -106,6 +128,12 @@ export async function getTrialBalance(
 
     const currentBalance = prevBalance + totals.debit - totals.credit;
 
+    const explicit = (acct as { pl_classification?: PlClassification | null }).pl_classification ?? null;
+    const plClassification =
+      category === "revenue" || category === "expense"
+        ? explicit ?? inferPlClassification(category, acct.code, acct.name)
+        : null;
+
     rows.push({
       code: acct.code,
       name: acct.name,
@@ -116,6 +144,7 @@ export async function getTrialBalance(
       debitBalance: currentBalance > 0 ? currentBalance : 0,
       creditBalance: currentBalance < 0 ? -currentBalance : 0,
       category,
+      plClassification,
     });
   }
 
