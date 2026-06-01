@@ -289,47 +289,47 @@ function ProfitAndLoss({ trialData }: { trialData: TrialBalanceRow[] }) {
   const operatingProfit = totalRevenue - totalExpenses;
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="text-base flex items-center gap-2">
+    <Card className="w-fit max-w-full">
+      <CardHeader className="px-3 pt-3 pb-2">
+        <CardTitle className="text-sm flex items-center gap-2">
           損益計算書
         </CardTitle>
       </CardHeader>
-      <CardContent>
+      <CardContent className="px-3 pb-3 text-sm">
         {/* Revenue */}
-        <div className="flex items-center justify-between py-2 px-4 font-bold text-foreground border-b border-border">
+        <div className="flex items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border">
           <span>売上高</span>
           <span className="font-mono">{formatCurrency(totalRevenue)}</span>
         </div>
         {revenueItems.map((item) => (
-          <div key={item.code} className="flex items-center justify-between py-1.5 border-b border-border/30 text-muted-foreground" style={{ paddingLeft: "36px", paddingRight: "16px" }}>
-            <span className="text-sm">{item.name}</span>
-            <span className="font-mono text-sm">{formatCurrency(item.creditBalance - item.debitBalance)}</span>
+          <div key={item.code} className="flex items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground" style={{ paddingLeft: "24px", paddingRight: "8px" }}>
+            <span>{item.name}</span>
+            <span className="font-mono">{formatCurrency(item.creditBalance - item.debitBalance)}</span>
           </div>
         ))}
 
         {/* Expenses */}
-        <div className="flex items-center justify-between py-2 px-4 font-bold text-foreground border-b border-border mt-2">
+        <div className="flex items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border mt-1">
           <span>費用合計</span>
           <span className="font-mono">{formatCurrency(totalExpenses)}</span>
         </div>
         {expenseItems.map((item) => (
-          <div key={item.code} className="flex items-center justify-between py-1.5 border-b border-border/30 text-muted-foreground" style={{ paddingLeft: "36px", paddingRight: "16px" }}>
-            <span className="text-sm">{item.name}</span>
-            <span className="font-mono text-sm">{formatCurrency(item.debitBalance - item.creditBalance)}</span>
+          <div key={item.code} className="flex items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground" style={{ paddingLeft: "24px", paddingRight: "8px" }}>
+            <span>{item.name}</span>
+            <span className="font-mono">{formatCurrency(item.debitBalance - item.creditBalance)}</span>
           </div>
         ))}
 
         {/* Operating Profit */}
-        <div className="flex items-center justify-between py-3 px-4 bg-primary/10 border-y-2 border-primary/30 font-bold text-foreground mt-2 rounded">
-          <span className="text-lg">営業利益</span>
-          <span className={cn("font-mono text-lg", operatingProfit >= 0 ? "text-success" : "text-destructive")}>
+        <div className="flex items-center justify-between gap-8 py-1.5 px-2 bg-primary/10 border-y-2 border-primary/30 font-bold text-foreground mt-1 rounded">
+          <span>営業利益</span>
+          <span className={cn("font-mono", operatingProfit >= 0 ? "text-success" : "text-destructive")}>
             {formatCurrency(operatingProfit)}
           </span>
         </div>
 
         {/* Profit ratio */}
-        <div className="mt-4 flex items-center gap-6 text-xs text-muted-foreground">
+        <div className="mt-2 px-2 flex items-center gap-6 text-xs text-muted-foreground">
           <span>
             営業利益率:{" "}
             <span className={cn("font-bold", operatingProfit >= 0 ? "text-success" : "text-destructive")}>
