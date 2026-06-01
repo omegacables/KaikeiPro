@@ -36,11 +36,15 @@ function inferPlClassification(
   return null;
 }
 
+export type MonthlyTrendMode = "pl" | "bs";
+
 export interface MonthlyTrendRow {
+  code: string;
   name: string;
-  months: number[];
-  total: number;
-  category: string;
+  months: number[];      // 当期 各月の値（PL=各月の発生額 / BS=各月末残高、いずれも科目の性質に応じた正の値）
+  prevMonths: number[];  // 前期 同月の値（前年同月比の算出用）
+  total: number;         // PL=当期累計 / BS=期末残高
+  category: string;      // asset | liability | equity | revenue | expense
 }
 
 export async function getTrialBalance(
@@ -242,89 +246,147 @@ export async function getInventorySchedule(
   });
 }
 
+// startDate(月初)から count ヶ月分の月キー(YYYY-MM)とラベルを生成
+function buildMonths(startDate: string, count = 12): { keys: string[]; labels: string[] } {
+  const start = new Date(startDate);
+  const keys: string[] = [];
+  const labels: string[] = [];
+  const cur = new Date(start.getFullYear(), start.getMonth(), 1);
+  for (let i = 0; i < count; i++) {
+    keys.push(`${cur.getFullYear()}-${String(cur.getMonth() + 1).padStart(2, "0")}`);
+    labels.push(`${cur.getMonth() + 1}月`);
+    cur.setMonth(cur.getMonth() + 1);
+  }
+  return { keys, labels };
+}
+
+const TREND_CATEGORY_MAP: Record<string, "asset" | "liability" | "equity" | "revenue" | "expense"> = {
+  assets: "asset",
+  liabilities: "liability",
+  equity: "equity",
+  revenue: "revenue",
+  expenses: "expense",
+};
+
 export async function getMonthlyTrend(
   clientId: string,
-  startDate: string,
-  endDate: string
+  fiscalYearStart: string,
+  fiscalYearEnd: string,
+  mode: MonthlyTrendMode = "pl"
 ): Promise<{ rows: MonthlyTrendRow[]; monthLabels: string[] }> {
   const supabase = createAdminSupabaseClient();
 
-  // Parse start/end to get month range
-  const start = new Date(startDate);
-  const end = new Date(endDate);
-  const monthLabels: string[] = [];
-  const monthKeys: string[] = [];
-  const current = new Date(start.getFullYear(), start.getMonth(), 1);
-  while (current <= end) {
-    monthLabels.push(`${current.getMonth() + 1}月`);
-    monthKeys.push(`${current.getFullYear()}-${String(current.getMonth() + 1).padStart(2, "0")}`);
-    current.setMonth(current.getMonth() + 1);
-  }
+  // 当期と前期の月キー（前期は1年前の同月）
+  const current = buildMonths(fiscalYearStart, 12);
+  const priorStartDate = (() => {
+    const d = new Date(fiscalYearStart);
+    d.setFullYear(d.getFullYear() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+  })();
+  const prior = buildMonths(priorStartDate, 12);
+  const monthLabels = current.labels;
 
-  // Get accounts
+  const curIdx = (k: string) => current.keys.indexOf(k);
+  const prIdx = (k: string) => prior.keys.indexOf(k);
+
+  // 勘定科目
   const { data: accounts } = await supabase
     .from("accounts")
-    .select(`id, name, account_categories!inner ( type )`)
+    .select(`id, code, name, account_categories!inner ( type )`)
     .or(`client_id.eq.${clientId},is_default.eq.true`)
-    .eq("is_active", true);
+    .eq("is_active", true)
+    .order("code");
 
-  // Get all journal lines
-  const { data: lines } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      account_id, debit_amount, credit_amount,
-      journal_entries!inner ( client_id, entry_date )
-    `)
-    .eq("journal_entries.client_id", clientId)
-    .gte("journal_entries.entry_date", startDate)
-    .lte("journal_entries.entry_date", endDate);
-
-  // Build account info map
-  const accountInfo = new Map<string, { name: string; type: string }>();
+  const accountInfo = new Map<string, { code: string; name: string; type: string }>();
   for (const a of accounts ?? []) {
     const cat = a.account_categories as unknown as { type: string };
-    accountInfo.set(a.id, { name: a.name, type: cat.type });
+    accountInfo.set(a.id, { code: a.code, name: a.name, type: cat.type });
   }
 
-  // Aggregate by account × month
-  const data = new Map<string, number[]>();
+  const isPl = mode === "pl";
+  const wantType = (t: string) =>
+    isPl ? t === "revenue" || t === "expenses" : t === "assets" || t === "liabilities" || t === "equity";
+
+  // BSは累計残高のため全期間、PLは前期期首以降を取得
+  let q = supabase
+    .from("journal_entry_lines")
+    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
+    .eq("journal_entries.client_id", clientId)
+    .lte("journal_entries.entry_date", fiscalYearEnd);
+  if (isPl) q = q.gte("journal_entries.entry_date", priorStartDate);
+  const { data: lines } = await q;
+
+  // 当期・前期の各月の値（PL=フロー / BS=フローを後で累積）
+  const curArr = new Map<string, number[]>();
+  const prevArr = new Map<string, number[]>();
+  // BS用 期首繰越（各ウィンドウ開始前の net = 借方−貸方）
+  const openCur = new Map<string, number>();
+  const openPrev = new Map<string, number>();
+  const ensure = (m: Map<string, number[]>, id: string) => {
+    if (!m.has(id)) m.set(id, new Array(12).fill(0));
+    return m.get(id)!;
+  };
+
   for (const line of lines ?? []) {
-    const entry = line.journal_entries as unknown as { entry_date: string };
-    const monthKey = entry.entry_date.slice(0, 7); // YYYY-MM
-    const monthIdx = monthKeys.indexOf(monthKey);
-    if (monthIdx === -1) continue;
-
     const info = accountInfo.get(line.account_id);
-    if (!info) continue;
+    if (!info || !wantType(info.type)) continue;
+    const entry = line.journal_entries as unknown as { entry_date: string };
+    const date = entry.entry_date;
+    const monthKey = date.slice(0, 7);
 
-    // Only revenue and expenses
-    if (info.type !== "revenue" && info.type !== "expenses") continue;
-
-    if (!data.has(line.account_id)) {
-      data.set(line.account_id, new Array(monthKeys.length).fill(0));
-    }
-    const months = data.get(line.account_id)!;
-
-    if (info.type === "revenue") {
-      months[monthIdx] += line.credit_amount - line.debit_amount;
+    if (isPl) {
+      const flow = info.type === "revenue"
+        ? line.credit_amount - line.debit_amount
+        : line.debit_amount - line.credit_amount;
+      const ci = curIdx(monthKey);
+      if (ci >= 0) ensure(curArr, line.account_id)[ci] += flow;
+      const pi = prIdx(monthKey);
+      if (pi >= 0) ensure(prevArr, line.account_id)[pi] += flow;
     } else {
-      months[monthIdx] += line.debit_amount - line.credit_amount;
+      const net = line.debit_amount - line.credit_amount; // 借方プラス
+      const ci = curIdx(monthKey);
+      const pi = prIdx(monthKey);
+      if (ci >= 0) ensure(curArr, line.account_id)[ci] += net;
+      else if (date < current.keys[0] + "-01") openCur.set(line.account_id, (openCur.get(line.account_id) ?? 0) + net);
+      if (pi >= 0) ensure(prevArr, line.account_id)[pi] += net;
+      else if (date < prior.keys[0] + "-01") openPrev.set(line.account_id, (openPrev.get(line.account_id) ?? 0) + net);
     }
   }
 
   const rows: MonthlyTrendRow[] = [];
-  for (const [accountId, months] of data) {
-    const info = accountInfo.get(accountId);
+  const ids = new Set<string>([...curArr.keys(), ...prevArr.keys(), ...openCur.keys(), ...openPrev.keys()]);
+  for (const id of ids) {
+    const info = accountInfo.get(id);
     if (!info) continue;
-    const total = months.reduce((s, v) => s + v, 0);
-    if (total === 0 && months.every((m) => m === 0)) continue;
-    rows.push({
-      name: info.name,
-      months,
-      total,
-      category: info.type === "revenue" ? "revenue" : "expense",
-    });
+    const category = TREND_CATEGORY_MAP[info.type] ?? "expense";
+
+    let months = curArr.get(id) ?? new Array(12).fill(0);
+    let prevMonths = prevArr.get(id) ?? new Array(12).fill(0);
+
+    if (!isPl) {
+      // BS: フローを期首繰越から累積して各月末残高に変換し、科目の性質に応じた正の値へ
+      const sign = category === "asset" ? 1 : -1; // 資産=借方正、負債・純資産=貸方正
+      const accumulate = (flows: number[], opening: number) => {
+        const out: number[] = [];
+        let run = opening;
+        for (let i = 0; i < 12; i++) {
+          run += flows[i];
+          out.push(run * sign);
+        }
+        return out;
+      };
+      months = accumulate(months, openCur.get(id) ?? 0);
+      prevMonths = accumulate(prevMonths, openPrev.get(id) ?? 0);
+    }
+
+    const total = isPl ? months.reduce((s, v) => s + v, 0) : months[11];
+    const allZero =
+      months.every((m) => m === 0) && prevMonths.every((m) => m === 0);
+    if (allZero) continue;
+
+    rows.push({ code: info.code, name: info.name, months, prevMonths, total, category });
   }
 
+  rows.sort((a, b) => a.code.localeCompare(b.code));
   return { rows, monthLabels };
 }

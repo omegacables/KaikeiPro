@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo, type ReactNode } from "react";
+import { useState, useEffect, useCallback, useMemo, Fragment, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import type { PlClassification } from "@/types/database";
 import {
@@ -23,8 +23,11 @@ import {
   getInventorySchedule,
   type TrialBalanceRow,
   type MonthlyTrendRow,
+  type MonthlyTrendMode,
   type InventoryScheduleRow,
 } from "@/actions/statements";
+
+type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -440,102 +443,248 @@ function ProfitAndLoss({ trialData }: { trialData: TrialBalanceRow[] }) {
   );
 }
 
-function MonthlyTrendTable({ data, monthLabels }: { data: MonthlyTrendRow[]; monthLabels: string[] }) {
-  if (data.length === 0) {
-    return (
-      <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
-        データがありません
-      </div>
-    );
-  }
+const PL_GROUPS: { key: string; label: string }[] = [
+  { key: "revenue", label: "収益" },
+  { key: "expense", label: "費用" },
+];
+const BS_GROUPS: { key: string; label: string }[] = [
+  { key: "asset", label: "資産" },
+  { key: "liability", label: "負債" },
+  { key: "equity", label: "純資産" },
+];
+const TREND_METRICS: { key: TrendMetric; label: string }[] = [
+  { key: "amount", label: "金額" },
+  { key: "yoy", label: "前年同月比" },
+  { key: "mom", label: "前月比増減率" },
+  { key: "composition", label: "構成比" },
+];
+
+const fmtPct = (n: number) => `${n.toFixed(1)}%`;
+
+// 依存ライブラリなしの軽量な棒グラフ
+function MiniBarChart({
+  labels,
+  values,
+  colorize = false,
+}: {
+  labels: string[];
+  values: number[];
+  colorize?: boolean;
+}) {
+  const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v)));
+  const hasNeg = values.some((v) => v < 0);
+  const H = 120;
+  const zero = hasNeg ? H / 2 : H - 4;
+  const usable = (hasNeg ? H / 2 : H) - 8;
+  const barW = 26;
+  const gap = 10;
+  const W = values.length * (barW + gap) + gap;
   return (
-    <div className="overflow-x-auto rounded-xl border border-border">
-      <table className="w-full text-xs">
-        <thead>
-          <tr className="bg-muted/20 border-b border-border">
-            <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground sticky left-0 bg-muted/20 min-w-[120px]">
-              科目
-            </th>
-            {monthLabels.map((m) => (
-              <th key={m} className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[85px]">
-                {m}
-              </th>
-            ))}
-            <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground min-w-[100px] bg-muted/10">
-              累計
-            </th>
-          </tr>
-        </thead>
-        <tbody>
-          {/* Revenue rows */}
-          <tr className="bg-muted/10 border-t border-border">
-            <td colSpan={monthLabels.length + 2} className="px-3 py-1.5 text-xs font-bold text-primary">収益</td>
-          </tr>
-          {data
-            .filter((r) => r.category === "revenue")
-            .map((row) => (
-              <MonthlyTrendRowComponent key={row.name} row={row} />
-            ))}
-
-          {/* Expense rows */}
-          <tr className="bg-muted/10 border-t border-border">
-            <td colSpan={monthLabels.length + 2} className="px-3 py-1.5 text-xs font-bold text-primary">費用</td>
-          </tr>
-          {data
-            .filter((r) => r.category === "expense")
-            .map((row) => (
-              <MonthlyTrendRowComponent key={row.name} row={row} />
-            ))}
-
-          {/* Monthly profit */}
-          <tr className="bg-primary/5 border-t-2 border-primary/30 font-bold">
-            <td className="px-3 py-2 text-foreground sticky left-0 bg-primary/5">差引損益</td>
-            {monthLabels.map((_, idx) => {
-              const rev = data
-                .filter((r) => r.category === "revenue")
-                .reduce((s, r) => s + r.months[idx], 0);
-              const exp = data
-                .filter((r) => r.category === "expense")
-                .reduce((s, r) => s + r.months[idx], 0);
-              const profit = rev - exp;
-              return (
-                <td key={idx} className={cn("px-2 py-2 text-right font-mono", profit >= 0 ? "text-success" : "text-destructive")}>
-                  {profit !== 0 ? formatCurrency(profit) : "-"}
-                </td>
-              );
-            })}
-            <td className="px-3 py-2 text-right font-mono bg-muted/10">
-              {(() => {
-                const totalRev = data.filter((r) => r.category === "revenue").reduce((s, r) => s + r.total, 0);
-                const totalExp = data.filter((r) => r.category === "expense").reduce((s, r) => s + r.total, 0);
-                const totalProfit = totalRev - totalExp;
-                return (
-                  <span className={totalProfit >= 0 ? "text-success" : "text-destructive"}>
-                    {formatCurrency(totalProfit)}
-                  </span>
-                );
-              })()}
-            </td>
-          </tr>
-        </tbody>
-      </table>
-    </div>
+    <svg width={W} height={H + 18} className="text-primary">
+      <line x1={0} y1={zero} x2={W} y2={zero} stroke="#d1d5db" />
+      {values.map((v, i) => {
+        const h = (Math.abs(v) / maxAbs) * usable;
+        const x = gap + i * (barW + gap);
+        const y = v >= 0 ? zero - h : zero;
+        const fill = colorize ? (v >= 0 ? "#16a34a" : "#dc2626") : "currentColor";
+        return <rect key={i} x={x} y={y} width={barW} height={Math.max(0, h)} fill={fill} rx={2} />;
+      })}
+      {labels.map((l, i) => (
+        <text
+          key={i}
+          x={gap + i * (barW + gap) + barW / 2}
+          y={H + 14}
+          textAnchor="middle"
+          fontSize="9"
+          fill="#9ca3af"
+        >
+          {l}
+        </text>
+      ))}
+    </svg>
   );
 }
 
-function MonthlyTrendRowComponent({ row }: { row: MonthlyTrendRow }) {
+function MonthlyTrendTable({
+  data,
+  monthLabels,
+  mode,
+  metric,
+  onModeChange,
+  onMetricChange,
+}: {
+  data: MonthlyTrendRow[];
+  monthLabels: string[];
+  mode: MonthlyTrendMode;
+  metric: TrendMetric;
+  onModeChange: (m: MonthlyTrendMode) => void;
+  onMetricChange: (m: TrendMetric) => void;
+}) {
+  const groups = mode === "pl" ? PL_GROUPS : BS_GROUPS;
+  const summaryLabel = mode === "pl" ? "累計" : "期末残高";
+
+  const rowsOf = (cat: string) => data.filter((r) => r.category === cat);
+  const colSum = (rows: MonthlyTrendRow[], idx: number) => rows.reduce((s, r) => s + r.months[idx], 0);
+  const totalSum = (rows: MonthlyTrendRow[]) => rows.reduce((s, r) => s + r.total, 0);
+
+  // 月セルの表示値（指標に応じて切替）。groupRows は構成比の分母。
+  const cell = (row: MonthlyTrendRow, idx: number, groupRows: MonthlyTrendRow[]): string => {
+    const v = row.months[idx];
+    if (metric === "amount") return v !== 0 ? formatCurrency(v) : "-";
+    if (metric === "yoy") {
+      const p = row.prevMonths[idx];
+      return p !== 0 ? fmtPct((v / p) * 100) : "-";
+    }
+    if (metric === "mom") {
+      if (idx === 0) return "-";
+      const p = row.months[idx - 1];
+      return p !== 0 ? fmtPct(((v - p) / Math.abs(p)) * 100) : "-";
+    }
+    const t = colSum(groupRows, idx); // composition
+    return t !== 0 ? fmtPct((v / t) * 100) : "-";
+  };
+
+  // グラフ系列
+  const chartValues =
+    mode === "pl"
+      ? monthLabels.map((_, i) => colSum(rowsOf("revenue"), i) - colSum(rowsOf("expense"), i))
+      : monthLabels.map((_, i) => colSum(rowsOf("asset"), i));
+  const chartTitle = mode === "pl" ? "差引損益の推移" : "資産合計の推移";
+
+  const Toggle = ({
+    active,
+    onClick,
+    children,
+  }: {
+    active: boolean;
+    onClick: () => void;
+    children: ReactNode;
+  }) => (
+    <button
+      onClick={onClick}
+      className={cn(
+        "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+        active ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+      )}
+    >
+      {children}
+    </button>
+  );
+
   return (
-    <tr className="border-b border-border/50 bg-card hover:bg-muted/10 transition-colors">
-      <td className="px-3 py-1.5 text-foreground font-medium sticky left-0 bg-card">{row.name}</td>
-      {row.months.map((val, idx) => (
-        <td key={idx} className="px-2 py-1.5 text-right font-mono text-muted-foreground">
-          {val > 0 ? formatCurrency(val) : "-"}
-        </td>
-      ))}
-      <td className="px-3 py-1.5 text-right font-mono font-bold text-foreground bg-muted/10">
-        {formatCurrency(row.total)}
-      </td>
-    </tr>
+    <div className="space-y-4">
+      {/* Controls */}
+      <div className="flex flex-wrap items-center gap-3">
+        <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+          <Toggle active={mode === "pl"} onClick={() => onModeChange("pl")}>損益（PL）</Toggle>
+          <Toggle active={mode === "bs"} onClick={() => onModeChange("bs")}>残高（BS）</Toggle>
+        </div>
+        <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+          {TREND_METRICS.map((o) => (
+            <Toggle key={o.key} active={metric === o.key} onClick={() => onMetricChange(o.key)}>
+              {o.label}
+            </Toggle>
+          ))}
+        </div>
+      </div>
+
+      {data.length === 0 ? (
+        <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
+          データがありません
+        </div>
+      ) : (
+        <>
+          {/* Chart */}
+          <div className="rounded-xl border border-border p-3 overflow-x-auto">
+            <div className="text-xs font-bold text-muted-foreground mb-2">{chartTitle}</div>
+            <MiniBarChart labels={monthLabels} values={chartValues} colorize={mode === "pl"} />
+          </div>
+
+          {/* Table */}
+          <div className="overflow-x-auto rounded-xl border border-border">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/20 border-b border-border">
+                  <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground sticky left-0 bg-muted/20 min-w-[140px]">
+                    科目
+                  </th>
+                  {monthLabels.map((m) => (
+                    <th key={m} className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[85px]">
+                      {m}
+                    </th>
+                  ))}
+                  <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground min-w-[100px] bg-muted/10">
+                    {summaryLabel}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {groups.map((g) => {
+                  const rows = rowsOf(g.key);
+                  if (rows.length === 0) return null;
+                  return (
+                    <Fragment key={g.key}>
+                      <tr className="bg-muted/10 border-t border-border">
+                        <td colSpan={monthLabels.length + 2} className="px-3 py-1.5 text-xs font-bold text-primary">
+                          {g.label}
+                        </td>
+                      </tr>
+                      {rows.map((row) => (
+                        <tr key={row.code} className="border-b border-border/50 bg-card hover:bg-muted/10 transition-colors">
+                          <td className="px-3 py-1.5 text-foreground font-medium sticky left-0 bg-card">{row.name}</td>
+                          {monthLabels.map((_, idx) => (
+                            <td key={idx} className="px-2 py-1.5 text-right font-mono text-muted-foreground">
+                              {cell(row, idx, rows)}
+                            </td>
+                          ))}
+                          <td className="px-3 py-1.5 text-right font-mono font-bold text-foreground bg-muted/10">
+                            {formatCurrency(row.total)}
+                          </td>
+                        </tr>
+                      ))}
+                      <tr className="bg-muted/20 border-y border-border font-bold">
+                        <td className="px-3 py-1.5 sticky left-0 bg-muted/20">{g.label}合計</td>
+                        {monthLabels.map((_, idx) => (
+                          <td key={idx} className="px-2 py-1.5 text-right font-mono">
+                            {formatCurrency(colSum(rows, idx))}
+                          </td>
+                        ))}
+                        <td className="px-3 py-1.5 text-right font-mono bg-muted/10">{formatCurrency(totalSum(rows))}</td>
+                      </tr>
+                    </Fragment>
+                  );
+                })}
+                {mode === "pl" && (
+                  <tr className="bg-primary/5 border-t-2 border-primary/30 font-bold">
+                    <td className="px-3 py-2 text-foreground sticky left-0 bg-primary/5">差引損益</td>
+                    {monthLabels.map((_, idx) => {
+                      const profit = colSum(rowsOf("revenue"), idx) - colSum(rowsOf("expense"), idx);
+                      return (
+                        <td key={idx} className={cn("px-2 py-2 text-right font-mono", profit >= 0 ? "text-success" : "text-destructive")}>
+                          {profit !== 0 ? formatCurrency(profit) : "-"}
+                        </td>
+                      );
+                    })}
+                    <td className="px-3 py-2 text-right font-mono bg-muted/10">
+                      {(() => {
+                        const p = totalSum(rowsOf("revenue")) - totalSum(rowsOf("expense"));
+                        return <span className={p >= 0 ? "text-success" : "text-destructive"}>{formatCurrency(p)}</span>;
+                      })()}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {metric !== "amount" && (
+            <p className="text-xs text-muted-foreground">
+              ※ 月の各セルは「{TREND_METRICS.find((o) => o.key === metric)?.label}」表示です。{summaryLabel}列・小計は金額（円）を表示しています。
+            </p>
+          )}
+        </>
+      )}
+    </div>
   );
 }
 
@@ -618,6 +767,8 @@ export default function StatementsPage() {
   const [trialData, setTrialData] = useState<TrialBalanceRow[]>([]);
   const [trendData, setTrendData] = useState<MonthlyTrendRow[]>([]);
   const [trendMonthLabels, setTrendMonthLabels] = useState<string[]>([]);
+  const [trendMode, setTrendMode] = useState<MonthlyTrendMode>("pl");
+  const [trendMetric, setTrendMetric] = useState<TrendMetric>("amount");
   const [inventoryData, setInventoryData] = useState<InventoryScheduleRow[]>([]);
 
   // 会計年度の開始月（4月始まり）を算出
@@ -655,7 +806,7 @@ export default function StatementsPage() {
 
   const fetchMonthlyTrend = useCallback(async () => {
     try {
-      const { rows, monthLabels } = await getMonthlyTrend(id, fiscalYearStart, fiscalYearEnd);
+      const { rows, monthLabels } = await getMonthlyTrend(id, fiscalYearStart, fiscalYearEnd, trendMode);
       setTrendData(rows);
       setTrendMonthLabels(monthLabels);
     } catch (e) {
@@ -663,7 +814,7 @@ export default function StatementsPage() {
       setTrendData([]);
       setTrendMonthLabels([]);
     }
-  }, [id, fiscalYearStart, fiscalYearEnd]);
+  }, [id, fiscalYearStart, fiscalYearEnd, trendMode]);
 
   useEffect(() => {
     if (activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") {
@@ -750,7 +901,16 @@ export default function StatementsPage() {
       {activeTab === "trial_balance" && <TrialBalance data={trialData} />}
       {activeTab === "bs" && <BalanceSheet trialData={trialData} />}
       {activeTab === "pl" && <ProfitAndLoss trialData={trialData} />}
-      {activeTab === "monthly_trend" && <MonthlyTrendTable data={trendData} monthLabels={trendMonthLabels} />}
+      {activeTab === "monthly_trend" && (
+        <MonthlyTrendTable
+          data={trendData}
+          monthLabels={trendMonthLabels}
+          mode={trendMode}
+          metric={trendMetric}
+          onModeChange={setTrendMode}
+          onMetricChange={setTrendMetric}
+        />
+      )}
       {activeTab === "inventory" && <InventorySchedule data={inventoryData} />}
 
       {/* Footer */}
