@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import { beginLoad, endLoad } from "./loading-bus";
 
 type AsyncFn<T> = () => Promise<T>;
 
@@ -18,6 +19,7 @@ export function useData<T>(fetcher: AsyncFn<T>, fallback: T) {
 
   const refetch = useCallback(() => {
     setLoading(true);
+    beginLoad();
     fetcherRef.current()
       .then((result) => {
         setData(result);
@@ -27,11 +29,13 @@ export function useData<T>(fetcher: AsyncFn<T>, fallback: T) {
         console.warn("Data fetch failed, using fallback:", err.message);
         setError(err.message);
         setLoading(false);
-      });
+      })
+      .finally(() => endLoad());
   }, []);
 
   useEffect(() => {
     let cancelled = false;
+    beginLoad();
 
     fetcherRef.current()
       .then((result) => {
@@ -46,7 +50,8 @@ export function useData<T>(fetcher: AsyncFn<T>, fallback: T) {
           setError(err.message);
           setLoading(false);
         }
-      });
+      })
+      .finally(() => endLoad());
 
     return () => {
       cancelled = true;
