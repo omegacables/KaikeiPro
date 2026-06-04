@@ -31,6 +31,7 @@ export async function listAccountReadings(): Promise<AccountReading[]> {
 }
 
 // 追加・更新（科目名で一意。同名があれば読みを更新）
+// UNIQUE制約に依存しないよう、検索→更新/挿入で実装する。
 export async function upsertAccountReading(name: string, reading: string): Promise<AccountReading> {
   const trimmedName = name.trim();
   const trimmedReading = reading.trim();
@@ -38,9 +39,29 @@ export async function upsertAccountReading(name: string, reading: string): Promi
   if (!trimmedReading) throw new Error("読み仮名を入力してください");
 
   const supabase = createAdminSupabaseClient();
+
+  const { data: existing, error: selErr } = await supabase
+    .from("account_readings")
+    .select("id")
+    .eq("name", trimmedName)
+    .limit(1)
+    .maybeSingle();
+  if (selErr) throw new Error(selErr.message);
+
+  if (existing) {
+    const { data, error } = await supabase
+      .from("account_readings")
+      .update({ reading: trimmedReading })
+      .eq("id", existing.id)
+      .select()
+      .single();
+    if (error) throw new Error(error.message);
+    return data as AccountReading;
+  }
+
   const { data, error } = await supabase
     .from("account_readings")
-    .upsert({ name: trimmedName, reading: trimmedReading }, { onConflict: "name" })
+    .insert({ name: trimmedName, reading: trimmedReading })
     .select()
     .single();
   if (error) throw new Error(error.message);
