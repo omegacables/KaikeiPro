@@ -14,8 +14,11 @@ import {
   getAllocationRates,
   upsertAllocationRate,
   createAllocationJournal,
+  getBatchAllocationPreview,
+  runBatchAllocation,
   type AllocatableAccount,
   type AllocationRate,
+  type BatchAllocationRow,
 } from "@/actions/allocations";
 
 interface Draft {
@@ -82,6 +85,41 @@ export default function AllocationsPage() {
   const jRatioNum = jRatio === "" ? 0 : Number(jRatio);
   const jBusiness = Math.round((jTotal * jRatioNum) / 100);
   const jPrivate = jTotal - jBusiness;
+
+  // ---- 期末一括按分 ----
+  const [batchRows, setBatchRows] = useState<BatchAllocationRow[] | null>(null);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchRunning, setBatchRunning] = useState(false);
+
+  // 年度変更時はプレビューをリセット
+  useEffect(() => {
+    setBatchRows(null);
+  }, [fiscalYear]);
+
+  async function loadBatchPreview() {
+    setBatchLoading(true);
+    try {
+      setBatchRows(await getBatchAllocationPreview(id, fiscalYear));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "集計に失敗しました");
+    } finally {
+      setBatchLoading(false);
+    }
+  }
+
+  async function runBatch() {
+    if (!confirm(`${fiscalYear}年度の期末一括按分仕訳を作成しますか？`)) return;
+    setBatchRunning(true);
+    try {
+      const { count } = await runBatchAllocation(id, fiscalYear);
+      alert(`期末一括按分仕訳を作成しました（対象${count}科目・下書き）。帳簿で確認できます。`);
+      await loadBatchPreview();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "作成に失敗しました");
+    } finally {
+      setBatchRunning(false);
+    }
+  }
 
   async function createJournal() {
     if (!jExpenseId) { alert("費用科目を選択してください"); return; }
@@ -367,6 +405,80 @@ export default function AllocationsPage() {
                 {jSaving ? <><Loader2 className="size-4 animate-spin" />作成中...</> : <><Plus className="size-4" />按分仕訳を作成</>}
               </Button>
             </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 期末一括按分（税理士のみ） */}
+      {isStaff && !loading && (
+        <Card className="mt-6 print:hidden">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Home className="size-5 text-primary" />
+              期末一括按分（{fiscalYear}年度）
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p className="text-sm text-muted-foreground mb-3">
+              期中は全額を経費計上しておき、期末にまとめて按分する運用です。対象年度の科目別合計を集計し、
+              私用分を「事業主貸」へ一括振替する調整仕訳（期末日付）を作成します。
+            </p>
+            <div className="mb-4">
+              <Button variant="outline" size="sm" onClick={loadBatchPreview} disabled={batchLoading}>
+                {batchLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                集計を表示
+              </Button>
+            </div>
+
+            {batchRows !== null && (
+              batchRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground py-4">按分対象の実績がありません（按分率の設定と期中の取引をご確認ください）。</p>
+              ) : (
+                <>
+                  <div className="overflow-x-auto rounded-lg border border-border">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="bg-muted/20 border-b border-border">
+                          <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">勘定科目</th>
+                          <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">期中合計</th>
+                          <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">按分率</th>
+                          <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">事業分</th>
+                          <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">私用分→事業主貸</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {batchRows.map((r) => (
+                          <tr key={r.account_id} className="border-b border-border/50">
+                            <td className="px-3 py-1.5 text-foreground">
+                              <span className="font-mono text-xs text-muted-foreground mr-2">{r.code}</span>{r.name}
+                            </td>
+                            <td className="px-3 py-1.5 text-right font-mono">{formatCurrency(r.total)}</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{r.ratio}%</td>
+                            <td className="px-3 py-1.5 text-right font-mono">{formatCurrency(r.business)}</td>
+                            <td className="px-3 py-1.5 text-right font-mono font-bold">{formatCurrency(r.private)}</td>
+                          </tr>
+                        ))}
+                        <tr className="bg-muted/20 border-t border-border font-bold">
+                          <td className="px-3 py-2">合計（事業主貸へ振替）</td>
+                          <td className="px-3 py-2 text-right font-mono">{formatCurrency(batchRows.reduce((s, r) => s + r.total, 0))}</td>
+                          <td />
+                          <td className="px-3 py-2 text-right font-mono">{formatCurrency(batchRows.reduce((s, r) => s + r.business, 0))}</td>
+                          <td className="px-3 py-2 text-right font-mono">{formatCurrency(batchRows.reduce((s, r) => s + r.private, 0))}</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div className="mt-4 flex justify-end">
+                    <Button onClick={runBatch} disabled={batchRunning}>
+                      {batchRunning ? <><Loader2 className="size-4 animate-spin" />作成中...</> : <><Plus className="size-4" />一括按分仕訳を作成</>}
+                    </Button>
+                  </div>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    ※ 期末日（{fiscalYear + 1}/3/31）付の下書き仕訳を作成します。同年度で重複作成はできません（二重按分防止）。
+                  </p>
+                </>
+              )
+            )}
           </CardContent>
         </Card>
       )}
