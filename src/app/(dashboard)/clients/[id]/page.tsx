@@ -17,6 +17,7 @@ import {
   AlertTriangle,
   CheckCircle,
   Clock,
+  Home,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +42,7 @@ const menuItems = [
   { href: "ledgers", label: "帳簿閲覧", icon: BookOpen, desc: "仕訳帳・総勘定元帳・出納帳" },
   { href: "statements", label: "試算表・財務諸表", icon: BarChart3, desc: "B/S・P/L・月次推移表" },
   { href: "accounts", label: "勘定科目管理", icon: FileText, desc: "科目の追加・編集・補助科目" },
+  { href: "allocations", label: "家事按分設定", icon: Home, desc: "科目ごとの事業使用割合・按分根拠" },
   { href: "tax", label: "消費税計算", icon: Percent, desc: "税率別集計・申告データ" },
   { href: "closing", label: "決算処理", icon: Archive, desc: "減価償却・決算整理仕訳・年度締め" },
   { href: "payments", label: "入金消込", icon: Wallet, desc: "入金照合・消込処理" },

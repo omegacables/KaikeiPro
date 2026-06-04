@@ -307,6 +307,38 @@ export interface Database {
         };
         Relationships: [];
       };
+      allocation_rate_settings: {
+        Row: {
+          id: string;
+          client_id: string;
+          fiscal_year: number;
+          account_id: string;
+          business_ratio: number;
+          basis_note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          fiscal_year: number;
+          account_id: string;
+          business_ratio?: number;
+          basis_note?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          fiscal_year?: number;
+          account_id?: string;
+          business_ratio?: number;
+          basis_note?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       sub_accounts: {
         Row: {
           id: string;
