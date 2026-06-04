@@ -235,6 +235,68 @@ export async function getBatchAllocationPreview(
   return rows;
 }
 
+export interface AllocationReportRow {
+  account_id: string;
+  code: string;
+  name: string;
+  ratio: number;
+  total: number;     // 期中の実績合計
+  business: number;  // 事業分
+  private: number;   // 私用分
+  note: string | null; // 按分根拠
+}
+
+// 実績集計レポート：対象年度の実際の仕訳から科目別に総額/事業分/私用分を集計
+export async function getAllocationReport(
+  clientId: string,
+  fiscalYear: number
+): Promise<AllocationReportRow[]> {
+  const supabase = await createServerSupabaseClient();
+  const { start, end } = fiscalRange(fiscalYear);
+
+  const ratesMap = await getAllocationRates(clientId, fiscalYear);
+  const ids = Object.keys(ratesMap).filter((id) => ratesMap[id].business_ratio > 0);
+  if (ids.length === 0) return [];
+
+  const { data: accs } = await supabase.from("accounts").select("id, code, name").in("id", ids);
+  const accMap = new Map((accs ?? []).map((a) => [a.id, a]));
+
+  const { data: lines, error } = await supabase
+    .from("journal_entry_lines")
+    .select("account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )")
+    .eq("journal_entries.client_id", clientId)
+    .gte("journal_entries.entry_date", start)
+    .lte("journal_entries.entry_date", end)
+    .in("account_id", ids);
+  if (error) throw new Error(error.message);
+
+  const totals = new Map<string, number>();
+  for (const l of lines ?? []) {
+    totals.set(l.account_id, (totals.get(l.account_id) ?? 0) + l.debit_amount - l.credit_amount);
+  }
+
+  const rows: AllocationReportRow[] = [];
+  for (const id of ids) {
+    const total = totals.get(id) ?? 0;
+    if (total <= 0) continue;
+    const ratio = ratesMap[id].business_ratio;
+    const business = Math.round((total * ratio) / 100);
+    const a = accMap.get(id);
+    rows.push({
+      account_id: id,
+      code: a?.code ?? "",
+      name: a?.name ?? "",
+      ratio,
+      total,
+      business,
+      private: total - business,
+      note: ratesMap[id].basis_note,
+    });
+  }
+  rows.sort((a, b) => a.code.localeCompare(b.code));
+  return rows;
+}
+
 // 期末一括按分の実行（私用分を事業主貸へ一括振替する調整仕訳を作成）
 export async function runBatchAllocation(
   clientId: string,

@@ -16,9 +16,11 @@ import {
   createAllocationJournal,
   getBatchAllocationPreview,
   runBatchAllocation,
+  getAllocationReport,
   type AllocatableAccount,
   type AllocationRate,
   type BatchAllocationRow,
+  type AllocationReportRow,
 } from "@/actions/allocations";
 
 interface Draft {
@@ -119,6 +121,37 @@ export default function AllocationsPage() {
     } finally {
       setBatchRunning(false);
     }
+  }
+
+  // ---- 実績集計レポート（B案） ----
+  const [reportRows, setReportRows] = useState<AllocationReportRow[] | null>(null);
+  const [reportLoading, setReportLoading] = useState(false);
+
+  useEffect(() => {
+    setReportRows(null);
+  }, [fiscalYear]);
+
+  async function loadReport() {
+    setReportLoading(true);
+    try {
+      setReportRows(await getAllocationReport(id, fiscalYear));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "集計に失敗しました");
+    } finally {
+      setReportLoading(false);
+    }
+  }
+
+  function handleReportCsv() {
+    if (!reportRows || reportRows.length === 0) {
+      alert("出力するデータがありません");
+      return;
+    }
+    downloadCSV(
+      `家事按分実績_${fiscalYear}年度.csv`,
+      ["コード", "勘定科目", "按分率(%)", "総額", "事業分", "私用分", "按分根拠"],
+      reportRows.map((r) => [r.code, r.name, r.ratio, r.total, r.business, r.private, r.note ?? ""])
+    );
   }
 
   async function createJournal() {
@@ -481,6 +514,77 @@ export default function AllocationsPage() {
           </CardContent>
         </Card>
       )}
+
+      {/* 実績集計レポート */}
+      <Card className="mt-6">
+        <CardHeader className="pb-3">
+          <div className="flex items-center justify-between gap-2">
+            <CardTitle className="text-base flex items-center gap-2">
+              <FileText className="size-5 text-primary" />
+              按分実績レポート（{fiscalYear}年度）
+            </CardTitle>
+            <div className="flex items-center gap-2 print:hidden">
+              <Button variant="outline" size="sm" onClick={loadReport} disabled={reportLoading}>
+                {reportLoading ? <Loader2 className="size-4 animate-spin" /> : null}
+                集計
+              </Button>
+              {reportRows && reportRows.length > 0 && (
+                <Button variant="outline" size="sm" onClick={handleReportCsv}>
+                  <FileSpreadsheet className="size-4" />
+                  CSV出力
+                </Button>
+              )}
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent>
+          <p className="text-sm text-muted-foreground mb-3">
+            対象年度の実際の仕訳から、科目別に総額・事業分・私用分を集計します（確定申告・税務調査の説明資料）。
+          </p>
+          {reportRows === null ? (
+            <p className="text-sm text-muted-foreground py-2">「集計」を押すと実績を表示します。</p>
+          ) : reportRows.length === 0 ? (
+            <p className="text-sm text-muted-foreground py-2">対象の実績がありません（按分率の設定と期中の取引をご確認ください）。</p>
+          ) : (
+            <div className="overflow-x-auto rounded-lg border border-border">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="bg-muted/20 border-b border-border">
+                    <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">勘定科目</th>
+                    <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">按分率</th>
+                    <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">総額</th>
+                    <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">事業分</th>
+                    <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">私用分</th>
+                    <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">按分根拠</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reportRows.map((r) => (
+                    <tr key={r.account_id} className="border-b border-border/50">
+                      <td className="px-3 py-1.5 text-foreground">
+                        <span className="font-mono text-xs text-muted-foreground mr-2">{r.code}</span>{r.name}
+                      </td>
+                      <td className="px-3 py-1.5 text-right font-mono">{r.ratio}%</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{formatCurrency(r.total)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono">{formatCurrency(r.business)}</td>
+                      <td className="px-3 py-1.5 text-right font-mono font-bold">{formatCurrency(r.private)}</td>
+                      <td className="px-3 py-1.5 text-muted-foreground">{r.note ?? "-"}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-muted/20 border-t border-border font-bold">
+                    <td className="px-3 py-2">合計</td>
+                    <td />
+                    <td className="px-3 py-2 text-right font-mono">{formatCurrency(reportRows.reduce((s, r) => s + r.total, 0))}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatCurrency(reportRows.reduce((s, r) => s + r.business, 0))}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatCurrency(reportRows.reduce((s, r) => s + r.private, 0))}</td>
+                    <td />
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+        </CardContent>
+      </Card>
     </>
   );
 }
