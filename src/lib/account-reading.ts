@@ -122,15 +122,18 @@ export function toHalfWidth(v: string): string {
 }
 
 // 科目が検索クエリにマッチするか（コード・名前・よみ・ローマ字の前方一致）
+// extraReadings: 設定画面で登録したカスタム読み（科目名→よみ）。組み込み辞書より優先。
 export function matchesAccountQuery(
   query: string,
-  account: { code: string; name: string; reading?: string | null }
+  account: { code: string; name: string; reading?: string | null },
+  extraReadings?: Record<string, string>
 ): boolean {
   const q = toHalfWidth(query).trim().toLowerCase();
   if (!q) return true;
   if (account.code.toLowerCase().includes(q)) return true;
   if (account.name.toLowerCase().includes(q)) return true;
-  const reading = account.reading || ACCOUNT_READINGS[account.name] || "";
+  const reading =
+    account.reading || extraReadings?.[account.name] || ACCOUNT_READINGS[account.name] || "";
   if (reading) {
     if (reading.startsWith(q)) return true;
     if (hiraganaToRomaji(reading).startsWith(q)) return true;
