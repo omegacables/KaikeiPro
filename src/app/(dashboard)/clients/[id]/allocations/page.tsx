@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Home, Loader2, Plus, FileSpreadsheet, FileText } from "lucide-react";
+import { Home, Loader2, Plus, FileSpreadsheet, FileText, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -17,6 +17,7 @@ import {
   getBatchAllocationPreview,
   runBatchAllocation,
   getAllocationReport,
+  suggestAllocationRatios,
   type AllocatableAccount,
   type AllocationRate,
   type BatchAllocationRow,
@@ -235,6 +236,29 @@ export default function AllocationsPage() {
 
   const years = Array.from({ length: 5 }, (_, i) => currentFy - i);
 
+  // ---- AI按分提案 ----
+  const [aiSuggesting, setAiSuggesting] = useState(false);
+  async function handleAiSuggest() {
+    if (!confirm("AIが業種・科目名から按分率の目安を提案し、各科目の按分率・根拠を上書きします。よろしいですか？（あくまで参考値です。税務判断は税理士が確認してください）")) return;
+    setAiSuggesting(true);
+    try {
+      const suggestions = await suggestAllocationRatios(id);
+      if (suggestions.length === 0) {
+        alert("提案が得られませんでした");
+        return;
+      }
+      await Promise.all(
+        suggestions.map((s) => upsertAllocationRate(id, fiscalYear, s.account_id, s.ratio, s.reason))
+      );
+      await load();
+      alert(`AI提案を反映しました（${suggestions.length}科目）。内容を確認・調整してください。`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "AI提案に失敗しました");
+    } finally {
+      setAiSuggesting(false);
+    }
+  }
+
   function handleCsvExport() {
     const rows = accounts
       .filter((a) => rates[a.id])
@@ -298,6 +322,16 @@ export default function AllocationsPage() {
         <p className="mb-3 text-xs text-muted-foreground">
           ※ 按分率の設定は税理士が行います（閲覧のみ）。
         </p>
+      )}
+
+      {isStaff && !loading && (
+        <div className="mb-3 flex items-center gap-3 print:hidden">
+          <Button variant="outline" size="sm" onClick={handleAiSuggest} disabled={aiSuggesting}>
+            {aiSuggesting ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+            AIに按分率を提案させる
+          </Button>
+          <span className="text-xs text-muted-foreground">※ 提案は参考値です。税務判断は税理士がご確認ください。</span>
+        </div>
       )}
 
       {loading ? (

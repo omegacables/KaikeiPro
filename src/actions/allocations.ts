@@ -1,7 +1,14 @@
 "use server";
 
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { createJournalEntry } from "./journals";
+
+function getGeminiClient() {
+  const apiKey = process.env.GOOGLE_API_KEY;
+  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
+  return new GoogleGenerativeAI(apiKey);
+}
 
 export interface AllocatableAccount {
   id: string;
@@ -41,6 +48,65 @@ export async function getPaymentAccounts(clientId: string): Promise<AllocatableA
     .order("code");
   if (error) throw new Error(error.message);
   return (data ?? []).map((a) => ({ id: a.id, code: a.code, name: a.name }));
+}
+
+export interface AllocationSuggestion {
+  account_id: string;
+  name: string;
+  ratio: number;       // 0〜100
+  reason: string;      // 一言根拠
+}
+
+// AIによる按分率の提案（業種・科目名から事業使用割合の目安を提示）
+export async function suggestAllocationRatios(clientId: string): Promise<AllocationSuggestion[]> {
+  const supabase = await createServerSupabaseClient();
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("name, business_type")
+    .eq("id", clientId)
+    .maybeSingle();
+  const businessType = (client as { business_type?: string | null } | null)?.business_type || "不明";
+
+  const accounts = await getAllocatableAccounts(clientId);
+  if (accounts.length === 0) return [];
+
+  const genAI = getGeminiClient();
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+
+  const prompt = `あなたは日本の税務に詳しい税理士補助です。個人事業主の「家事按分」における、各勘定科目の事業使用割合（按分率, 0〜100の整数%）の目安を提案してください。
+
+事業主の業種: ${businessType}
+前提: 自宅兼事務所での個人事業主。生活と共用しやすい費目は実務的な目安、純粋な事業経費は100。
+
+対象の費用科目:
+${accounts.map((a) => `- ${a.name}`).join("\n")}
+
+判断の目安:
+- 仕入高・外注費・給料手当・賞与・法定福利費など純事業経費 → 100
+- 地代家賃・水道光熱費・通信費・車両関連 → 業種に応じた実務的な目安（例: 在宅中心なら家賃30〜50%、光熱費30〜50%、通信費50〜70%）
+- 判断が難しいものは保守的な目安とし、理由を簡潔に
+
+必ず次のJSON形式のみで回答（説明文不要）:
+{"suggestions":[{"name":"科目名（入力のまま）","ratio":40,"reason":"一言理由"}]}`;
+
+  const result = await model.generateContent(prompt);
+  const text = result.response.text();
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) throw new Error("AI提案の解析に失敗しました");
+  const parsed = JSON.parse(match[0]) as { suggestions?: { name?: string; ratio?: number; reason?: string }[] };
+
+  const byName = new Map(accounts.map((a) => [a.name, a]));
+  const out: AllocationSuggestion[] = [];
+  for (const s of parsed.suggestions ?? []) {
+    const acc = s.name ? byName.get(s.name) : undefined;
+    if (!acc) continue;
+    let ratio = Number(s.ratio);
+    if (Number.isNaN(ratio)) continue;
+    ratio = Math.max(0, Math.min(100, Math.round(ratio)));
+    out.push({ account_id: acc.id, name: acc.name, ratio, reason: (s.reason ?? "").toString().slice(0, 200) });
+  }
+  return out;
 }
 
 // 指定年度の按分率設定を account_id をキーに取得
