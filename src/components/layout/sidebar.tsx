@@ -26,6 +26,7 @@ import {
   Shield,
   MessageSquare,
   FileCheck,
+  Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -40,6 +41,7 @@ const clientNav = [
   { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
   { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
   { href: "/accounts", label: "勘定科目管理", icon: FileText },
+  { href: "/allocations", label: "家事按分設定", icon: Home },
   { href: "/tax", label: "消費税計算", icon: Percent },
   { href: "/closing", label: "決算処理", icon: Archive },
   { href: "/payments", label: "入金消込", icon: Wallet },
