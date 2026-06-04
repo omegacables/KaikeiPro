@@ -64,16 +64,14 @@ export async function getTrialBalance(
     account_categories: { type: string };
   };
 
-  let accounts: AccRow[] | null = null;
-  const withPl = await supabase
-    .from("accounts")
-    .select(`id, code, name, pl_classification, account_categories!inner ( type )`)
-    .or(`client_id.eq.${clientId},is_default.eq.true`)
-    .eq("is_active", true)
-    .order("code");
-  if (!withPl.error) {
-    accounts = withPl.data as unknown as AccRow[];
-  } else {
+  const fetchAccounts = async (): Promise<AccRow[]> => {
+    const withPl = await supabase
+      .from("accounts")
+      .select(`id, code, name, pl_classification, account_categories!inner ( type )`)
+      .or(`client_id.eq.${clientId},is_default.eq.true`)
+      .eq("is_active", true)
+      .order("code");
+    if (!withPl.error) return withPl.data as unknown as AccRow[];
     const noPl = await supabase
       .from("accounts")
       .select(`id, code, name, account_categories!inner ( type )`)
@@ -81,51 +79,35 @@ export async function getTrialBalance(
       .eq("is_active", true)
       .order("code");
     if (noPl.error) throw new Error(noPl.error.message);
-    accounts = noPl.data as unknown as AccRow[];
-  }
+    return noPl.data as unknown as AccRow[];
+  };
 
-  // Get all journal entry lines for this client within date range
-  const { data: lines, error: linesError } = await supabase
+  // 当期＋前期繰越をまとめて1クエリで取得（endDate以前の全仕訳）。
+  // 科目取得と並列実行してラウンドトリップを削減する。
+  const linesQuery = supabase
     .from("journal_entry_lines")
-    .select(`
-      account_id, debit_amount, credit_amount,
-      journal_entries!inner ( client_id, entry_date )
-    `)
+    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
     .eq("journal_entries.client_id", clientId)
-    .gte("journal_entries.entry_date", startDate)
     .lte("journal_entries.entry_date", endDate);
 
-  if (linesError) throw new Error(linesError.message);
+  const [accounts, linesRes] = await Promise.all([fetchAccounts(), linesQuery]);
+  if (linesRes.error) throw new Error(linesRes.error.message);
+  const lines = linesRes.data ?? [];
 
-  // 前期繰越: startDate より前の全仕訳の差引（借方プラス）
-  const dayBefore = new Date(startDate);
-  dayBefore.setDate(dayBefore.getDate() - 1);
-  const beforeDate = dayBefore.toISOString().slice(0, 10);
-
-  const { data: priorLines, error: priorError } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      account_id, debit_amount, credit_amount,
-      journal_entries!inner ( client_id, entry_date )
-    `)
-    .eq("journal_entries.client_id", clientId)
-    .lte("journal_entries.entry_date", beforeDate);
-
-  if (priorError) throw new Error(priorError.message);
-
+  // startDate より前 = 前期繰越、startDate〜endDate = 当期、を1ループで仕分け
   const prevBalanceMap = new Map<string, number>();
-  for (const line of priorLines ?? []) {
-    const prev = prevBalanceMap.get(line.account_id) ?? 0;
-    prevBalanceMap.set(line.account_id, prev + line.debit_amount - line.credit_amount);
-  }
-
-  // Aggregate by account
   const accountTotals = new Map<string, { debit: number; credit: number }>();
-  for (const line of lines ?? []) {
-    const existing = accountTotals.get(line.account_id) ?? { debit: 0, credit: 0 };
-    existing.debit += line.debit_amount;
-    existing.credit += line.credit_amount;
-    accountTotals.set(line.account_id, existing);
+  for (const line of lines) {
+    const entry = line.journal_entries as unknown as { entry_date: string };
+    if (entry.entry_date < startDate) {
+      const prev = prevBalanceMap.get(line.account_id) ?? 0;
+      prevBalanceMap.set(line.account_id, prev + line.debit_amount - line.credit_amount);
+    } else {
+      const existing = accountTotals.get(line.account_id) ?? { debit: 0, credit: 0 };
+      existing.debit += line.debit_amount;
+      existing.credit += line.credit_amount;
+      accountTotals.set(line.account_id, existing);
+    }
   }
 
   const categoryMap: Record<string, "asset" | "liability" | "equity" | "revenue" | "expense"> = {

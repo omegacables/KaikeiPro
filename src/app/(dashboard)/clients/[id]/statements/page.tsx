@@ -968,6 +968,7 @@ export default function StatementsPage() {
   const [period, setPeriod] = useState(`${defaultYear}-${String(defaultMonth).padStart(2, "0")}`);
 
   const [trialData, setTrialData] = useState<TrialBalanceRow[]>([]);
+  const [trialLoading, setTrialLoading] = useState(false);
   const [trendData, setTrendData] = useState<MonthlyTrendRow[]>([]);
   const [trendMonthLabels, setTrendMonthLabels] = useState<string[]>([]);
   const [trendMode, setTrendMode] = useState<MonthlyTrendMode>("pl");
@@ -999,12 +1000,15 @@ export default function StatementsPage() {
   }, [period]);
 
   const fetchTrialBalance = useCallback(async () => {
+    setTrialLoading(true);
     try {
       const data = await getTrialBalance(id, startDate, endDate);
       setTrialData(data);
     } catch (e) {
       console.error("Trial balance fetch error:", e);
       setTrialData([]);
+    } finally {
+      setTrialLoading(false);
     }
   }, [id, startDate, endDate]);
 
@@ -1102,9 +1106,18 @@ export default function StatementsPage() {
       </Card>
 
       {/* Content */}
-      {activeTab === "trial_balance" && <TrialBalance data={trialData} />}
-      {activeTab === "bs" && <BalanceSheet trialData={trialData} />}
-      {activeTab === "pl" && <ProfitAndLoss trialData={trialData} />}
+      {(activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") && trialLoading ? (
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-border p-12 text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" />
+          <span className="text-sm">読み込み中...</span>
+        </div>
+      ) : (
+        <>
+          {activeTab === "trial_balance" && <TrialBalance data={trialData} />}
+          {activeTab === "bs" && <BalanceSheet trialData={trialData} />}
+          {activeTab === "pl" && <ProfitAndLoss trialData={trialData} />}
+        </>
+      )}
       {activeTab === "monthly_trend" && (
         <MonthlyTrendTable
           data={trendData}
