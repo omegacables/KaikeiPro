@@ -116,6 +116,27 @@ export function hiraganaToRomaji(input: string): string {
   return out;
 }
 
+// ローマ字の表記揺れを吸収する正規化（ヘボン式/訓令式/ワープロ式を共通形へ）。
+// 例: fu↔hu, shi↔si, tsu↔tu, chi↔ti, ji↔zi, sha↔sya など。
+export function normalizeRomaji(s: string): string {
+  return s
+    .toLowerCase()
+    .replace(/sha/g, "sya")
+    .replace(/shu/g, "syu")
+    .replace(/sho/g, "syo")
+    .replace(/shi/g, "si")
+    .replace(/cha/g, "tya")
+    .replace(/chu/g, "tyu")
+    .replace(/cho/g, "tyo")
+    .replace(/chi/g, "ti")
+    .replace(/tsu/g, "tu")
+    .replace(/ja/g, "zya")
+    .replace(/ju/g, "zyu")
+    .replace(/jo/g, "zyo")
+    .replace(/ji/g, "zi")
+    .replace(/fu/g, "hu");
+}
+
 // 全角数字・英字を半角に
 export function toHalfWidth(v: string): string {
   return v.replace(/[！-～]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0));
@@ -135,8 +156,10 @@ export function matchesAccountQuery(
   const reading =
     account.reading || extraReadings?.[account.name] || ACCOUNT_READINGS[account.name] || "";
   if (reading) {
-    if (reading.startsWith(q)) return true;
-    if (hiraganaToRomaji(reading).startsWith(q)) return true;
+    if (reading.startsWith(q)) return true; // ひらがなクエリ
+    // ローマ字クエリ: 表記揺れ（fu/hu, shi/si 等）を吸収して前方一致
+    const romaji = normalizeRomaji(hiraganaToRomaji(reading));
+    if (romaji.startsWith(normalizeRomaji(q))) return true;
   }
   return false;
 }
