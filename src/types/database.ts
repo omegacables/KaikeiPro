@@ -287,6 +287,26 @@ export interface Database {
         };
         Relationships: [];
       };
+      account_readings: {
+        Row: {
+          id: string;
+          name: string;
+          reading: string;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          reading: string;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          reading?: string;
+        };
+        Relationships: [];
+      };
       sub_accounts: {
         Row: {
           id: string;

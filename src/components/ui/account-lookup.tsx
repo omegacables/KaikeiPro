@@ -3,6 +3,23 @@
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { cn } from "@/lib/utils";
 import { matchesAccountQuery, toHalfWidth } from "@/lib/account-reading";
+import { getAccountReadings } from "@/actions/account-readings";
+
+// カスタム読み（設定画面で登録）を1回だけ取得してキャッシュ。全AccountLookupで共有。
+let cachedReadings: Record<string, string> | null = null;
+let readingsPromise: Promise<Record<string, string>> | null = null;
+function loadCustomReadings(): Promise<Record<string, string>> {
+  if (cachedReadings) return Promise.resolve(cachedReadings);
+  if (!readingsPromise) {
+    readingsPromise = getAccountReadings()
+      .then((m) => {
+        cachedReadings = m;
+        return m;
+      })
+      .catch(() => ({}));
+  }
+  return readingsPromise;
+}
 
 export interface AccountOption {
   id: string;
@@ -44,6 +61,12 @@ export const AccountLookup = memo(function AccountLookup({
   const containerRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const innerInputRef = useRef<HTMLInputElement | null>(null);
+  const [extraReadings, setExtraReadings] = useState<Record<string, string>>(cachedReadings ?? {});
+
+  // カスタム読みを読み込み（キャッシュ済みなら即時）
+  useEffect(() => {
+    loadCustomReadings().then(setExtraReadings);
+  }, []);
 
   // Sync display text when value changes externally
   useEffect(() => {
@@ -57,7 +80,7 @@ export const AccountLookup = memo(function AccountLookup({
   const isSelectedText = selected && query === `${selected.code} ${selected.name}`;
   // コード・名前・よみ仮名・ローマ字（頭文字）でマッチ。例: "g" → 現金/減価償却費
   const filtered = query && open && !isSelectedText
-    ? accounts.filter((a) => matchesAccountQuery(query, a))
+    ? accounts.filter((a) => matchesAccountQuery(query, a, extraReadings))
     : accounts;
 
   // Build flat list with category groups for rendering
