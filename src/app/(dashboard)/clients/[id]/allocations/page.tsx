@@ -2,14 +2,17 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Home, Loader2, Save } from "lucide-react";
-import { Card, CardContent } from "@/components/ui/card";
+import { Home, Loader2, Save, Plus } from "lucide-react";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { cn, formatCurrency } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   getAllocatableAccounts,
+  getPaymentAccounts,
   getAllocationRates,
   upsertAllocationRate,
+  createAllocationJournal,
   type AllocatableAccount,
   type AllocationRate,
 } from "@/actions/allocations";
@@ -31,6 +34,7 @@ export default function AllocationsPage() {
   const [fiscalYear, setFiscalYear] = useState(currentFy);
 
   const [accounts, setAccounts] = useState<AllocatableAccount[]>([]);
+  const [paymentAccounts, setPaymentAccounts] = useState<AllocatableAccount[]>([]);
   const [rates, setRates] = useState<Record<string, AllocationRate>>({});
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const [loading, setLoading] = useState(true);
@@ -39,11 +43,13 @@ export default function AllocationsPage() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, rateMap] = await Promise.all([
+      const [accs, payAccs, rateMap] = await Promise.all([
         getAllocatableAccounts(id),
+        getPaymentAccounts(id),
         getAllocationRates(id, fiscalYear),
       ]);
       setAccounts(accs);
+      setPaymentAccounts(payAccs);
       setRates(rateMap);
       setDrafts({});
     } catch (e) {
@@ -54,6 +60,52 @@ export default function AllocationsPage() {
       setLoading(false);
     }
   }, [id, fiscalYear]);
+
+  // ---- 按分仕訳の作成フォーム ----
+  const [jDate, setJDate] = useState(new Date().toISOString().slice(0, 10));
+  const [jExpenseId, setJExpenseId] = useState("");
+  const [jRatio, setJRatio] = useState("");
+  const [jAmount, setJAmount] = useState("");
+  const [jPaymentId, setJPaymentId] = useState("");
+  const [jMemo, setJMemo] = useState("");
+  const [jSaving, setJSaving] = useState(false);
+
+  // 費用科目を選んだら設定済みの按分率を初期表示
+  const onSelectExpense = (accountId: string) => {
+    setJExpenseId(accountId);
+    const r = rates[accountId];
+    setJRatio(r ? String(r.business_ratio) : "");
+  };
+
+  const jTotal = Number(jAmount) || 0;
+  const jRatioNum = jRatio === "" ? 0 : Number(jRatio);
+  const jBusiness = Math.round((jTotal * jRatioNum) / 100);
+  const jPrivate = jTotal - jBusiness;
+
+  async function createJournal() {
+    if (!jExpenseId) { alert("費用科目を選択してください"); return; }
+    if (!jPaymentId) { alert("支払元の科目を選択してください"); return; }
+    if (!(jTotal > 0)) { alert("取引金額を入力してください"); return; }
+    if (jRatioNum < 0 || jRatioNum > 100) { alert("按分率は0〜100で入力してください"); return; }
+    setJSaving(true);
+    try {
+      await createAllocationJournal(id, {
+        date: jDate,
+        expenseAccountId: jExpenseId,
+        paymentAccountId: jPaymentId,
+        totalAmount: jTotal,
+        businessRatio: jRatioNum,
+        memo: jMemo,
+      });
+      alert("按分仕訳を作成しました（下書き）。仕訳入力・帳簿で確認できます。");
+      setJAmount("");
+      setJMemo("");
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "仕訳の作成に失敗しました");
+    } finally {
+      setJSaving(false);
+    }
+  }
 
   useEffect(() => {
     load();
@@ -222,8 +274,76 @@ export default function AllocationsPage() {
       )}
 
       <p className="mt-3 text-xs text-muted-foreground">
-        ※ 按分率は事業使用割合です（例: 40% → 経費40%・私用60%）。私用分は「事業主貸」に振り替わります（自動仕訳は次フェーズで対応）。
+        ※ 按分率は事業使用割合です（例: 40% → 経費40%・私用60%）。私用分は「事業主貸」へ振り替わります。
       </p>
+
+      {/* 按分仕訳の作成（税理士のみ） */}
+      {isStaff && !loading && (
+        <Card className="mt-6">
+          <CardHeader className="pb-3">
+            <CardTitle className="text-base flex items-center gap-2">
+              <Plus className="size-5 text-primary" />
+              家事按分仕訳の作成
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1">日付</label>
+                <input type="date" value={jDate} onChange={(e) => setJDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1">費用科目</label>
+                <select value={jExpenseId} onChange={(e) => onSelectExpense(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm">
+                  <option value="">選択してください</option>
+                  {accounts.map((a) => (
+                    <option key={a.id} value={a.id}>{a.code} {a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1">按分率（%）</label>
+                <input type="number" min={0} max={100} value={jRatio} onChange={(e) => setJRatio(e.target.value)} placeholder="40" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1">取引金額（税込）</label>
+                <input type="number" min={0} value={jAmount} onChange={(e) => setJAmount(e.target.value)} placeholder="11000" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right" />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1">支払元（貸方）</label>
+                <select value={jPaymentId} onChange={(e) => setJPaymentId(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm">
+                  <option value="">選択してください</option>
+                  {paymentAccounts.map((a) => (
+                    <option key={a.id} value={a.id}>{a.code} {a.name}</option>
+                  ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-muted-foreground mb-1">摘要（任意）</label>
+                <input type="text" value={jMemo} onChange={(e) => setJMemo(e.target.value)} placeholder="例: 電気代 6月分" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              </div>
+            </div>
+
+            {/* プレビュー */}
+            <div className="mt-4 rounded-lg border border-border bg-muted/10 p-3 text-sm">
+              <div className="flex flex-wrap gap-x-8 gap-y-1">
+                <span>事業分（経費）: <span className="font-mono font-bold text-foreground">{formatCurrency(jBusiness)}</span></span>
+                <span>私用分（事業主貸）: <span className="font-mono font-bold text-foreground">{formatCurrency(jPrivate)}</span></span>
+                <span className="text-muted-foreground">合計: <span className="font-mono">{formatCurrency(jTotal)}</span></span>
+              </div>
+              <p className={cn("mt-2 text-xs text-muted-foreground")}>
+                仕訳: （借）費用 {formatCurrency(jBusiness)} ／（借）事業主貸 {formatCurrency(jPrivate)} ／（貸）支払元 {formatCurrency(jTotal)}
+              </p>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+              <Button onClick={createJournal} disabled={jSaving}>
+                {jSaving ? <><Loader2 className="size-4 animate-spin" />作成中...</> : <><Plus className="size-4" />按分仕訳を作成</>}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
     </>
   );
 }
