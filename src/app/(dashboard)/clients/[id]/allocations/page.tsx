@@ -153,9 +153,9 @@ export default function AllocationsPage() {
   const ratioValue = (accountId: string) =>
     drafts[accountId]?.ratio !== undefined
       ? drafts[accountId].ratio
-      : rates[accountId]
+      : rates[accountId] && rates[accountId].business_ratio > 0
         ? String(rates[accountId].business_ratio)
-        : "";
+        : ""; // 0%は未設定と同じ扱い（薄いプレースホルダー表示）
   const noteValue = (accountId: string) =>
     drafts[accountId]?.note !== undefined
       ? drafts[accountId].note
@@ -305,7 +305,7 @@ export default function AllocationsPage() {
                         />
                       </span>
                     ) : (
-                      <span className="font-mono">{rates[a.id] ? `${rates[a.id].business_ratio}%` : "-"}</span>
+                      <span className="font-mono">{rates[a.id] && rates[a.id].business_ratio > 0 ? `${rates[a.id].business_ratio}%` : "-"}</span>
                     )}
                   </td>
                   <td className="px-3 py-1.5">
