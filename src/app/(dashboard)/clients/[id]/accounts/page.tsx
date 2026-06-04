@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useState } from "react";
+import { Fragment, useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import {
   Search,
@@ -18,6 +18,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
 import { getAccounts, getAccountCategories, createAccount, updateAccount } from "@/actions/accounts";
+import { getAccountReadings, upsertAccountReading } from "@/actions/account-readings";
+import { ACCOUNT_READINGS } from "@/lib/account-reading";
 import type { PlClassification } from "@/types/database";
 
 type SubAccount = {
@@ -148,6 +150,66 @@ export default function AccountsPage() {
     }
   }
 
+  // ステータス（有効/無効）のワンクリック切替。ローカル反映しつつ保存する。
+  const [activeOverrides, setActiveOverrides] = useState<Record<string, boolean>>({});
+  const [togglingId, setTogglingId] = useState<string | null>(null);
+
+  async function handleToggleActive(account: Account) {
+    const current = activeOverrides[account.id] ?? account.is_active;
+    const next = !current;
+    setActiveOverrides((p) => ({ ...p, [account.id]: next }));
+    setTogglingId(account.id);
+    try {
+      await updateAccount(account.id, { is_active: next });
+    } catch (e) {
+      setActiveOverrides((p) => ({ ...p, [account.id]: current }));
+      alert(e instanceof Error ? e.message : "ステータスの更新に失敗しました");
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
+  // 科目の読み仮名（科目名→よみ）。組み込み辞書＋DB登録分。編集して保存できる。
+  const [readingsMap, setReadingsMap] = useState<Record<string, string>>({});
+  const [readingDrafts, setReadingDrafts] = useState<Record<string, string>>({});
+  const [savingReading, setSavingReading] = useState<string | null>(null);
+
+  useEffect(() => {
+    getAccountReadings().then(setReadingsMap).catch(() => setReadingsMap({}));
+  }, []);
+
+  const readingValue = (name: string) =>
+    readingDrafts[name] !== undefined
+      ? readingDrafts[name]
+      : readingsMap[name] ?? ACCOUNT_READINGS[name] ?? "";
+
+  async function saveReading(name: string) {
+    const draft = readingDrafts[name];
+    if (draft === undefined) return; // 未編集
+    const val = draft.trim();
+    const current = readingsMap[name] ?? ACCOUNT_READINGS[name] ?? "";
+    const clearDraft = () =>
+      setReadingDrafts((p) => {
+        const n = { ...p };
+        delete n[name];
+        return n;
+      });
+    if (!val || val === current) {
+      clearDraft();
+      return;
+    }
+    setSavingReading(name);
+    try {
+      await upsertAccountReading(name, val);
+      setReadingsMap((p) => ({ ...p, [name]: val }));
+      clearDraft();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "読みの保存に失敗しました");
+    } finally {
+      setSavingReading(null);
+    }
+  }
+
   const toggleRow = (code: string) => {
     setExpandedRows((prev) => {
       const next = new Set(prev);
@@ -179,7 +241,7 @@ export default function AccountsPage() {
   const totalInactive = allAccounts[activeTab].filter((a) => !a.is_active).length;
 
   const showPl = activeTab === "revenue" || activeTab === "expenses";
-  const colCount = showPl ? 7 : 6;
+  const colCount = showPl ? 8 : 7;
 
   return (
     <>
@@ -289,6 +351,9 @@ export default function AccountsPage() {
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
                   科目名
                 </th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
+                  よみ
+                </th>
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
                   ステータス
                 </th>
@@ -332,21 +397,48 @@ export default function AccountsPage() {
                     <td className="px-4 py-3 font-medium text-foreground">
                       {account.name}
                     </td>
-                    <td className="px-4 py-3 text-center">
-                      <span
-                        className={cn(
-                          "inline-flex items-center gap-1.5 text-xs font-medium",
-                          account.is_active ? "text-success" : "text-muted-foreground"
-                        )}
-                      >
-                        <span
-                          className={cn(
-                            "size-2 rounded-full",
-                            account.is_active ? "bg-green-500" : "bg-muted-foreground/40"
-                          )}
-                        />
-                        {account.is_active ? "有効" : "無効"}
-                      </span>
+                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="text"
+                        value={readingValue(account.name)}
+                        onChange={(e) =>
+                          setReadingDrafts((p) => ({ ...p, [account.name]: e.target.value }))
+                        }
+                        onBlur={() => saveReading(account.name)}
+                        placeholder="よみ"
+                        disabled={savingReading === account.name}
+                        className="w-32 px-2 py-1 rounded border border-border bg-card text-foreground text-xs"
+                      />
+                    </td>
+                    <td className="px-4 py-3 text-center" onClick={(e) => e.stopPropagation()}>
+                      {(() => {
+                        const isActive = activeOverrides[account.id] ?? account.is_active;
+                        return (
+                          <button
+                            onClick={() => handleToggleActive(account)}
+                            disabled={togglingId === account.id}
+                            title="クリックで有効/無効を切替"
+                            className={cn(
+                              "inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer",
+                              isActive
+                                ? "text-success border-success/30 hover:bg-success/10"
+                                : "text-muted-foreground border-border hover:bg-muted/30"
+                            )}
+                          >
+                            {togglingId === account.id ? (
+                              <Loader2 className="size-3 animate-spin" />
+                            ) : (
+                              <span
+                                className={cn(
+                                  "size-2 rounded-full",
+                                  isActive ? "bg-green-500" : "bg-muted-foreground/40"
+                                )}
+                              />
+                            )}
+                            {isActive ? "有効" : "無効"}
+                          </button>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-center">
                       {account.is_default ? (
@@ -395,6 +487,7 @@ export default function AccountsPage() {
                             <FileText className="size-3 text-muted-foreground" />
                             {sub.name}
                           </td>
+                          <td className="px-4 py-2"></td>
                           <td className="px-4 py-2 text-center">
                             <span
                               className={cn(

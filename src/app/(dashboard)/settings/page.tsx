@@ -28,7 +28,6 @@ import {
   EyeOff,
   Package,
   User,
-  Languages,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,12 +49,10 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { runFullRaqtoSync, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { getRaqtoIntegrations, linkRaqtoAccount, unlinkRaqtoAccount, type RaqtoIntegrationWithClient } from "@/actions/raqto-integration";
-import { listAccountReadings, upsertAccountReading, deleteAccountReading, type AccountReading } from "@/actions/account-readings";
 
 const firmTabs = [
   { key: "firm", label: "事務所情報", icon: Building2 },
   { key: "members", label: "メンバー管理", icon: Users },
-  { key: "readings", label: "科目の読み", icon: Languages },
   { key: "notifications", label: "通知設定", icon: Bell },
   { key: "integrations", label: "外部連携", icon: Link2 },
   { key: "security", label: "セキュリティ", icon: Shield },
@@ -63,7 +60,6 @@ const firmTabs = [
 
 const clientTabs = [
   { key: "account", label: "アカウント設定", icon: User },
-  { key: "readings", label: "科目の読み", icon: Languages },
   { key: "notifications", label: "通知設定", icon: Bell },
   { key: "integrations", label: "外部連携", icon: Link2 },
   { key: "security", label: "セキュリティ", icon: Shield },
@@ -260,55 +256,6 @@ export default function SettingsPage() {
     }
   }, [isClient]);
 
-  // ---- 科目の読み（よみがな辞書） ----
-  const [readings, setReadings] = useState<AccountReading[]>([]);
-  const [readingsLoading, setReadingsLoading] = useState(false);
-  const [newReadingName, setNewReadingName] = useState("");
-  const [newReadingValue, setNewReadingValue] = useState("");
-  const [readingSaving, setReadingSaving] = useState(false);
-
-  const fetchReadings = useCallback(async () => {
-    setReadingsLoading(true);
-    try {
-      setReadings(await listAccountReadings());
-    } catch {
-      setReadings([]);
-    } finally {
-      setReadingsLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    if (activeTab === "readings") fetchReadings();
-  }, [activeTab, fetchReadings]);
-
-  const handleAddReading = async () => {
-    if (!newReadingName.trim() || !newReadingValue.trim()) {
-      alert("科目名と読み仮名を入力してください");
-      return;
-    }
-    setReadingSaving(true);
-    try {
-      await upsertAccountReading(newReadingName, newReadingValue);
-      setNewReadingName("");
-      setNewReadingValue("");
-      await fetchReadings();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
-    } finally {
-      setReadingSaving(false);
-    }
-  };
-
-  const handleDeleteReading = async (id: string) => {
-    if (!confirm("この読みを削除しますか？")) return;
-    try {
-      await deleteAccountReading(id);
-      await fetchReadings();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "削除に失敗しました");
-    }
-  };
 
   // Client account data (for client role)
   const [clientData, setClientData] = useState({
@@ -1160,92 +1107,6 @@ export default function SettingsPage() {
                     </div>
                   ))}
                 </div>
-              </CardContent>
-            </Card>
-          )}
-
-          {activeTab === "readings" && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <Languages className="size-5 text-primary" />
-                  科目の読み仮名
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <p className="text-sm text-muted-foreground mb-4">
-                  勘定科目の読み仮名（ひらがな）を登録すると、仕訳入力などの科目検索で「げんきん」や「g」のように
-                  ひらがな・ローマ字の頭文字でも検索できるようになります。標準科目は登録済みのため、主にカスタム科目用です。
-                </p>
-
-                {/* 追加フォーム */}
-                <div className="flex flex-wrap items-end gap-3 mb-6">
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-bold text-muted-foreground">科目名</label>
-                    <input
-                      type="text"
-                      value={newReadingName}
-                      onChange={(e) => setNewReadingName(e.target.value)}
-                      placeholder="例: 外注費"
-                      className="bg-card border border-border rounded-lg px-3 py-2 text-sm w-48"
-                    />
-                  </div>
-                  <div className="flex flex-col gap-1">
-                    <label className="text-xs font-bold text-muted-foreground">読み仮名（ひらがな）</label>
-                    <input
-                      type="text"
-                      value={newReadingValue}
-                      onChange={(e) => setNewReadingValue(e.target.value)}
-                      placeholder="例: がいちゅうひ"
-                      className="bg-card border border-border rounded-lg px-3 py-2 text-sm w-48"
-                    />
-                  </div>
-                  <Button onClick={handleAddReading} disabled={readingSaving}>
-                    {readingSaving ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
-                    追加
-                  </Button>
-                </div>
-
-                {/* 一覧 */}
-                {readingsLoading ? (
-                  <div className="flex items-center gap-2 text-muted-foreground py-8 justify-center">
-                    <Loader2 className="size-4 animate-spin" />
-                    <span className="text-sm">読み込み中...</span>
-                  </div>
-                ) : readings.length === 0 ? (
-                  <p className="text-sm text-muted-foreground py-6 text-center">
-                    登録された読みはまだありません。
-                  </p>
-                ) : (
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="bg-muted/20 border-b border-border">
-                          <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">科目名</th>
-                          <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">読み仮名</th>
-                          <th className="text-center px-3 py-2 text-xs font-bold text-muted-foreground w-20">操作</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {readings.map((r) => (
-                          <tr key={r.id} className="border-b border-border/50 last:border-0 hover:bg-muted/10">
-                            <td className="px-3 py-2 text-foreground font-medium">{r.name}</td>
-                            <td className="px-3 py-2 text-muted-foreground">{r.reading}</td>
-                            <td className="px-3 py-2 text-center">
-                              <button
-                                onClick={() => handleDeleteReading(r.id)}
-                                className="text-muted-foreground hover:text-destructive transition-colors"
-                                title="削除"
-                              >
-                                <Trash2 className="size-4" />
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
               </CardContent>
             </Card>
           )}
