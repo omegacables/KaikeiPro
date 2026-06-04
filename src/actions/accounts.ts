@@ -7,17 +7,18 @@ type AccountRow = Database["public"]["Tables"]["accounts"]["Row"];
 type AccountInsert = Database["public"]["Tables"]["accounts"]["Insert"];
 type AccountUpdate = Database["public"]["Tables"]["accounts"]["Update"];
 
-export async function getAccounts(clientId: string) {
+export async function getAccounts(clientId: string, includeInactive = false) {
   const supabase = await createServerSupabaseClient();
-  const { data, error } = await supabase
+  let query = supabase
     .from("accounts")
     .select(`
       *,
       account_categories ( id, type, name, sort_order )
     `)
-    .or(`client_id.eq.${clientId},client_id.is.null`)
-    .eq("is_active", true)
-    .order("code");
+    .or(`client_id.eq.${clientId},client_id.is.null`);
+  // 勘定科目管理など、無効科目も含めて取得したい場合は includeInactive=true
+  if (!includeInactive) query = query.eq("is_active", true);
+  const { data, error } = await query.order("code");
 
   if (error) throw new Error(error.message);
   return data;

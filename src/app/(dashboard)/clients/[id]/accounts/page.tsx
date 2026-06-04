@@ -111,7 +111,7 @@ export default function AccountsPage() {
 
   const { data: allAccounts } = useData(
     () =>
-      getAccounts(id).then((rows) => {
+      getAccounts(id, true).then((rows) => {
         const grouped: Record<CategoryKey, Account[]> = {
           assets: [], liabilities: [], equity: [], revenue: [], expenses: [],
         };
