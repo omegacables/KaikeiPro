@@ -223,7 +223,10 @@ export default function AccountsPage() {
   };
 
   const accounts = allAccounts[activeTab].filter((account) => {
-    if (!showInactive && !account.is_active) return false;
+    // その場で切り替えた科目は、非表示設定でも一覧に残す（再度切替できるように）
+    const toggledThisSession = activeOverrides[account.id] !== undefined;
+    const isActive = activeOverrides[account.id] ?? account.is_active;
+    if (!showInactive && !isActive && !toggledThisSession) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return (
