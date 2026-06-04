@@ -301,7 +301,7 @@ export default function AllocationsPage() {
                           onChange={(e) => setDraft(a.id, { ratio: e.target.value })}
                           onBlur={() => saveRow(a.id)}
                           placeholder="0"
-                          className="w-24 px-2 py-1 rounded border border-border bg-card text-foreground text-sm text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          className="w-24 px-2 py-1 rounded border border-border bg-card text-foreground text-sm text-right no-spinner"
                         />
                       </span>
                     ) : (
@@ -366,11 +366,11 @@ export default function AllocationsPage() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">按分率（%）</label>
-                <input type="number" min={0} max={100} value={jRatio} onChange={(e) => setJRatio(e.target.value)} placeholder="40" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                <input type="number" min={0} max={100} value={jRatio} onChange={(e) => setJRatio(e.target.value)} placeholder="40" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm no-spinner" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">取引金額（税込）</label>
-                <input type="number" min={0} value={jAmount} onChange={(e) => setJAmount(e.target.value)} placeholder="11000" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none" />
+                <input type="number" min={0} value={jAmount} onChange={(e) => setJAmount(e.target.value)} placeholder="11000" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right no-spinner" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">支払元（貸方）</label>

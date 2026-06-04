@@ -139,3 +139,14 @@ html[data-theme="dark"] {
     margin-bottom: 12pt;
   }
 }
+
+/* 数値入力の増減スピナーを非表示にするユーティリティ */
+.no-spinner::-webkit-outer-spin-button,
+.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+.no-spinner {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
