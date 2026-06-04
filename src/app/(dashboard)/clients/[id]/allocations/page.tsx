@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Home, Loader2, Save, Plus } from "lucide-react";
+import { Home, Loader2, Save, Plus, FileSpreadsheet, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
+import { downloadCSV, printPage } from "@/lib/export";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
   getAllocatableAccounts,
@@ -161,6 +162,21 @@ export default function AllocationsPage() {
 
   const years = Array.from({ length: 5 }, (_, i) => currentFy - i);
 
+  function handleCsvExport() {
+    const rows = accounts
+      .filter((a) => rates[a.id])
+      .map((a) => [a.code, a.name, rates[a.id].business_ratio, rates[a.id].basis_note ?? ""]);
+    if (rows.length === 0) {
+      alert("出力する按分設定がありません");
+      return;
+    }
+    downloadCSV(
+      `家事按分設定_${fiscalYear}年度.csv`,
+      ["コード", "勘定科目", "按分率(%)", "按分根拠"],
+      rows
+    );
+  }
+
   return (
     <>
       <div className="flex items-center justify-between mb-4">
@@ -172,6 +188,16 @@ export default function AllocationsPage() {
           <p className="text-muted-foreground text-sm mt-1">
             自宅兼事務所の経費を事業使用割合で按分するための、科目ごとの按分率を設定します。
           </p>
+        </div>
+        <div className="flex items-center gap-2 print:hidden">
+          <Button variant="outline" size="sm" onClick={handleCsvExport}>
+            <FileSpreadsheet className="size-4" />
+            CSV出力
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => printPage()}>
+            <FileText className="size-4" />
+            PDF出力
+          </Button>
         </div>
       </div>
 
@@ -279,7 +305,7 @@ export default function AllocationsPage() {
 
       {/* 按分仕訳の作成（税理士のみ） */}
       {isStaff && !loading && (
-        <Card className="mt-6">
+        <Card className="mt-6 print:hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Plus className="size-5 text-primary" />
