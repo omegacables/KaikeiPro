@@ -78,9 +78,10 @@ export async function processReceiptOcr(
     // 4. Base64変換
     const base64 = Buffer.from(imageData).toString("base64");
 
-    // 5. Gemini 3 Flash API呼び出し（画像・PDF両対応）
+    // 5. Gemini API呼び出し（画像・PDF両対応）
+    // 1画像内の複数レシートを漏れなく読み取るため精度の高い Pro を使用
     const genAI = getGeminiClient();
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
 
     const isPdf = mimeType === "application/pdf";
 
@@ -120,8 +121,12 @@ export async function processReceiptOcr(
 
 重要:
 - レシートが1つしか見つからない場合も、必ず1要素の配列として返してください
-- 1ページ内に複数のレシート画像がある場合、それぞれを別の要素として返してください
-- 同じレシートの裏表や続きと判断できるものは1つにまとめてください
+- 【最重要】画像内のレシートを漏れなく全て検出してください。1枚の画像/ページに複数のレシートが
+  並んで（横並び・縦並び・グリッド状・斜め・一部重なり・余白に小さく）写っている場合も、
+  視覚的に分離できる領収書は全て個別の要素として返してください。読み取れた枚数だけ配列要素を作ること
+- まず画像内にレシートが何枚あるかを数え、その枚数と同じ数の要素を必ず返してください
+- 一部が見切れている・傾いている・薄い・手書きのレシートも、判読できる範囲で1件として含めてください
+- 同じレシートの裏表や続き（合計が連続する等）と明確に判断できるものだけ1つにまとめてください
 - 金額は数値のみ（カンマや通貨記号は除く）
 - 日付は西暦YYYY-MM-DD形式に変換（令和・平成は西暦に変換）
 - 通貨は$ならUSD、¥で日本の店ならJPY、€ならEUR等を正確に判定

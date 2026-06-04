@@ -149,7 +149,7 @@ function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, select
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
           <thead>
             <tr className="bg-muted/20 border-b-2 border-border">
               <th rowSpan={2} className="text-center px-2 py-2 border-r border-border w-[40px]">
@@ -372,7 +372,7 @@ function GeneralLedgerTable({
       ) : (
         <Card className="overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+            <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
               <thead>
                 <tr className="bg-muted/20 border-b-2 border-border">
                   <th className="text-left px-2 py-2 text-xs font-bold text-muted-foreground border-r border-border w-[90px]">日付</th>
@@ -418,7 +418,7 @@ function GeneralLedgerTable({
                         <td colSpan={7} className="p-0">
                           <div className="bg-muted/10 px-8 py-3 border-b border-border">
                             <p className="text-xs font-bold text-muted-foreground mb-2">相手科目の内訳</p>
-                            <table className="w-full text-xs">
+                            <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
                               <thead>
                                 <tr className="border-b border-border/50">
                                   <th className="text-left py-1.5 text-muted-foreground font-bold">勘定科目</th>
@@ -472,7 +472,7 @@ function CashBookLedger({
   return (
     <Card className="overflow-hidden">
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
           <thead>
             <tr className="bg-muted/20 border-b-2 border-border">
               <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">日付</th>
@@ -518,7 +518,7 @@ function CashBookLedger({
                     <td colSpan={7} className="p-0">
                       <div className="bg-muted/10 px-8 py-3 border-b border-border">
                         <p className="text-xs font-bold text-muted-foreground mb-2">相手科目の内訳</p>
-                        <table className="w-full text-xs">
+                        <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
                           <thead>
                             <tr className="border-b border-border/50">
                               <th className="text-left py-1.5 text-muted-foreground font-bold">勘定科目</th>
@@ -728,7 +728,7 @@ function FixedAssetLedgerTable({ assets }: { assets: AssetDisplay[] }) {
       {/* Table */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+          <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
             <thead>
               <tr className="bg-muted/20 border-b-2 border-border">
                 <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">資産名</th>
@@ -1163,7 +1163,7 @@ export default function LedgersPage() {
   return (
     <>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <BookOpen className="size-6 text-primary" />
@@ -1186,7 +1186,7 @@ export default function LedgersPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex items-center gap-1 mb-6 overflow-x-auto border-b border-border pb-px">
+      <div className="flex items-center gap-1 mb-4 overflow-x-auto border-b border-border pb-px">
         {tabs.map((tab) => (
           <button
             key={tab.key}
@@ -1205,8 +1205,8 @@ export default function LedgersPage() {
 
       {/* Filter (not shown for assets tab which has its own filter) */}
       {activeTab !== "assets" && (
-      <Card className="mb-6">
-        <CardContent className="pt-4 pb-4">
+      <Card className="mb-4">
+        <CardContent className="py-2.5 px-3">
           {(activeTab === "journal" || activeTab === "general" || activeTab === "cash" || activeTab === "deposit") ? (
             /* 仕訳帳・総勘定元帳・現金出納帳タブ用: 拡張フィルター */
             <div className="flex flex-wrap items-end gap-4">
@@ -1525,7 +1525,7 @@ export default function LedgersPage() {
                 <h3 className="text-sm font-bold text-foreground">得意先別売掛残高</h3>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
                   <thead>
                     <tr className="bg-muted/20 border-b border-border">
                       <th className="text-left px-4 py-2 text-xs font-bold text-muted-foreground">得意先</th>
@@ -1567,7 +1567,7 @@ export default function LedgersPage() {
                 <h3 className="text-sm font-bold text-foreground">エージングレポート（年齢表）</h3>
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
                   <thead>
                     <tr className="bg-muted/20 border-b border-border">
                       <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">得意先</th>
@@ -1710,7 +1710,7 @@ export default function LedgersPage() {
                   </div>
                 ) : detailData && detailData.items.length > 0 ? (
                   <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full text-xs">
+                    <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
                       <thead>
                         <tr className="bg-muted/20 border-b border-border">
                           <th className="text-left px-3 py-2 font-bold text-muted-foreground">品名</th>
