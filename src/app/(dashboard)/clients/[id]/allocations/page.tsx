@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
-import { Home, Loader2, Save, Plus, FileSpreadsheet, FileText } from "lucide-react";
+import { Home, Loader2, Plus, FileSpreadsheet, FileText } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -172,6 +172,8 @@ export default function AllocationsPage() {
     }));
 
   async function saveRow(accountId: string) {
+    // 未編集（下書きが無い）なら何もしない（blur時の無駄な保存を防ぐ）
+    if (drafts[accountId] === undefined) return;
     const ratioStr = ratioValue(accountId).trim();
     const note = noteValue(accountId).trim();
     const ratio = ratioStr === "" ? 0 : Number(ratioStr);
@@ -276,9 +278,8 @@ export default function AllocationsPage() {
             <thead>
               <tr className="bg-muted/20 border-b border-border">
                 <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">勘定科目</th>
-                <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground w-32">按分率（%）</th>
+                <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground w-36">按分率（%）</th>
                 <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">按分根拠メモ</th>
-                {isStaff && <th className="text-center px-3 py-2 text-xs font-bold text-muted-foreground w-20">操作</th>}
               </tr>
             </thead>
             <tbody>
@@ -290,15 +291,19 @@ export default function AllocationsPage() {
                   </td>
                   <td className="px-3 py-1.5 text-right">
                     {isStaff ? (
-                      <input
-                        type="number"
-                        min={0}
-                        max={100}
-                        value={ratioValue(a.id)}
-                        onChange={(e) => setDraft(a.id, { ratio: e.target.value })}
-                        placeholder="0"
-                        className="w-24 px-2 py-1 rounded border border-border bg-card text-foreground text-sm text-right"
-                      />
+                      <span className="inline-flex items-center justify-end gap-1.5">
+                        {savingId === a.id && <Loader2 className="size-3.5 animate-spin text-muted-foreground" />}
+                        <input
+                          type="number"
+                          min={0}
+                          max={100}
+                          value={ratioValue(a.id)}
+                          onChange={(e) => setDraft(a.id, { ratio: e.target.value })}
+                          onBlur={() => saveRow(a.id)}
+                          placeholder="0"
+                          className="w-24 px-2 py-1 rounded border border-border bg-card text-foreground text-sm text-right"
+                        />
+                      </span>
                     ) : (
                       <span className="font-mono">{rates[a.id] ? `${rates[a.id].business_ratio}%` : "-"}</span>
                     )}
@@ -309,6 +314,7 @@ export default function AllocationsPage() {
                         type="text"
                         value={noteValue(a.id)}
                         onChange={(e) => setDraft(a.id, { note: e.target.value })}
+                        onBlur={() => saveRow(a.id)}
                         placeholder="例: 床面積20㎡中8㎡を事業利用"
                         className="w-full px-2 py-1 rounded border border-border bg-card text-foreground text-sm"
                       />
@@ -316,18 +322,11 @@ export default function AllocationsPage() {
                       <span className="text-muted-foreground">{rates[a.id]?.basis_note ?? "-"}</span>
                     )}
                   </td>
-                  {isStaff && (
-                    <td className="px-3 py-1.5 text-center">
-                      <Button size="sm" variant="outline" onClick={() => saveRow(a.id)} disabled={savingId === a.id}>
-                        {savingId === a.id ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
-                      </Button>
-                    </td>
-                  )}
                 </tr>
               ))}
               {accounts.length === 0 && (
                 <tr>
-                  <td colSpan={isStaff ? 4 : 3} className="px-3 py-12 text-center text-muted-foreground">
+                  <td colSpan={3} className="px-3 py-12 text-center text-muted-foreground">
                     費用科目がありません
                   </td>
                 </tr>
