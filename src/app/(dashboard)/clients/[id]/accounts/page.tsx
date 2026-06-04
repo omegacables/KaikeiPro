@@ -74,7 +74,7 @@ export default function AccountsPage() {
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showNewForm, setShowNewForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [newAccount, setNewAccount] = useState({ code: "", name: "", category_id: "" });
+  const [newAccount, setNewAccount] = useState({ code: "", name: "", category_id: "", reading: "" });
   const [categories, setCategories] = useState<{ id: string; type: string; name: string }[]>([]);
 
   async function loadCategories() {
@@ -96,8 +96,16 @@ export default function AccountsPage() {
         is_active: true,
         is_default: false,
       });
+      // 読みが入力されていれば登録（失敗しても科目作成は確定済みなので止めない）
+      if (newAccount.reading.trim()) {
+        try {
+          await upsertAccountReading(newAccount.name, newAccount.reading);
+        } catch (e) {
+          console.error("読みの登録に失敗:", e);
+        }
+      }
       setShowNewForm(false);
-      setNewAccount({ code: "", name: "", category_id: "" });
+      setNewAccount({ code: "", name: "", category_id: "", reading: "" });
       window.location.reload();
     } catch (err) {
       alert(err instanceof Error ? err.message : "登録に失敗しました");
@@ -282,6 +290,10 @@ export default function AccountsPage() {
                   <option key={c.id} value={c.id}>{c.name}（{c.type}）</option>
                 ))}
               </select>
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-muted-foreground mb-1">よみ（ひらがな）</label>
+              <input type="text" value={newAccount.reading} onChange={(e) => setNewAccount({ ...newAccount, reading: e.target.value })} placeholder="例: がいちゅうひ" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
             </div>
             <div className="md:col-span-3 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setShowNewForm(false)}>キャンセル</Button>
