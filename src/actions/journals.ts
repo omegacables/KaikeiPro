@@ -321,6 +321,30 @@ export async function importJournalEntries(
   return { created, errors };
 }
 
+// 摘要の予測候補: 直近の仕訳から重複を除いた摘要リストを返す（新しい順）
+export async function getDescriptionSuggestions(clientId: string, scanLimit = 400): Promise<string[]> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("journal_entries")
+    .select("description, entry_date")
+    .eq("client_id", clientId)
+    .not("description", "is", null)
+    .order("entry_date", { ascending: false })
+    .limit(scanLimit);
+
+  if (error) throw new Error(error.message);
+
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const r of data ?? []) {
+    const d = ((r as { description?: string | null }).description ?? "").trim();
+    if (!d || seen.has(d)) continue;
+    seen.add(d);
+    out.push(d);
+  }
+  return out;
+}
+
 export async function getRecentJournals(clientId: string, limit = 10) {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase

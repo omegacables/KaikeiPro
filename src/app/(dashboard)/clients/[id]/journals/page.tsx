@@ -26,6 +26,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import {
   createJournalEntry,
   importJournalEntries,
+  getDescriptionSuggestions,
   type JournalImportRow,
   type JournalImportResult,
 } from "@/actions/journals";
@@ -64,6 +65,12 @@ interface AccountOption {
 export default function JournalsPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+
+  // 摘要の予測候補（過去の摘要から）
+  const [descSuggestions, setDescSuggestions] = useState<string[]>([]);
+  useEffect(() => {
+    getDescriptionSuggestions(id).then(setDescSuggestions).catch(() => setDescSuggestions([]));
+  }, [id]);
 
   // ---- Receipt upload state (multi-file) ----
   type ReceiptItem = {
@@ -633,6 +640,12 @@ export default function JournalsPage() {
 
   return (
     <>
+      {/* 摘要の予測候補（過去の摘要） */}
+      <datalist id="memo-suggestions">
+        {descSuggestions.map((d) => (
+          <option key={d} value={d} />
+        ))}
+      </datalist>
       {/* Page Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -1484,6 +1497,7 @@ export default function JournalsPage() {
                                 }}
                                 onKeyDown={(e) => handleGridKeyDown(idx, 5, e)}
                                 placeholder="摘要..."
+                                list="memo-suggestions"
                                 className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
                               />
                             ) : null}

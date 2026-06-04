@@ -54,7 +54,7 @@ import {
   rejectReviewEntry,
   type PendingReviewEntry,
 } from "@/actions/pending-reviews";
-import { deleteJournalEntries } from "@/actions/journals";
+import { deleteJournalEntries, getDescriptionSuggestions } from "@/actions/journals";
 import { getReceipt } from "@/actions/receipts";
 import { getAssets } from "@/actions/assets";
 import type { Database } from "@/types/database";
@@ -813,6 +813,12 @@ export default function LedgersPage() {
   const [sortOrder, setSortOrder] = useState<"created_asc" | "created_desc" | "date_asc" | "date_desc">("date_asc");
   const fiscalYearRef = useRef<HTMLSelectElement | null>(null);
 
+  // 摘要の予測候補（過去の摘要から）
+  const [descSuggestions, setDescSuggestions] = useState<string[]>([]);
+  useEffect(() => {
+    getDescriptionSuggestions(id).then(setDescSuggestions).catch(() => setDescSuggestions([]));
+  }, [id]);
+
   // 勘定科目リスト（AccountLookup用）
   const [accountOptions, setAccountOptions] = useState<{ id: string; code: string; name: string; categoryType: string; categoryName: string }[]>([]);
 
@@ -1312,8 +1318,14 @@ export default function LedgersPage() {
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       placeholder="摘要で絞り込み..."
+                      list="ledger-memo-suggestions"
                       className="pl-8 pr-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm placeholder:text-muted-foreground"
                     />
+                    <datalist id="ledger-memo-suggestions">
+                      {descSuggestions.map((d) => (
+                        <option key={d} value={d} />
+                      ))}
+                    </datalist>
                   </div>
                 </div>
               )}

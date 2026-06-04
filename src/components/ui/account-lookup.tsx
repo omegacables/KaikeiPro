@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, memo } from "react";
 import { cn } from "@/lib/utils";
+import { matchesAccountQuery, toHalfWidth } from "@/lib/account-reading";
 
 export interface AccountOption {
   id: string;
@@ -9,6 +10,7 @@ export interface AccountOption {
   name: string;
   categoryType: string;
   categoryName: string;
+  reading?: string | null;
 }
 
 const categoryOrder = ["assets", "liabilities", "equity", "revenue", "expenses"];
@@ -53,11 +55,9 @@ export const AccountLookup = memo(function AccountLookup({
   // Filter accounts by query (match code or name)
   // Skip filtering when an account is already selected (query matches display text)
   const isSelectedText = selected && query === `${selected.code} ${selected.name}`;
+  // コード・名前・よみ仮名・ローマ字（頭文字）でマッチ。例: "g" → 現金/減価償却費
   const filtered = query && open && !isSelectedText
-    ? accounts.filter((a) => {
-        const q = query.toLowerCase();
-        return a.code.toLowerCase().includes(q) || a.name.toLowerCase().includes(q);
-      })
+    ? accounts.filter((a) => matchesAccountQuery(query, a))
     : accounts;
 
   // Build flat list with category groups for rendering
@@ -139,8 +139,6 @@ export const AccountLookup = memo(function AccountLookup({
     // Delegate to parent grid navigation
     onKeyDown?.(e);
   }, [open, highlightIdx, flatItems, selectAccount, selected, onKeyDown]);
-
-  const toHalfWidth = (v: string) => v.replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const v = toHalfWidth(e.target.value);
