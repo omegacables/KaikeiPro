@@ -7,8 +7,6 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
-  Eye,
-  EyeOff,
   FileText,
   Loader2,
 } from "lucide-react";
@@ -73,7 +71,6 @@ export default function AccountsPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<CategoryKey>("assets");
   const [searchQuery, setSearchQuery] = useState("");
-  const [showInactive, setShowInactive] = useState(false);
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [showNewForm, setShowNewForm] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -222,23 +219,27 @@ export default function AccountsPage() {
     });
   };
 
-  const accounts = allAccounts[activeTab].filter((account) => {
-    // その場で切り替えた科目は、非表示設定でも一覧に残す（再度切替できるように）
-    const toggledThisSession = activeOverrides[account.id] !== undefined;
-    const isActive = activeOverrides[account.id] ?? account.is_active;
-    if (!showInactive && !isActive && !toggledThisSession) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        account.code.includes(q) ||
-        account.name.toLowerCase().includes(q) ||
-        account.sub_accounts.some(
-          (sa) => sa.code.includes(q) || sa.name.toLowerCase().includes(q)
-        )
-      );
-    }
-    return true;
-  });
+  const accounts = allAccounts[activeTab]
+    .filter((account) => {
+      if (searchQuery) {
+        const q = searchQuery.toLowerCase();
+        return (
+          account.code.includes(q) ||
+          account.name.toLowerCase().includes(q) ||
+          account.sub_accounts.some(
+            (sa) => sa.code.includes(q) || sa.name.toLowerCase().includes(q)
+          )
+        );
+      }
+      return true;
+    })
+    // 有効科目を上、無効科目を最下部に。同一ステータス内はコード順。
+    .sort((a, b) => {
+      const aActive = activeOverrides[a.id] ?? a.is_active;
+      const bActive = activeOverrides[b.id] ?? b.is_active;
+      if (aActive !== bActive) return aActive ? -1 : 1;
+      return a.code.localeCompare(b.code);
+    });
 
   const totalActive = allAccounts[activeTab].filter((a) => a.is_active).length;
   const totalInactive = allAccounts[activeTab].filter((a) => !a.is_active).length;
@@ -305,18 +306,6 @@ export default function AccountsPage() {
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             />
           </div>
-          <button
-            onClick={() => setShowInactive(!showInactive)}
-            className={cn(
-              "flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition-colors",
-              showInactive
-                ? "bg-primary/10 text-primary"
-                : "bg-muted/30 text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {showInactive ? <Eye className="size-4" /> : <EyeOff className="size-4" />}
-            {showInactive ? "無効科目を表示中" : "無効科目を非表示"}
-          </button>
           <div className="text-xs text-muted-foreground">
             有効: {totalActive}件 / 無効: {totalInactive}件
           </div>
@@ -473,7 +462,6 @@ export default function AccountsPage() {
                   </tr>
                   {expandedRows.has(account.code) &&
                     account.sub_accounts
-                      .filter((sa) => showInactive || sa.is_active)
                       .map((sub) => (
                         <tr
                           key={sub.code}
