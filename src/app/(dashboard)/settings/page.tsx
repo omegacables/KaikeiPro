@@ -63,6 +63,7 @@ const firmTabs = [
 
 const clientTabs = [
   { key: "account", label: "アカウント設定", icon: User },
+  { key: "readings", label: "科目の読み", icon: Languages },
   { key: "notifications", label: "通知設定", icon: Bell },
   { key: "integrations", label: "外部連携", icon: Link2 },
   { key: "security", label: "セキュリティ", icon: Shield },
