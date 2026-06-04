@@ -8,6 +8,8 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
 import { useAuth } from "@/components/providers/auth-provider";
+import { AlertTriangle } from "lucide-react";
+import { getClient, updateClient } from "@/actions/clients";
 import {
   getAllocatableAccounts,
   getPaymentAccounts,
@@ -47,17 +49,24 @@ export default function AllocationsPage() {
   const [loading, setLoading] = useState(true);
   const [savingId, setSavingId] = useState<string | null>(null);
 
+  // 事業者区分（個人/法人）
+  const [entityType, setEntityType] = useState<"individual" | "corporation" | null>(null);
+  const [entitySaving, setEntitySaving] = useState(false);
+  const isCorporation = entityType === "corporation";
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [accs, payAccs, rateMap] = await Promise.all([
+      const [accs, payAccs, rateMap, client] = await Promise.all([
         getAllocatableAccounts(id),
         getPaymentAccounts(id),
         getAllocationRates(id, fiscalYear),
+        getClient(id).catch(() => null),
       ]);
       setAccounts(accs);
       setPaymentAccounts(payAccs);
       setRates(rateMap);
+      setEntityType((client as { entity_type?: "individual" | "corporation" | null } | null)?.entity_type ?? null);
       setDrafts({});
     } catch (e) {
       console.error("家事按分設定の取得に失敗:", e);
@@ -67,6 +76,19 @@ export default function AllocationsPage() {
       setLoading(false);
     }
   }, [id, fiscalYear]);
+
+  async function handleEntityChange(value: string) {
+    const next = value === "" ? null : (value as "individual" | "corporation");
+    setEntityType(next);
+    setEntitySaving(true);
+    try {
+      await updateClient(id, { entity_type: next });
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "事業者区分の更新に失敗しました");
+    } finally {
+      setEntitySaving(false);
+    }
+  }
 
   // ---- 按分仕訳の作成フォーム ----
   const [jDate, setJDate] = useState(new Date().toISOString().slice(0, 10));
@@ -318,13 +340,57 @@ export default function AllocationsPage() {
         </CardContent>
       </Card>
 
-      {!isStaff && (
+      {/* 事業者区分 */}
+      {!loading && (
+        <Card className="mb-4 w-fit">
+          <CardContent className="py-2.5 px-3">
+            <div className="flex items-center gap-2">
+              <label className="text-xs text-muted-foreground font-bold">事業者区分:</label>
+              {isStaff ? (
+                <select
+                  value={entityType ?? ""}
+                  onChange={(e) => handleEntityChange(e.target.value)}
+                  disabled={entitySaving}
+                  className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-sm"
+                >
+                  <option value="">未設定（個人事業主として扱う）</option>
+                  <option value="individual">個人事業主</option>
+                  <option value="corporation">法人</option>
+                </select>
+              ) : (
+                <span className="text-sm">{isCorporation ? "法人" : "個人事業主"}</span>
+              )}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* 法人は家事按分の対象外（注意喚起） */}
+      {!loading && isCorporation && (
+        <Card className="border-amber-500/40 bg-amber-500/5">
+          <CardContent className="py-4">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="font-bold text-foreground mb-1">法人では家事按分は使用できません</p>
+                <p className="text-muted-foreground">
+                  家事按分は個人事業主向けの制度です。法人は「自宅の一部を会社に賃貸借」「業務使用分の精算」など
+                  契約・精算ベースで処理します（役員の自宅費用を安易に会社負担とすると役員給与認定のリスク）。
+                  個人事業主の場合は、上の事業者区分を「個人事業主」に変更してください。
+                </p>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {!isStaff && !isCorporation && (
         <p className="mb-3 text-xs text-muted-foreground">
           ※ 按分率の設定は税理士が行います（閲覧のみ）。
         </p>
       )}
 
-      {isStaff && !loading && (
+      {isStaff && !loading && !isCorporation && (
         <div className="mb-3 flex items-center gap-3 print:hidden">
           <Button variant="outline" size="sm" onClick={handleAiSuggest} disabled={aiSuggesting}>
             {aiSuggesting ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
@@ -339,7 +405,7 @@ export default function AllocationsPage() {
           <Loader2 className="size-5 animate-spin" />
           <span className="text-sm">読み込み中...</span>
         </div>
-      ) : (
+      ) : isCorporation ? null : (
         <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full text-sm">
             <thead>
@@ -403,12 +469,14 @@ export default function AllocationsPage() {
         </div>
       )}
 
-      <p className="mt-3 text-xs text-muted-foreground">
-        ※ 按分率は事業使用割合です（例: 40% → 経費40%・私用60%）。私用分は「事業主貸」へ振り替わります。
-      </p>
+      {!isCorporation && (
+        <p className="mt-3 text-xs text-muted-foreground">
+          ※ 按分率は事業使用割合です（例: 40% → 経費40%・私用60%）。私用分は「事業主貸」へ振り替わります。
+        </p>
+      )}
 
       {/* 按分仕訳の作成（税理士のみ） */}
-      {isStaff && !loading && (
+      {isStaff && !loading && !isCorporation && (
         <Card className="mt-6 print:hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -476,7 +544,7 @@ export default function AllocationsPage() {
       )}
 
       {/* 期末一括按分（税理士のみ） */}
-      {isStaff && !loading && (
+      {isStaff && !loading && !isCorporation && (
         <Card className="mt-6 print:hidden">
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
@@ -550,6 +618,7 @@ export default function AllocationsPage() {
       )}
 
       {/* 実績集計レポート */}
+      {!isCorporation && (
       <Card className="mt-6">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
@@ -619,6 +688,7 @@ export default function AllocationsPage() {
           )}
         </CardContent>
       </Card>
+      )}
     </>
   );
 }

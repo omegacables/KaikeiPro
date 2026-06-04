@@ -133,6 +133,7 @@ export interface Database {
           tax_method: "standard" | "simplified";
           simplified_business_type: number | null;
           invoice_registration_number: string | null;
+          entity_type: "individual" | "corporation" | null;
           is_active: boolean;
           created_at: string;
           updated_at: string;
@@ -150,6 +151,7 @@ export interface Database {
           tax_method?: "standard" | "simplified";
           simplified_business_type?: number | null;
           invoice_registration_number?: string | null;
+          entity_type?: "individual" | "corporation" | null;
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -167,6 +169,7 @@ export interface Database {
           tax_method?: "standard" | "simplified";
           simplified_business_type?: number | null;
           invoice_registration_number?: string | null;
+          entity_type?: "individual" | "corporation" | null;
           is_active?: boolean;
           updated_at?: string;
         };
