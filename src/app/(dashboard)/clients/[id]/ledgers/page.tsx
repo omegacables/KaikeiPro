@@ -869,6 +869,9 @@ export default function LedgersPage() {
   const [partnerReceivables, setPartnerReceivables] = useState<PartnerReceivable[]>([]);
   const [agingReport, setAgingReport] = useState<AgingReportRow[]>([]);
 
+  // タブコンテンツ読み込み状態（テーブルエリアのスピナー用）
+  const [tabLoading, setTabLoading] = useState(false);
+
   // Fixed assets data
   const [assetsData, setAssetsData] = useState<AssetDisplay[]>([]);
 
@@ -1016,12 +1019,13 @@ export default function LedgersPage() {
 
   // Fetch journal data
   const fetchJournal = useCallback(async () => {
+    setTabLoading(true);
     beginLoad();
     try {
       const data = await getJournalLedger(id, dateFrom, dateTo);
       setJournalData(data);
     } catch { /* fallback to empty */ }
-    finally { endLoad(); }
+    finally { setTabLoading(false); endLoad(); }
   }, [id, dateFrom, dateTo]);
 
   // Fetch account list
@@ -1037,12 +1041,13 @@ export default function LedgersPage() {
 
   // Fetch general ledger data
   const fetchGL = useCallback(async () => {
+    setTabLoading(true);
     beginLoad();
     try {
       const data = await getGeneralLedger(id, glAccount, dateFrom, dateTo);
       setGlData(data);
     } catch { /* fallback to empty */ }
-    finally { endLoad(); }
+    finally { setTabLoading(false); endLoad(); }
   }, [id, glAccount, dateFrom, dateTo]);
 
   // Fetch sub-ledger data (cash, deposit, receivable, payable)
@@ -1050,12 +1055,13 @@ export default function LedgersPage() {
     // deposit タブは動的に選択された口座名を使用
     const accountName = activeTab === "deposit" ? depositAccount : subLedgerAccountMap[activeTab];
     if (!accountName) return;
+    setTabLoading(true);
     beginLoad();
     try {
       const data = await getGeneralLedger(id, accountName, dateFrom, dateTo);
       setSubLedgerData(data);
     } catch { setSubLedgerData([]); }
-    finally { endLoad(); }
+    finally { setTabLoading(false); endLoad(); }
   }, [id, activeTab, dateFrom, dateTo, depositAccount]);
 
   useEffect(() => {
@@ -1077,7 +1083,13 @@ export default function LedgersPage() {
 
   useEffect(() => {
     if (activeTab === "assets") {
-      getAssets(id).then(mapAssetRows).then(setAssetsData).catch(console.error);
+      setTabLoading(true);
+      beginLoad();
+      getAssets(id)
+        .then(mapAssetRows)
+        .then(setAssetsData)
+        .catch(console.error)
+        .finally(() => { setTabLoading(false); endLoad(); });
     }
   }, [activeTab, id]);
 
@@ -1493,7 +1505,15 @@ export default function LedgersPage() {
         </Card>
       )}
 
-      {activeTab === "journal" && (
+      {/* タブコンテンツ読み込み中スピナー */}
+      {tabLoading && (
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card p-12 text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" />
+          <span className="text-sm">読み込み中...</span>
+        </div>
+      )}
+
+      {!tabLoading && activeTab === "journal" && (
         <>
           {selectedJournalIds.size > 0 && (
             <div className="mb-3 flex items-center gap-3 p-2.5 rounded-lg bg-destructive/5 border border-destructive/20">
@@ -1530,7 +1550,7 @@ export default function LedgersPage() {
         </>
       )}
 
-      {activeTab === "general" && (
+      {!tabLoading && activeTab === "general" && (
         <GeneralLedgerTable
           account={glAccount}
           onAccountChange={setGlAccount}
@@ -1540,7 +1560,7 @@ export default function LedgersPage() {
         />
       )}
 
-      {activeTab === "cash" && (
+      {!tabLoading && activeTab === "cash" && (
         <CashBookLedger
           data={filteredCashData}
           inLabel="入金"
@@ -1548,7 +1568,7 @@ export default function LedgersPage() {
         />
       )}
 
-      {activeTab === "deposit" && (
+      {!tabLoading && activeTab === "deposit" && (
         <CashBookLedger
           data={filteredCashData}
           inLabel="入金"
@@ -1556,7 +1576,7 @@ export default function LedgersPage() {
         />
       )}
 
-      {activeTab === "receivable" && (
+      {!tabLoading && activeTab === "receivable" && (
         <>
           {/* 得意先別売掛残高 */}
           {partnerReceivables.length > 0 && (
@@ -1655,7 +1675,7 @@ export default function LedgersPage() {
         </>
       )}
 
-      {activeTab === "payable" && (
+      {!tabLoading && activeTab === "payable" && (
         <CashBookLedger
           data={toCashBookRows(subLedgerData, false)}
           inLabel="発生"
@@ -1663,7 +1683,7 @@ export default function LedgersPage() {
         />
       )}
 
-      {activeTab === "assets" && (
+      {!tabLoading && activeTab === "assets" && (
         <FixedAssetLedgerTable assets={assetsData} />
       )}
 
