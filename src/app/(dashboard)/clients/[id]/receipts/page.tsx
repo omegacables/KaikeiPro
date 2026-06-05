@@ -122,11 +122,6 @@ const paymentMethodConfig: Record<
 
 const defaultPaymentConfig = { label: "不明", icon: Banknote };
 
-const statusTabs: { key: ReceiptStatus | "all" | "pending"; label: string }[] = [
-  { key: "pending", label: "未仕訳" },
-  { key: "journalized", label: "仕訳済" },
-];
-
 
 // ---------------------------------------------------------------------------
 // Component
@@ -387,7 +382,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
     setEditingOcr(false);
   }, [selectedReceipt]);
 
-  const [activeTab, setActiveTab] = useState<ReceiptStatus | "all" | "pending">("pending");
   const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
   const [receiptFiscalStartMonth, setReceiptFiscalStartMonth] = useState(4);
   useEffect(() => {
@@ -418,23 +412,10 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
       .finally(() => setLoadingImage(false));
   }, [selectedData?.id, selectedData?.imagePath]);
 
-  // 確認待ち判定: reviewed ステータス OR needs_review=true（税理士の承認待ち）
-
-  // Compute tab counts
-  const tabCounts: Record<string, number> = {
-    pending: receipts.filter((r) => r.status !== "journalized").length,
-    journalized: receipts.filter((r) => r.status === "journalized").length,
-  };
-
   // Filtered
   const effectiveDirection = lockedDirection ?? directionFilter;
   const filtered = receipts.filter((r) => {
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
-    if (activeTab === "journalized") {
-      if (r.status !== "journalized") return false;
-    } else if (activeTab === "pending") {
-      if (r.status === "journalized") return false;
-    }
     // 日付範囲フィルター
     if (dateFrom && r.date < dateFrom) return false;
     if (dateTo && r.date > dateTo) return false;
@@ -477,25 +458,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
 
       {/* Filter Bar */}
       <div className="flex items-center justify-between mb-4 gap-4">
-        {/* Tabs */}
-        <div className="flex items-center gap-1 overflow-x-auto">
-          {statusTabs.map((tab) => (
-            <button
-              key={tab.key}
-              onClick={() => setActiveTab(tab.key)}
-              className={cn(
-                "px-3 py-1.5 rounded-lg text-xs font-bold transition-colors whitespace-nowrap cursor-pointer",
-                activeTab === tab.key
-                  ? "bg-primary text-cream"
-                  : "text-muted-foreground hover:bg-muted/30"
-              )}
-            >
-              {tab.label}
-              <span className="ml-1 opacity-70">({tabCounts[tab.key]})</span>
-            </button>
-          ))}
-        </div>
-
         {/* 発行/受領フィルター（区分固定時は非表示） */}
         {!lockedDirection && (
         <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
