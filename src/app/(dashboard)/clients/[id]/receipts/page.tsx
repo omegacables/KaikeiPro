@@ -122,8 +122,8 @@ const paymentMethodConfig: Record<
 
 const defaultPaymentConfig = { label: "不明", icon: Banknote };
 
-const statusTabs: { key: ReceiptStatus | "all"; label: string; count?: number }[] = [
-  { key: "all", label: "すべて" },
+const statusTabs: { key: ReceiptStatus | "all" | "pending"; label: string }[] = [
+  { key: "pending", label: "未仕訳" },
   { key: "journalized", label: "仕訳済" },
 ];
 
@@ -387,7 +387,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
     setEditingOcr(false);
   }, [selectedReceipt]);
 
-  const [activeTab, setActiveTab] = useState<ReceiptStatus | "all">("all");
+  const [activeTab, setActiveTab] = useState<ReceiptStatus | "all" | "pending">("pending");
   const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
   const [receiptFiscalStartMonth, setReceiptFiscalStartMonth] = useState(4);
   useEffect(() => {
@@ -422,7 +422,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
 
   // Compute tab counts
   const tabCounts: Record<string, number> = {
-    all: receipts.length,
+    pending: receipts.filter((r) => r.status !== "journalized").length,
     journalized: receipts.filter((r) => r.status === "journalized").length,
   };
 
@@ -432,8 +432,8 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
     if (activeTab === "journalized") {
       if (r.status !== "journalized") return false;
-    } else if (activeTab !== "all" && r.status !== activeTab) {
-      return false;
+    } else if (activeTab === "pending") {
+      if (r.status === "journalized") return false;
     }
     // 日付範囲フィルター
     if (dateFrom && r.date < dateFrom) return false;
