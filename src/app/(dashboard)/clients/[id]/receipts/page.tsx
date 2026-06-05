@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, Fragment } from "react";
+import { useState, useEffect } from "react";
 import { useParams } from "next/navigation";
 import {
   Receipt,
@@ -16,7 +16,6 @@ import {
   ScanLine,
   FileCheck,
   BookOpen,
-  ArrowRight,
   Loader2,
   X,
   Trash2,
@@ -132,13 +131,6 @@ const statusTabs: { key: ReceiptStatus | "all"; label: string; count?: number }[
   { key: "journalized", label: "仕訳済" },
 ];
 
-const statusFlowSteps: { key: ReceiptStatus; label: string; icon: React.ElementType }[] = [
-  { key: "uploaded", label: "アップロード済", icon: Upload },
-  { key: "processing", label: "処理中", icon: Clock },
-  { key: "ocr_done", label: "OCR完了", icon: ScanLine },
-  { key: "reviewed", label: "確認待ち", icon: FileCheck },
-  { key: "journalized", label: "仕訳済", icon: BookOpen },
-];
 
 // ---------------------------------------------------------------------------
 // Component
@@ -493,47 +485,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
           </div>
         </div>
       )}
-
-      {/* Status Flow Visualization */}
-      <Card className="mb-6">
-        <CardContent className="pt-4 pb-4">
-          <div className="flex items-center justify-between">
-            {statusFlowSteps.map((step, idx) => {
-              const count = tabCounts[step.key];
-              const StepIcon = step.icon;
-              return (
-                <Fragment key={step.key}>
-                  <div
-                    className={cn(
-                      "flex flex-col items-center gap-1 cursor-pointer group",
-                      activeTab === step.key && "scale-105"
-                    )}
-                    onClick={() => setActiveTab(step.key)}
-                  >
-                    <div
-                      className={cn(
-                        "size-10 rounded-full flex items-center justify-center transition-colors",
-                        activeTab === step.key
-                          ? "bg-primary text-cream"
-                          : count > 0
-                            ? "bg-primary/10 text-primary group-hover:bg-primary/20"
-                            : "bg-muted/30 text-muted-foreground group-hover:bg-muted/50"
-                      )}
-                    >
-                      <StepIcon className="size-5" />
-                    </div>
-                    <span className="text-xs font-bold text-foreground">{step.label}</span>
-                    <span className="text-xs text-muted-foreground">{count}件</span>
-                  </div>
-                  {idx < statusFlowSteps.length - 1 && (
-                    <ArrowRight className="size-4 text-muted-foreground flex-shrink-0" />
-                  )}
-                </Fragment>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
 
       {/* Filter Bar */}
       <div className="flex items-center justify-between mb-4 gap-4">
