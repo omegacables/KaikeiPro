@@ -55,6 +55,14 @@ export async function processReceiptOcr(
 
   if (fetchError || !receipt) throw new Error("領収書が見つかりません");
 
+  // 自社名（発行/受領の判定に使用）
+  const { data: clientRow } = await supabase
+    .from("clients")
+    .select("name")
+    .eq("id", receipt.client_id)
+    .maybeSingle();
+  const clientName = (clientRow as { name?: string } | null)?.name ?? "";
+
   // Raqto連携やプレースホルダーはスキップ
   if (
     receipt.image_path.startsWith("raqto://") ||
@@ -114,6 +122,7 @@ export async function processReceiptOcr(
       "items": ["品目1", "品目2"],
       "invoice_number": "インボイス番号（日本のT+13桁、あれば）",
       "payment_method": "cash / card / e_money / bank_transfer / null",
+      "direction": "issued / received（後述の判定）",
       "confidence": 0.0〜1.0の信頼度
     }
   ]
@@ -138,6 +147,10 @@ export async function processReceiptOcr(
   - "e_money": Suica、PASMO、PayPay、iD、QUICPay、楽天Edy、nanaco、WAON等
   - "bank_transfer": 振込、振替、口座引落等の記載
   - null: 判別不可の場合
+- direction（発行/受領の判定）: この会計事業者（自社）は「${clientName || "（名称不明）"}」です。
+  - "issued": 自社が発行した書類（自社が発行者・売手・宛名が取引先側。例: 自社名が発行元/差出人/「御中」の前が取引先）
+  - "received": 取引先から受領した書類（取引先が発行者・自社が宛名/買手。多くの領収書・請求書はこちら）
+  - 自社名が書類の発行者欄にあれば issued、宛名（〜御中/様）にあれば received。判断が難しい場合は "received" とする。
 - JSONのみ返してください。説明文は不要です。`,
       },
     ]);
@@ -272,6 +285,8 @@ export async function processReceiptOcr(
       const updateData: Record<string, unknown> = {
         ocr_result: ocrResult as unknown as import("@/types/database").Json,
         status: "ocr_done",
+        // AI判定: 発行(自社発行) / 受領(取引先から受領)。不明時は received
+        direction: parsed.direction === "issued" ? "issued" : "received",
       };
       if (!receipt.payment_method && detectedPayment) {
         updateData.payment_method = detectedPayment;

@@ -85,7 +85,6 @@ export default function JournalsPage() {
   const [receiptDragOver, setReceiptDragOver] = useState(false);
   const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number; withMemo: boolean } | null>(null);
   const [receiptMemo, setReceiptMemo] = useState("");
-  const [receiptDirection, setReceiptDirection] = useState<"received" | "issued">("received");
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
   const addReceiptFiles = (files: FileList | File[]) => {
@@ -391,7 +390,6 @@ export default function JournalsPage() {
         formData.append("file", item.file);
         formData.append("client_id", id);
         formData.append("uploaded_by", user.id);
-        formData.append("direction", receiptDirection);
         const result = await uploadReceipt(formData);
 
         // OCR/仕訳はバックグラウンド（await しない）
@@ -804,35 +802,10 @@ export default function JournalsPage() {
             </div>
           </div>
 
-          {/* 発行/受領 区分 */}
           {receiptItems.length > 0 && (
-            <div className="mt-3">
-              <label className="text-xs font-bold text-muted-foreground mb-1 block">
-                区分（全ファイル共通）
-              </label>
-              <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => setReceiptDirection("received")}
-                  className={cn(
-                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
-                    receiptDirection === "received" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  受領（取引先から受取）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setReceiptDirection("issued")}
-                  className={cn(
-                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
-                    receiptDirection === "issued" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  発行（自社が発行）
-                </button>
-              </div>
-            </div>
+            <p className="mt-3 text-xs text-muted-foreground">
+              ※ 発行（自社発行）／受領（取引先から受取）の区分はAIが書類から自動判定します。判定結果は証憑管理で確認・修正できます。
+            </p>
           )}
 
           {/* 確認メモ（任意） */}

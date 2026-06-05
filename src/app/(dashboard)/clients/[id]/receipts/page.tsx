@@ -278,6 +278,19 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
     }
   };
 
+  const [updatingDirection, setUpdatingDirection] = useState(false);
+  const handleDirectionChange = async (receiptId: string, dir: "received" | "issued") => {
+    setUpdatingDirection(true);
+    try {
+      await updateReceipt(receiptId, { direction: dir });
+      refetch();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "区分の更新に失敗しました");
+    } finally {
+      setUpdatingDirection(false);
+    }
+  };
+
   const [runningOcr, setRunningOcr] = useState(false);
   const handleRunOcr = async (receiptId: string) => {
     setRunningOcr(true);
@@ -919,6 +932,26 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                   </div>
                 );
               })()}
+
+              {/* 発行/受領 区分（AI判定・手動修正可） */}
+              <div>
+                <label className="text-xs text-muted-foreground block mb-1">区分（AI判定・修正可）</label>
+                <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+                  {([["received", "受領"], ["issued", "発行"]] as const).map(([dir, label]) => (
+                    <button
+                      key={dir}
+                      onClick={() => handleDirectionChange(selectedData.id, dir)}
+                      disabled={updatingDirection}
+                      className={cn(
+                        "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                        selectedData.direction === dir ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                      )}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
 
               {/* Details — 表示モード / 編集モード */}
               {editingOcr ? (
