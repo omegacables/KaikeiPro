@@ -190,9 +190,6 @@ async function autoCreateJournalFromSuggestion(
     throw new Error(msg);
   }
 
-  // メモがあれば確認待ちフラグを設定
-  const hasReviewMemo = !!memo && memo.trim().length > 0;
-
   // 仕訳エントリー作成
   const { data: entry, error: entryError } = await admin
     .from("journal_entries")
@@ -204,7 +201,7 @@ async function autoCreateJournalFromSuggestion(
       source: "ai",
       receipt_id: receiptId,
       created_by: receipt.uploaded_by,
-      needs_review: hasReviewMemo,
+      needs_review: false,
     })
     .select()
     .single();
@@ -232,18 +229,6 @@ async function autoCreateJournalFromSuggestion(
   if (linesError) {
     console.error(`自動仕訳明細作成エラー: ${linesError.message}`);
     return;
-  }
-
-  // メモがあればコメントとして保存
-  if (hasReviewMemo) {
-    await admin.from("comments").insert({
-      journal_entry_id: entry.id,
-      receipt_id: receiptId,
-      author_id: receipt.uploaded_by,
-      author_role: "client",
-      body: memo!.trim(),
-      status: "open",
-    });
   }
 
   // レシートを仕訳済に更新

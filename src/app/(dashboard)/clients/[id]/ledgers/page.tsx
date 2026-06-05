@@ -18,9 +18,6 @@ import {
   ImageIcon,
   Trash2,
   AlertTriangle,
-  CheckCircle,
-  XCircle,
-  MessageSquare,
   Landmark,
   Building2,
   Car,
@@ -50,13 +47,6 @@ import { getClient } from "@/actions/clients";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
-import { useAuth } from "@/components/providers/auth-provider";
-import {
-  getPendingReviews,
-  approveReviewEntry,
-  rejectReviewEntry,
-  type PendingReviewEntry,
-} from "@/actions/pending-reviews";
 import { deleteJournalEntries, getDescriptionSuggestions } from "@/actions/journals";
 import { getReceipt } from "@/actions/receipts";
 import { getAssets } from "@/actions/assets";
@@ -792,8 +782,6 @@ function FixedAssetLedgerTable({ assets }: { assets: AssetDisplay[] }) {
 export default function LedgersPage() {
   const { id } = useParams<{ id: string }>();
   const searchParams = useSearchParams();
-  const { user } = useAuth();
-  const isStaff = user?.role === "super_admin" || user?.role === "admin" || user?.role === "staff";
 
   const now = new Date();
   const year = now.getFullYear();
@@ -880,49 +868,6 @@ export default function LedgersPage() {
   const [detailData, setDetailData] = useState<JournalEntryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
-  // Pending review state
-  const [pendingReviews, setPendingReviews] = useState<PendingReviewEntry[]>([]);
-  const [pendingLoading, setPendingLoading] = useState(false);
-  const [approvingId, setApprovingId] = useState<string | null>(null);
-  const [rejectingId, setRejectingId] = useState<string | null>(null);
-
-  const fetchPendingReviews = useCallback(async () => {
-    setPendingLoading(true);
-    try {
-      const data = await getPendingReviews(id);
-      setPendingReviews(data);
-    } catch { setPendingReviews([]); }
-    finally { setPendingLoading(false); }
-  }, [id]);
-
-  useEffect(() => {
-    if (activeTab === "journal") fetchPendingReviews();
-  }, [activeTab, fetchPendingReviews]);
-
-  const handleApprove = async (journalEntryId: string) => {
-    setApprovingId(journalEntryId);
-    try {
-      await approveReviewEntry(journalEntryId);
-      await Promise.all([fetchPendingReviews(), fetchJournal()]);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "承認に失敗しました");
-    } finally {
-      setApprovingId(null);
-    }
-  };
-
-  const handleReject = async (journalEntryId: string) => {
-    if (!confirm("この仕訳を却下しますか？仕訳は削除されます。")) return;
-    setRejectingId(journalEntryId);
-    try {
-      await rejectReviewEntry(journalEntryId);
-      await fetchPendingReviews();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "却下に失敗しました");
-    } finally {
-      setRejectingId(null);
-    }
-  };
 
   // Journal deletion state
   const [selectedJournalIds, setSelectedJournalIds] = useState<Set<string>>(new Set());
@@ -1425,84 +1370,6 @@ export default function LedgersPage() {
           )}
         </CardContent>
       </Card>
-      )}
-
-      {/* Ledger Content */}
-      {/* 確認待ち仕訳パネル（仕訳帳タブのみ） */}
-      {activeTab === "journal" && pendingReviews.length > 0 && (
-        <Card className="mb-6 border-amber-500/40 bg-amber-500/5">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center gap-2 mb-3">
-              <AlertTriangle className="size-4 text-amber-600" />
-              <h3 className="text-sm font-bold text-foreground">
-                確認待ち（{pendingReviews.length}件）
-              </h3>
-            </div>
-            <div className="space-y-3">
-              {pendingReviews.map((entry) => (
-                <div
-                  key={entry.journalEntryId}
-                  className="p-3 rounded-lg border border-border bg-card"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 text-xs text-muted-foreground mb-1">
-                        <span>{formatDate(entry.date)}</span>
-                        <span>•</span>
-                        <span className="font-mono">{entry.id}</span>
-                      </div>
-                      <p className="text-sm font-medium text-foreground">{entry.description}</p>
-                      <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                        <span>借方: {entry.debitAccount} {formatCurrency(entry.debitAmount)}</span>
-                        <span>貸方: {entry.creditAccount} {formatCurrency(entry.creditAmount)}</span>
-                      </div>
-                      {entry.memo && (
-                        <div className="mt-2 p-2 rounded bg-amber-500/10 border border-amber-500/20">
-                          <div className="flex items-start gap-1.5">
-                            <MessageSquare className="size-3.5 text-amber-600 shrink-0 mt-0.5" />
-                            <p className="text-xs text-amber-800 dark:text-amber-300">{entry.memo}</p>
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1.5 shrink-0">
-                      {isStaff ? (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleApprove(entry.journalEntryId)}
-                            disabled={approvingId === entry.journalEntryId}
-                            className="text-emerald-600 border-emerald-300 hover:bg-emerald-50 dark:hover:bg-emerald-950/20"
-                          >
-                            {approvingId === entry.journalEntryId
-                              ? <Loader2 className="size-3.5 animate-spin" />
-                              : <CheckCircle className="size-3.5" />}
-                            承認
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleReject(entry.journalEntryId)}
-                            disabled={rejectingId === entry.journalEntryId}
-                            className="text-destructive border-destructive/30 hover:bg-destructive/5"
-                          >
-                            {rejectingId === entry.journalEntryId
-                              ? <Loader2 className="size-3.5 animate-spin" />
-                              : <XCircle className="size-3.5" />}
-                            却下
-                          </Button>
-                        </>
-                      ) : (
-                        <Badge variant="warning" className="text-xs">税理士の確認待ち</Badge>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </CardContent>
-        </Card>
       )}
 
       {/* タブコンテンツ読み込み中スピナー */}

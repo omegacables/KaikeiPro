@@ -83,8 +83,7 @@ export default function JournalsPage() {
   const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [receiptDragOver, setReceiptDragOver] = useState(false);
-  const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number; withMemo: boolean } | null>(null);
-  const [receiptMemo, setReceiptMemo] = useState("");
+  const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number } | null>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
   const addReceiptFiles = (files: FileList | File[]) => {
@@ -372,8 +371,6 @@ export default function JournalsPage() {
     if (receiptItems.length === 0 || !user?.id) return;
     setReceiptUploading(true);
     setReceiptSummary(null);
-    const hasMemo = receiptMemo.trim().length > 0;
-    const memo = hasMemo ? receiptMemo.trim() : undefined;
 
     let doneCount = 0;
     let failedCount = 0;
@@ -394,7 +391,7 @@ export default function JournalsPage() {
 
         // OCR/仕訳はバックグラウンド（await しない）
         if (item.file.type.startsWith("image/") || item.file.type === "application/pdf") {
-          processReceiptOcr(result.id, memo).catch((err) =>
+          processReceiptOcr(result.id).catch((err) =>
             console.error("OCR/仕訳エラー:", err instanceof Error ? err.message : err)
           );
         }
@@ -412,9 +409,8 @@ export default function JournalsPage() {
       }
     }
 
-    setReceiptSummary({ done: doneCount, failed: failedCount, withMemo: hasMemo });
+    setReceiptSummary({ done: doneCount, failed: failedCount });
     setReceiptUploading(false);
-    setReceiptMemo("");
     // 成功したアイテムは1秒後にリストから削除（エラーのみ残す）
     setTimeout(() => {
       setReceiptItems((prev) => prev.filter((p) => p.status === "error"));
@@ -820,34 +816,11 @@ export default function JournalsPage() {
             </p>
           )}
 
-          {/* 確認メモ（任意） */}
-          {receiptItems.length > 0 && (
-            <div className="mt-3">
-              <label className="text-xs font-bold text-muted-foreground mb-1 block">
-                確認メモ（任意・全ファイル共通）
-              </label>
-              <textarea
-                value={receiptMemo}
-                onChange={(e) => setReceiptMemo(e.target.value)}
-                placeholder="不明点や質問があれば記入してください。記入すると税理士の確認後に仕訳帳に反映されます。"
-                rows={2}
-                className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm placeholder:text-muted-foreground resize-none"
-              />
-              {receiptMemo.trim() && (
-                <p className="text-[11px] text-amber-600 dark:text-amber-400 mt-1">
-                  ※ メモが入力されているため、税理士の確認後に仕訳帳に反映されます
-                </p>
-              )}
-            </div>
-          )}
-
           {/* Summary */}
           {receiptSummary && (
             <div className={cn(
               "mt-3 p-2.5 rounded-lg flex items-center justify-between",
               receiptSummary.failed > 0
-                ? "bg-amber-500/10 border border-amber-500/20"
-                : receiptSummary.withMemo
                 ? "bg-amber-500/10 border border-amber-500/20"
                 : "bg-emerald-500/10 border border-emerald-500/20"
             )}>
@@ -860,11 +833,7 @@ export default function JournalsPage() {
                 <p className="text-sm">
                   {receiptSummary.done} 件アップロード完了
                   {receiptSummary.failed > 0 && ` / ${receiptSummary.failed} 件失敗`}
-                  {receiptSummary.failed === 0 && (
-                    receiptSummary.withMemo
-                      ? " — 税理士の確認後に仕訳帳に反映されます"
-                      : " — バックグラウンドで読取・仕訳を処理中"
-                  )}
+                  {receiptSummary.failed === 0 && " — バックグラウンドで読取・仕訳を処理中"}
                 </p>
               </div>
               <Link
