@@ -126,8 +126,6 @@ const statusTabs: { key: ReceiptStatus | "all"; label: string; count?: number }[
   { key: "all", label: "すべて" },
   { key: "uploaded", label: "アップロード済" },
   { key: "processing", label: "処理中" },
-  { key: "ocr_done", label: "OCR完了" },
-  { key: "reviewed", label: "確認待ち" },
   { key: "journalized", label: "仕訳済" },
 ];
 
