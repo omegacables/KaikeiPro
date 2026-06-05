@@ -73,6 +73,7 @@ interface ReceiptData {
   amount: number;
   paymentMethod: PaymentMethod;
   status: ReceiptStatus;
+  direction: "issued" | "received";
   category?: string;
   memo?: string;
   items: (ReceiptItem | string)[];
@@ -176,6 +177,7 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
             amount: ocr?.amount_total ?? ocr?.total_amount ?? 0,
             paymentMethod: (r.payment_method ?? "cash") as PaymentMethod,
             status: r.status as ReceiptStatus,
+            direction: ((r as { direction?: "issued" | "received" }).direction ?? "received"),
             category: undefined as string | undefined,
             items: ocr?.items ?? [],
             ocrRaw: ocr ? {
@@ -383,6 +385,7 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
   }, [selectedReceipt]);
 
   const [activeTab, setActiveTab] = useState<ReceiptStatus | "all">("all");
+  const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
@@ -421,6 +424,7 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
 
   // Filtered
   const filtered = receipts.filter((r) => {
+    if (directionFilter !== "all" && r.direction !== directionFilter) return false;
     if (activeTab === "reviewed") {
       if (!isReviewPending(r)) return false;
     } else if (activeTab === "journalized") {
@@ -526,6 +530,22 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
             >
               {tab.label}
               <span className="ml-1 opacity-70">({tabCounts[tab.key]})</span>
+            </button>
+          ))}
+        </div>
+
+        {/* 発行/受領フィルター */}
+        <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
+          {([["all", "すべて"], ["received", "受領"], ["issued", "発行"]] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setDirectionFilter(key)}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-bold transition-colors whitespace-nowrap",
+                directionFilter === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
             </button>
           ))}
         </div>
@@ -682,6 +702,9 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
                 </div>
 
                 <CardContent className="pt-3 pb-4">
+                  <Badge variant={receipt.direction === "issued" ? "accent" : "muted"} className="text-[10px] mb-1">
+                    {receipt.direction === "issued" ? "発行" : "受領"}
+                  </Badge>
                   <h4 className="text-sm font-bold text-foreground truncate">
                     {receipt.vendor}
                   </h4>

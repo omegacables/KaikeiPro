@@ -489,6 +489,7 @@ export interface Database {
           image_path: string;
           payment_method: "cash" | "card" | "e_money" | "bank_transfer" | null;
           status: "uploaded" | "processing" | "ocr_done" | "reviewed" | "journalized";
+          direction: "issued" | "received";
           ocr_result: Json | null;
           ai_journal_suggestion: Json | null;
           fiscal_year_id: string | null;
@@ -510,6 +511,7 @@ export interface Database {
           image_path: string;
           payment_method?: "cash" | "card" | "e_money" | "bank_transfer" | null;
           status?: "uploaded" | "processing" | "ocr_done" | "reviewed" | "journalized";
+          direction?: "issued" | "received";
           ocr_result?: Json | null;
           ai_journal_suggestion?: Json | null;
           fiscal_year_id?: string | null;
@@ -531,6 +533,7 @@ export interface Database {
           image_path?: string;
           payment_method?: "cash" | "card" | "e_money" | "bank_transfer" | null;
           status?: "uploaded" | "processing" | "ocr_done" | "reviewed" | "journalized";
+          direction?: "issued" | "received";
           ocr_result?: Json | null;
           ai_journal_suggestion?: Json | null;
           fiscal_year_id?: string | null;

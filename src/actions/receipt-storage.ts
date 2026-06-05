@@ -59,6 +59,8 @@ export async function uploadReceipt(formData: FormData) {
   const uploadedBy = formData.get("uploaded_by") as string;
   const paymentMethod = formData.get("payment_method") as string | null;
   const memo = (formData.get("memo") as string | null)?.trim() || null;
+  const directionRaw = (formData.get("direction") as string | null) || "received";
+  const direction: "issued" | "received" = directionRaw === "issued" ? "issued" : "received";
 
   // バケット自動作成（初回のみ）
   await ensureBucket();
@@ -112,6 +114,7 @@ export async function uploadReceipt(formData: FormData) {
       image_path: storagePath,
       payment_method: (paymentMethod || null) as "cash" | "card" | "e_money" | "bank_transfer" | null,
       status: "uploaded",
+      direction,
       original_filename: file.name,
       file_size: file.size,
       mime_type: file.type,
