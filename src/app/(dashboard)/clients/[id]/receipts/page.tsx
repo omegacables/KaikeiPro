@@ -131,7 +131,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
   const { id } = useParams<{ id: string }>();
 
   // Fetch real data
-  const { data: dbReceipts, refetch } = useData(
+  const { data: dbReceipts, loading: receiptsLoading, refetch } = useData(
     () =>
       getReceipts(id).then((recs) =>
         recs.map((r) => {
@@ -579,7 +579,12 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
       </div>
 
       {/* Receipt Cards / List */}
-      {filtered.length === 0 ? (
+      {receiptsLoading ? (
+        <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card p-12 text-muted-foreground">
+          <Loader2 className="size-5 animate-spin" />
+          <span className="text-sm">読み込み中...</span>
+        </div>
+      ) : filtered.length === 0 ? (
         <Card className="p-12 text-center">
           <p className="text-muted-foreground">条件に一致する領収書がありません</p>
         </Card>
