@@ -131,7 +131,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
   const { id } = useParams<{ id: string }>();
 
   // Fetch real data
-  const { data: dbReceipts, loading: receiptsLoading, refetch } = useData(
+  const { data: dbReceipts, refetch } = useData(
     () =>
       getReceipts(id).then((recs) =>
         recs.map((r) => {
@@ -187,10 +187,12 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
           };
         })
       ),
-    []
+    null
   );
 
-  const receipts: ReceiptData[] = dbReceipts;
+  // null = まだ取得前（ローディング中）
+  const receiptsLoading = dbReceipts === null;
+  const receipts: ReceiptData[] = dbReceipts ?? [];
 
   // Detail / status change / delete
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
