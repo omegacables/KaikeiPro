@@ -14,12 +14,13 @@ import {
   Plus,
   Trash2,
   Loader2,
+  FileSpreadsheet,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
-import { printPage } from "@/lib/export";
+import { printPage, downloadCSV } from "@/lib/export";
 import {
   getTrialBalance,
   getMonthlyTrend,
@@ -44,7 +45,7 @@ type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 // Types
 // ---------------------------------------------------------------------------
 
-type StatementTab = "trial_balance" | "bs" | "pl" | "monthly_trend" | "inventory";
+type StatementTab = "trial_balance" | "bs" | "pl" | "settlement" | "monthly_trend" | "inventory";
 
 interface BSItem {
   name: string;
@@ -66,6 +67,7 @@ const tabConfig: { key: StatementTab; label: string }[] = [
   { key: "trial_balance", label: "合計残高試算表" },
   { key: "bs", label: "貸借対照表（B/S）" },
   { key: "pl", label: "損益計算書（P/L）" },
+  { key: "settlement", label: "決算書" },
   { key: "monthly_trend", label: "月次推移表" },
   { key: "inventory", label: "棚卸表" },
 ];
@@ -953,6 +955,94 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
   );
 }
 
+// 決算書（会計年度のB/S＋P/Lをまとめた帳票）
+function SettlementReport({
+  data,
+  clientName,
+  fiscalYearStart,
+  fiscalYearEnd,
+}: {
+  data: TrialBalanceRow[];
+  clientName: string;
+  fiscalYearStart: string;
+  fiscalYearEnd: string;
+}) {
+  const hasData = data.length > 0;
+
+  function handleCsv() {
+    const rows: (string | number)[][] = [];
+    // 貸借対照表
+    const assets = data.filter((r) => r.category === "asset");
+    const liabilities = data.filter((r) => r.category === "liability");
+    const equity = data.filter((r) => r.category === "equity");
+    const bsVal = (r: TrialBalanceRow, debitNature: boolean) =>
+      debitNature ? r.debitBalance - r.creditBalance : r.creditBalance - r.debitBalance;
+    for (const r of assets) rows.push(["貸借対照表/資産", r.name, bsVal(r, true)]);
+    rows.push(["貸借対照表/資産", "資産合計", assets.reduce((s, r) => s + bsVal(r, true), 0)]);
+    for (const r of liabilities) rows.push(["貸借対照表/負債", r.name, bsVal(r, false)]);
+    rows.push(["貸借対照表/負債", "負債合計", liabilities.reduce((s, r) => s + bsVal(r, false), 0)]);
+    for (const r of equity) rows.push(["貸借対照表/純資産", r.name, bsVal(r, false)]);
+    const revenue = data.filter((r) => r.category === "revenue").reduce((s, r) => s + (r.creditBalance - r.debitBalance), 0);
+    const expenses = data.filter((r) => r.category === "expense").reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
+    rows.push(["貸借対照表/純資産", "当期純利益", revenue - expenses]);
+
+    // 損益計算書
+    const plAmt = (r: TrialBalanceRow) =>
+      r.category === "revenue" ? r.creditBalance - r.debitBalance : r.debitBalance - r.creditBalance;
+    for (const r of data.filter((r) => r.category === "revenue" || r.category === "expense")) {
+      rows.push(["損益計算書", r.name, plAmt(r)]);
+    }
+    rows.push(["損益計算書", "当期純利益", revenue - expenses]);
+
+    downloadCSV(
+      `決算書_${clientName || "client"}_${fiscalYearStart}_${fiscalYearEnd}.csv`,
+      ["区分", "科目", "金額"],
+      rows
+    );
+  }
+
+  if (!hasData) {
+    return (
+      <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
+        データがありません
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex justify-end gap-2 print:hidden">
+        <Button variant="outline" size="sm" onClick={handleCsv}>
+          <FileSpreadsheet className="size-4" />
+          CSV出力
+        </Button>
+        <Button variant="outline" size="sm" onClick={() => printPage()}>
+          <FileText className="size-4" />
+          PDF出力
+        </Button>
+      </div>
+
+      <div className="rounded-xl border border-border bg-card p-6 space-y-8">
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-foreground">決算書</h2>
+          {clientName && <p className="text-foreground mt-1">{clientName}</p>}
+          <p className="text-sm text-muted-foreground mt-1">会計年度: {fiscalYearStart} 〜 {fiscalYearEnd}</p>
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-foreground mb-3">貸借対照表（B/S）</h3>
+          <BalanceSheet trialData={data} />
+        </div>
+
+        <div>
+          <h3 className="text-lg font-bold text-foreground mb-3">損益計算書（P/L）</h3>
+          <ProfitAndLoss trialData={data} />
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Main Component
 // ---------------------------------------------------------------------------
@@ -978,13 +1068,21 @@ export default function StatementsPage() {
   const [inventoryData, setInventoryData] = useState<InventoryScheduleRow[]>([]);
   const [inventoryMode, setInventoryMode] = useState<"physical" | "journal">("physical");
 
-  // クライアントの決算月（期首月）を取得（既定4月）
+  // クライアントの決算月（期首月）・名称を取得（既定4月）
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  const [clientName, setClientName] = useState("");
   useEffect(() => {
     getClient(id)
-      .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
+      .then((c) => {
+        setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4);
+        setClientName((c as { name?: string }).name ?? "");
+      })
       .catch(() => setFiscalStartMonth(4));
   }, [id]);
+
+  // 決算書データ（会計年度の全期間で集計）
+  const [settlementData, setSettlementData] = useState<TrialBalanceRow[]>([]);
+  const [settlementLoading, setSettlementLoading] = useState(false);
 
   // 会計年度の期間（クライアントの決算月基準）
   const fiscalYearStart = useMemo(() => {
@@ -1018,6 +1116,22 @@ export default function StatementsPage() {
       setTrialLoading(false);
     }
   }, [id, startDate, endDate]);
+
+  const fetchSettlement = useCallback(async () => {
+    setSettlementLoading(true);
+    try {
+      setSettlementData(await getTrialBalance(id, fiscalYearStart, fiscalYearEnd));
+    } catch (e) {
+      console.error("Settlement fetch error:", e);
+      setSettlementData([]);
+    } finally {
+      setSettlementLoading(false);
+    }
+  }, [id, fiscalYearStart, fiscalYearEnd]);
+
+  useEffect(() => {
+    if (activeTab === "settlement") fetchSettlement();
+  }, [activeTab, fetchSettlement]);
 
   const fetchMonthlyTrend = useCallback(async () => {
     try {
@@ -1124,6 +1238,21 @@ export default function StatementsPage() {
           {activeTab === "bs" && <BalanceSheet trialData={trialData} />}
           {activeTab === "pl" && <ProfitAndLoss trialData={trialData} />}
         </>
+      )}
+      {activeTab === "settlement" && (
+        settlementLoading ? (
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-border p-12 text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" />
+            <span className="text-sm">読み込み中...</span>
+          </div>
+        ) : (
+          <SettlementReport
+            data={settlementData}
+            clientName={clientName}
+            fiscalYearStart={fiscalYearStart}
+            fiscalYearEnd={fiscalYearEnd}
+          />
+        )
       )}
       {activeTab === "monthly_trend" && (
         <MonthlyTrendTable
