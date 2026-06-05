@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo, Fragment, type ReactNode } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import type { PlClassification } from "@/types/database";
 import {
   BarChart3,
@@ -163,32 +163,48 @@ function TrialBalance({ data }: { data: TrialBalanceRow[] }) {
 function BSSection({
   items,
   depth = 0,
+  onAccountClick,
 }: {
   items: BSItem[];
   depth?: number;
+  onAccountClick?: (name: string) => void;
 }) {
   return (
     <>
-      {items.map((item) => (
-        <div
-          key={item.name}
-          className={cn(
-            "flex items-center justify-between py-1.5 border-b border-border/30",
-            depth === 0 && "font-bold text-foreground",
-            depth === 1 && "font-medium text-foreground",
-            depth >= 2 && "text-muted-foreground"
-          )}
-          style={{ paddingLeft: `${depth * 20 + 16}px`, paddingRight: "16px" }}
-        >
-          <span className="text-sm">{item.name}</span>
-          <span className="font-mono text-sm">{formatCurrency(item.amount)}</span>
-        </div>
-      ))}
+      {items.map((item) => {
+        const clickable = !!onAccountClick && item.name !== "当期純利益";
+        return (
+          <div
+            key={item.name}
+            className={cn(
+              "flex items-center justify-between py-1.5 border-b border-border/30",
+              depth === 0 && "font-bold text-foreground",
+              depth === 1 && "font-medium text-foreground",
+              depth >= 2 && "text-muted-foreground",
+              clickable && "cursor-pointer hover:bg-muted/30 rounded transition-colors"
+            )}
+            style={{ paddingLeft: `${depth * 20 + 16}px`, paddingRight: "16px" }}
+            onClick={() => clickable && onAccountClick!(item.name)}
+            title={clickable ? `${item.name} の元帳を表示` : undefined}
+          >
+            <span className="text-sm">{item.name}</span>
+            <span className="font-mono text-sm">{formatCurrency(item.amount)}</span>
+          </div>
+        );
+      })}
     </>
   );
 }
 
-function BalanceSheet({ trialData }: { trialData: TrialBalanceRow[] }) {
+function BalanceSheet({ trialData, clientId }: { trialData: TrialBalanceRow[]; clientId?: string }) {
+  const router = useRouter();
+
+  const handleAccountClick = clientId
+    ? (name: string) => {
+        router.push(`/clients/${clientId}/ledgers?tab=general&account=${encodeURIComponent(name)}`);
+      }
+    : undefined;
+
   const bsAssets = trialData
     .filter((r) => r.category === "asset")
     .map((r) => ({ name: r.name, amount: r.debitBalance - r.creditBalance }));
@@ -231,7 +247,7 @@ function BalanceSheet({ trialData }: { trialData: TrialBalanceRow[] }) {
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <BSSection items={bsAssets} />
+          <BSSection items={bsAssets} onAccountClick={handleAccountClick} />
           <div className="flex items-center justify-between pt-3 mt-3 border-t-2 border-border font-bold text-foreground">
             <span>資産合計</span>
             <span className="font-mono text-lg">{formatCurrency(totalAssets)}</span>
@@ -248,7 +264,7 @@ function BalanceSheet({ trialData }: { trialData: TrialBalanceRow[] }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <BSSection items={bsLiabilities} />
+            <BSSection items={bsLiabilities} onAccountClick={handleAccountClick} />
             <div className="flex items-center justify-between pt-3 mt-3 border-t border-border font-bold text-foreground text-sm">
               <span>負債合計</span>
               <span className="font-mono">{formatCurrency(totalLiabilities)}</span>
@@ -264,7 +280,7 @@ function BalanceSheet({ trialData }: { trialData: TrialBalanceRow[] }) {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <BSSection items={equityWithProfit} />
+            <BSSection items={equityWithProfit} onAccountClick={handleAccountClick} />
             <div className="flex items-center justify-between pt-3 mt-3 border-t border-border font-bold text-foreground text-sm">
               <span>純資産合計</span>
               <span className="font-mono">{formatCurrency(totalEquityWithProfit)}</span>
@@ -962,11 +978,13 @@ function SettlementReport({
   clientName,
   fiscalYearStart,
   fiscalYearEnd,
+  clientId,
 }: {
   data: TrialBalanceRow[];
   clientName: string;
   fiscalYearStart: string;
   fiscalYearEnd: string;
+  clientId?: string;
 }) {
   const hasData = data.length > 0;
 
@@ -1032,7 +1050,7 @@ function SettlementReport({
 
         <div>
           <h3 className="text-lg font-bold text-foreground mb-3">貸借対照表（B/S）</h3>
-          <BalanceSheet trialData={data} />
+          <BalanceSheet trialData={data} clientId={clientId} />
         </div>
 
         <div>
@@ -1241,7 +1259,7 @@ export default function StatementsPage() {
       ) : (
         <>
           {activeTab === "trial_balance" && <TrialBalance data={trialData} />}
-          {activeTab === "bs" && <BalanceSheet trialData={trialData} />}
+          {activeTab === "bs" && <BalanceSheet trialData={trialData} clientId={id} />}
           {activeTab === "pl" && <ProfitAndLoss trialData={trialData} />}
         </>
       )}
@@ -1257,6 +1275,7 @@ export default function StatementsPage() {
             clientName={clientName}
             fiscalYearStart={fiscalYearStart}
             fiscalYearEnd={fiscalYearEnd}
+            clientId={id}
           />
         )
       )}

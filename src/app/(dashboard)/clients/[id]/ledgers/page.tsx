@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef, useMemo, Fragment } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import {
   BookOpen,
   FileText,
@@ -791,6 +791,7 @@ function FixedAssetLedgerTable({ assets }: { assets: AssetDisplay[] }) {
 
 export default function LedgersPage() {
   const { id } = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const { user } = useAuth();
   const isStaff = user?.role === "super_admin" || user?.role === "admin" || user?.role === "staff";
 
@@ -805,7 +806,14 @@ export default function LedgersPage() {
   // 決算月（期首月）— 年度セレクタ用。既定4月
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
 
-  const [activeTab, setActiveTab] = useState<LedgerTab>("journal");
+  // URLクエリパラメータ（B/S等からの遷移用）
+  const validTabs: LedgerTab[] = ["journal", "general", "cash", "deposit", "receivable", "payable", "assets"];
+  const paramTab = searchParams.get("tab") as LedgerTab | null;
+  const paramAccount = searchParams.get("account");
+  const initialTab: LedgerTab = paramTab && validTabs.includes(paramTab) ? paramTab : "journal";
+  const initialAccount = paramAccount ? decodeURIComponent(paramAccount) : "現金";
+
+  const [activeTab, setActiveTab] = useState<LedgerTab>(initialTab);
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo);
 
@@ -815,7 +823,7 @@ export default function LedgersPage() {
       .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
       .catch(() => {});
   }, [id]);
-  const [glAccount, setGlAccount] = useState("現金");
+  const [glAccount, setGlAccount] = useState(initialAccount);
   const [depositAccount, setDepositAccount] = useState("普通預金");
 
   // 仕訳帳・総勘定元帳共通の拡張フィルター
