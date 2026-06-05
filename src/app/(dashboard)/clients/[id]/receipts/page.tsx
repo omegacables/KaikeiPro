@@ -124,8 +124,6 @@ const defaultPaymentConfig = { label: "不明", icon: Banknote };
 
 const statusTabs: { key: ReceiptStatus | "all"; label: string; count?: number }[] = [
   { key: "all", label: "すべて" },
-  { key: "uploaded", label: "アップロード済" },
-  { key: "processing", label: "処理中" },
   { key: "journalized", label: "仕訳済" },
 ];
 
@@ -421,26 +419,19 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
   }, [selectedData?.id, selectedData?.imagePath]);
 
   // 確認待ち判定: reviewed ステータス OR needs_review=true（税理士の承認待ち）
-  const isReviewPending = (r: ReceiptData) => r.status === "reviewed" || r.needsReview;
 
   // Compute tab counts
   const tabCounts: Record<string, number> = {
     all: receipts.length,
-    uploaded: receipts.filter((r) => r.status === "uploaded").length,
-    processing: receipts.filter((r) => r.status === "processing").length,
-    ocr_done: receipts.filter((r) => r.status === "ocr_done").length,
-    reviewed: receipts.filter((r) => isReviewPending(r)).length,
-    journalized: receipts.filter((r) => r.status === "journalized" && !r.needsReview).length,
+    journalized: receipts.filter((r) => r.status === "journalized").length,
   };
 
   // Filtered
   const effectiveDirection = lockedDirection ?? directionFilter;
   const filtered = receipts.filter((r) => {
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
-    if (activeTab === "reviewed") {
-      if (!isReviewPending(r)) return false;
-    } else if (activeTab === "journalized") {
-      if (r.status !== "journalized" || r.needsReview) return false;
+    if (activeTab === "journalized") {
+      if (r.status !== "journalized") return false;
     } else if (activeTab !== "all" && r.status !== activeTab) {
       return false;
     }
