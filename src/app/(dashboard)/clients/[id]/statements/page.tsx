@@ -38,6 +38,7 @@ import {
 } from "@/actions/inventory";
 import { getClient } from "@/actions/clients";
 import { getFiscalPeriod } from "@/lib/fiscal";
+import { beginLoad, endLoad } from "@/lib/loading-bus";
 
 type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 
@@ -1050,9 +1051,8 @@ function SettlementReport({
 export default function StatementsPage() {
   const { id } = useParams<{ id: string }>();
 
-  // デフォルト: 前月（当月にはまだデータがないことが多い）
+  // デフォルト: 今月
   const now = new Date();
-  now.setMonth(now.getMonth() - 1);
   const defaultYear = now.getFullYear();
   const defaultMonth = now.getMonth() + 1;
 
@@ -1134,6 +1134,7 @@ export default function StatementsPage() {
   }, [activeTab, fetchSettlement]);
 
   const fetchMonthlyTrend = useCallback(async () => {
+    beginLoad();
     try {
       const { rows, monthLabels } = await getMonthlyTrend(id, fiscalYearStart, fiscalYearEnd, trendMode);
       setTrendData(rows);
@@ -1142,6 +1143,8 @@ export default function StatementsPage() {
       console.error("Monthly trend fetch error:", e);
       setTrendData([]);
       setTrendMonthLabels([]);
+    } finally {
+      endLoad();
     }
   }, [id, fiscalYearStart, fiscalYearEnd, trendMode]);
 
@@ -1158,12 +1161,15 @@ export default function StatementsPage() {
   }, [activeTab, fetchMonthlyTrend]);
 
   const fetchInventory = useCallback(async () => {
+    beginLoad();
     try {
       const data = await getInventorySchedule(id, fiscalYearStart, endDate);
       setInventoryData(data);
     } catch (e) {
       console.error("Inventory schedule fetch error:", e);
       setInventoryData([]);
+    } finally {
+      endLoad();
     }
   }, [id, fiscalYearStart, endDate]);
 

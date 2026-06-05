@@ -47,7 +47,8 @@ import { Badge } from "@/components/ui/badge";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { getAccounts } from "@/actions/accounts";
 import { getClient } from "@/actions/clients";
-import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
@@ -796,30 +797,22 @@ export default function LedgersPage() {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
-  // 決算月（期首月）— クライアント設定。既定4月。読込後に既定期間を補正
+  // デフォルトは今月
+  const mm = String(month).padStart(2, "0");
+  const monthLastDay = new Date(year, month, 0).getDate();
+  const defaultFrom = `${year}-${mm}-01`;
+  const defaultTo = `${year}-${mm}-${String(monthLastDay).padStart(2, "0")}`;
+  // 決算月（期首月）— 年度セレクタ用。既定4月
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
-  const fyStart = currentFiscalStartYear(fiscalStartMonth, now);
-  const { startDate: defaultFrom, endDate: defaultTo } = fiscalRangeFromStartYear(fiscalStartMonth, fyStart);
-  const periodInitedRef = useRef(false);
 
   const [activeTab, setActiveTab] = useState<LedgerTab>("journal");
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo);
 
-  // クライアントの決算月を取得し、初回のみ既定期間（当年度）に補正
+  // クライアントの決算月を取得（年度セレクタの表示・範囲計算に使用）
   useEffect(() => {
     getClient(id)
-      .then((c) => {
-        const sm = (c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4;
-        setFiscalStartMonth(sm);
-        if (!periodInitedRef.current) {
-          periodInitedRef.current = true;
-          const sy = currentFiscalStartYear(sm, new Date());
-          const { startDate, endDate } = fiscalRangeFromStartYear(sm, sy);
-          setDateFrom(startDate);
-          setDateTo(endDate);
-        }
-      })
+      .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
       .catch(() => {});
   }, [id]);
   const [glAccount, setGlAccount] = useState("現金");
@@ -1015,10 +1008,12 @@ export default function LedgersPage() {
 
   // Fetch journal data
   const fetchJournal = useCallback(async () => {
+    beginLoad();
     try {
       const data = await getJournalLedger(id, dateFrom, dateTo);
       setJournalData(data);
     } catch { /* fallback to empty */ }
+    finally { endLoad(); }
   }, [id, dateFrom, dateTo]);
 
   // Fetch account list
@@ -1034,10 +1029,12 @@ export default function LedgersPage() {
 
   // Fetch general ledger data
   const fetchGL = useCallback(async () => {
+    beginLoad();
     try {
       const data = await getGeneralLedger(id, glAccount, dateFrom, dateTo);
       setGlData(data);
     } catch { /* fallback to empty */ }
+    finally { endLoad(); }
   }, [id, glAccount, dateFrom, dateTo]);
 
   // Fetch sub-ledger data (cash, deposit, receivable, payable)
@@ -1045,10 +1042,12 @@ export default function LedgersPage() {
     // deposit タブは動的に選択された口座名を使用
     const accountName = activeTab === "deposit" ? depositAccount : subLedgerAccountMap[activeTab];
     if (!accountName) return;
+    beginLoad();
     try {
       const data = await getGeneralLedger(id, accountName, dateFrom, dateTo);
       setSubLedgerData(data);
     } catch { setSubLedgerData([]); }
+    finally { endLoad(); }
   }, [id, activeTab, dateFrom, dateTo, depositAccount]);
 
   useEffect(() => {
