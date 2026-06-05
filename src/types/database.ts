@@ -706,6 +706,7 @@ export interface Database {
           tax_amount: number;
           total_amount: number;
           status: "draft" | "issued" | "sent" | "paid" | "overdue" | "void";
+          direction: "sales" | "purchase";
           pdf_storage_path: string | null;
           journal_entry_id: string | null;
           raqto_source_id: string | null;
@@ -725,6 +726,7 @@ export interface Database {
           tax_amount?: number;
           total_amount?: number;
           status?: "draft" | "issued" | "sent" | "paid" | "overdue" | "void";
+          direction?: "sales" | "purchase";
           pdf_storage_path?: string | null;
           journal_entry_id?: string | null;
           raqto_source_id?: string | null;
@@ -744,6 +746,7 @@ export interface Database {
           tax_amount?: number;
           total_amount?: number;
           status?: "draft" | "issued" | "sent" | "paid" | "overdue" | "void";
+          direction?: "sales" | "purchase";
           pdf_storage_path?: string | null;
           journal_entry_id?: string | null;
           raqto_source_id?: string | null;

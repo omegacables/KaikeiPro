@@ -113,18 +113,29 @@ export async function issueInvoiceWithJournal(invoiceId: string): Promise<void> 
   if (invError || !invoice) throw new Error("請求書が見つかりません");
   if (invoice.status !== "draft") throw new Error("下書き状態の請求書のみ発行できます");
 
+  const isPurchase = (invoice as { direction?: string }).direction === "purchase";
+
+  // 売上(発行): 売掛金/売上高/仮受消費税、 仕入(受領): 買掛金/仕入高/仮払消費税
+  const wantNames = isPurchase
+    ? ["買掛金", "仕入高", "仮払消費税"]
+    : ["売掛金", "売上高", "仮受消費税"];
   const { data: accounts } = await supabase
     .from("accounts")
     .select("id, name")
     .or(`client_id.eq.${invoice.client_id},is_default.eq.true`)
-    .in("name", ["売掛金", "売上高", "仮受消費税"])
+    .in("name", wantNames)
     .eq("is_active", true);
 
   const acctMap = new Map((accounts ?? []).map((a) => [a.name, a.id]));
-  const receivableId = acctMap.get("売掛金");
-  const salesId = acctMap.get("売上高");
-  if (!receivableId || !salesId) {
-    throw new Error("売掛金または売上高の勘定科目が見つかりません。勘定科目を設定してください");
+  // 相手勘定（売掛金 or 買掛金）と損益勘定（売上高 or 仕入高）
+  const partyId = acctMap.get(isPurchase ? "買掛金" : "売掛金");
+  const plId = acctMap.get(isPurchase ? "仕入高" : "売上高");
+  if (!partyId || !plId) {
+    throw new Error(
+      isPurchase
+        ? "買掛金または仕入高の勘定科目が見つかりません。勘定科目を設定してください"
+        : "売掛金または売上高の勘定科目が見つかりません。勘定科目を設定してください"
+    );
   }
 
   const { data: { user } } = await supabase.auth.getUser();
@@ -140,7 +151,7 @@ export async function issueInvoiceWithJournal(invoiceId: string): Promise<void> 
     .insert({
       client_id: invoice.client_id,
       entry_date: invoice.issued_date,
-      description: `売上計上: ${partnerName} ${invoice.invoice_number}`,
+      description: `${isPurchase ? "仕入計上" : "売上計上"}: ${partnerName} ${invoice.invoice_number}`,
       status: "confirmed" as const,
       source: "manual" as const,
       created_by: user.id,
@@ -157,16 +168,30 @@ export async function issueInvoiceWithJournal(invoiceId: string): Promise<void> 
     sort_order: number;
   };
 
-  const lines: LineInsert[] = [
-    { journal_entry_id: journalEntry.id, account_id: receivableId, debit_amount: totalAmount, credit_amount: 0, sort_order: 0 },
-    { journal_entry_id: journalEntry.id, account_id: salesId, debit_amount: 0, credit_amount: subtotal, sort_order: 1 },
-  ];
-
-  const taxId = acctMap.get("仮受消費税");
-  if (taxId && taxAmount > 0) {
-    lines.push({ journal_entry_id: journalEntry.id, account_id: taxId, debit_amount: 0, credit_amount: taxAmount, sort_order: 2 });
-  } else if (!taxId && taxAmount > 0) {
-    lines[1].credit_amount += taxAmount;
+  const taxId = acctMap.get(isPurchase ? "仮払消費税" : "仮受消費税");
+  let lines: LineInsert[];
+  if (isPurchase) {
+    // （借）仕入高 + （借）仮払消費税 ／（貸）買掛金
+    lines = [
+      { journal_entry_id: journalEntry.id, account_id: plId, debit_amount: subtotal, credit_amount: 0, sort_order: 0 },
+      { journal_entry_id: journalEntry.id, account_id: partyId, debit_amount: 0, credit_amount: totalAmount, sort_order: 2 },
+    ];
+    if (taxId && taxAmount > 0) {
+      lines.push({ journal_entry_id: journalEntry.id, account_id: taxId, debit_amount: taxAmount, credit_amount: 0, sort_order: 1 });
+    } else if (!taxId && taxAmount > 0) {
+      lines[0].debit_amount += taxAmount;
+    }
+  } else {
+    // （借）売掛金 ／（貸）売上高 +（貸）仮受消費税
+    lines = [
+      { journal_entry_id: journalEntry.id, account_id: partyId, debit_amount: totalAmount, credit_amount: 0, sort_order: 0 },
+      { journal_entry_id: journalEntry.id, account_id: plId, debit_amount: 0, credit_amount: subtotal, sort_order: 1 },
+    ];
+    if (taxId && taxAmount > 0) {
+      lines.push({ journal_entry_id: journalEntry.id, account_id: taxId, debit_amount: 0, credit_amount: taxAmount, sort_order: 2 });
+    } else if (!taxId && taxAmount > 0) {
+      lines[1].credit_amount += taxAmount;
+    }
   }
 
   const { error: linesError } = await supabase.from("journal_entry_lines").insert(lines);
@@ -206,6 +231,7 @@ export async function getReceivablesByPartner(clientId: string): Promise<Partner
       payment_allocations ( allocated_amount )
     `)
     .eq("client_id", clientId)
+    .eq("direction", "sales")
     .not("status", "in", '("paid","void")');
 
   if (error) throw new Error(error.message);
@@ -281,6 +307,7 @@ export async function getAgingReport(clientId: string): Promise<AgingReportRow[]
       payment_allocations ( allocated_amount )
     `)
     .eq("client_id", clientId)
+    .eq("direction", "sales")
     .not("status", "in", '("paid","void")');
 
   if (error) throw new Error(error.message);
@@ -334,6 +361,7 @@ export async function getUnpaidInvoices(clientId: string) {
       payment_allocations ( id, allocated_amount )
     `)
     .eq("client_id", clientId)
+    .eq("direction", "sales")
     .not("status", "in", '("paid","void")')
     .order("due_date", { ascending: true });
 

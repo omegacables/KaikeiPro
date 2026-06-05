@@ -52,6 +52,7 @@ type Invoice = {
   tax8: number;
   totalAmount: number;
   status: Exclude<InvoiceStatus, "all">;
+  direction: "sales" | "purchase";
   raqtoOrderStatus: string | null;
 };
 
@@ -93,7 +94,9 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
     business_partner_id: "",
     issued_date: new Date().toISOString().split("T")[0],
     due_date: "",
+    direction: "sales" as "sales" | "purchase",
   });
+  const [directionFilter, setDirectionFilter] = useState<"all" | "sales" | "purchase">("all");
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState<RaqtoSyncResult | null>(null);
   const [newItems, setNewItems] = useState([
@@ -105,7 +108,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
   const [clearingAll, setClearingAll] = useState(false);
 
   const handleIssueInvoice = async (invoiceId: string) => {
-    if (!confirm("この請求書を発行し、売掛金の仕訳を自動作成しますか？")) return;
+    if (!confirm("この請求書を計上し、仕訳を自動作成しますか？（売上=売掛金/売上高、仕入=仕入高/買掛金）")) return;
     setIssuingId(invoiceId);
     try {
       await issueInvoiceWithJournal(invoiceId);
@@ -191,6 +194,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
           tax_amount: itemsTax,
           total_amount: itemsTotal,
           status: "draft",
+          direction: newInvoice.direction,
         },
         newItems.filter((item) => item.description).map((item) => ({
           item_name: item.description,
@@ -224,6 +228,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
           tax8: 0,
           totalAmount: r.total_amount,
           status: r.status as Exclude<InvoiceStatus, "all">,
+          direction: ((r as { direction?: "sales" | "purchase" }).direction ?? "sales"),
           raqtoOrderStatus: r.raqto_order_status ?? null,
         }))
       ),
@@ -231,6 +236,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
   );
 
   const filteredInvoices = invoices.filter((inv) => {
+    if (directionFilter !== "all" && inv.direction !== directionFilter) return false;
     if (activeStatus !== "all" && inv.status !== activeStatus) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -315,6 +321,34 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
             </Button>
           </CardHeader>
           <CardContent>
+            <div className="mb-4">
+              <label className="block text-sm font-medium text-foreground mb-1">区分</label>
+              <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+                <button
+                  type="button"
+                  onClick={() => setNewInvoice({ ...newInvoice, direction: "sales" })}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                    newInvoice.direction === "sales" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  発行（売上請求書）
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setNewInvoice({ ...newInvoice, direction: "purchase" })}
+                  className={cn(
+                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                    newInvoice.direction === "purchase" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  受領（仕入請求書）
+                </button>
+              </div>
+              <p className="text-xs text-muted-foreground mt-1">
+                {newInvoice.direction === "sales" ? "計上時の仕訳: 売掛金 / 売上高（＋仮受消費税）" : "計上時の仕訳: 仕入高（＋仮払消費税）/ 買掛金"}
+              </p>
+            </div>
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">請求書番号</label>
@@ -500,6 +534,22 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
         </div>
       </Card>
 
+      {/* 発行/受領フィルター */}
+      <div className="inline-flex gap-1 mb-3 bg-muted/20 p-1 rounded-lg">
+        {([["all", "すべて"], ["sales", "発行（売上）"], ["purchase", "受領（仕入）"]] as const).map(([key, label]) => (
+          <button
+            key={key}
+            onClick={() => setDirectionFilter(key)}
+            className={cn(
+              "px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap",
+              directionFilter === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Status filter tabs */}
       <div className="flex gap-1 mb-6 bg-muted/20 p-1 rounded-lg overflow-x-auto">
         {statusTabs.map((tab) => (
@@ -566,6 +616,9 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
                     className="border-b border-border last:border-0 hover:bg-muted/10 cursor-pointer"
                   >
                     <td className="px-4 py-3 font-mono font-medium text-primary">
+                      <Badge variant={inv.direction === "purchase" ? "accent" : "muted"} className="text-[10px] mr-2 align-middle">
+                        {inv.direction === "purchase" ? "受領" : "発行"}
+                      </Badge>
                       {inv.invoiceNumber}
                     </td>
                     <td className="px-4 py-3 font-medium text-foreground">
