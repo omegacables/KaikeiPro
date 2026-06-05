@@ -32,6 +32,8 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
 import { getReceipts, updateReceipt, deleteReceipt, deleteReceipts } from "@/actions/receipts";
+import { getClient } from "@/actions/clients";
+import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { processReceiptOcr, updateOcrResult } from "@/actions/ocr";
 import { generateJournalSuggestion, approveJournalSuggestion } from "@/actions/ai-journal";
@@ -386,6 +388,12 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
 
   const [activeTab, setActiveTab] = useState<ReceiptStatus | "all">("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
+  const [receiptFiscalStartMonth, setReceiptFiscalStartMonth] = useState(4);
+  useEffect(() => {
+    getClient(id)
+      .then((c) => setReceiptFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
+      .catch(() => {});
+  }, [id]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
@@ -562,8 +570,9 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
               setFiscalYear(v);
               if (!v) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
               const fy = parseInt(v);
-              setDateFrom(`${fy}-04-01`);
-              setDateTo(`${fy + 1}-03-31`);
+              const { startDate, endDate } = fiscalRangeFromStartYear(receiptFiscalStartMonth, fy);
+              setDateFrom(startDate);
+              setDateTo(endDate);
               setPeriodMode("year");
             }}
             className="px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-xs"

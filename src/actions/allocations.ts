@@ -3,6 +3,7 @@
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { createJournalEntry } from "./journals";
+import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 
 function getGeminiClient() {
   const apiKey = process.env.GOOGLE_API_KEY;
@@ -250,8 +251,16 @@ export interface BatchAllocationRow {
   private: number;  // 私用分（事業主貸へ振替）
 }
 
-function fiscalRange(fiscalYear: number) {
-  return { start: `${fiscalYear}-04-01`, end: `${fiscalYear + 1}-03-31` };
+async function fiscalRange(clientId: string, fiscalYear: number) {
+  const supabase = await createServerSupabaseClient();
+  const { data } = await supabase
+    .from("clients")
+    .select("fiscal_year_start_month")
+    .eq("id", clientId)
+    .maybeSingle();
+  const sm = (data as { fiscal_year_start_month?: number } | null)?.fiscal_year_start_month ?? 4;
+  const { startDate, endDate } = fiscalRangeFromStartYear(sm, fiscalYear);
+  return { start: startDate, end: endDate };
 }
 function batchDescription(fiscalYear: number) {
   return `家事按分（期末一括）${fiscalYear}年度`;
@@ -263,7 +272,7 @@ export async function getBatchAllocationPreview(
   fiscalYear: number
 ): Promise<BatchAllocationRow[]> {
   const supabase = await createServerSupabaseClient();
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await fiscalRange(clientId, fiscalYear);
 
   const ratesMap = await getAllocationRates(clientId, fiscalYear);
   const ids = Object.keys(ratesMap);
@@ -318,7 +327,7 @@ export async function getAllocationReport(
   fiscalYear: number
 ): Promise<AllocationReportRow[]> {
   const supabase = await createServerSupabaseClient();
-  const { start, end } = fiscalRange(fiscalYear);
+  const { start, end } = await fiscalRange(clientId, fiscalYear);
 
   const ratesMap = await getAllocationRates(clientId, fiscalYear);
   const ids = Object.keys(ratesMap).filter((id) => ratesMap[id].business_ratio > 0);
@@ -372,7 +381,7 @@ export async function runBatchAllocation(
   if (rows.length === 0) throw new Error("按分対象の実績がありません");
 
   const supabase = await createServerSupabaseClient();
-  const { end } = fiscalRange(fiscalYear);
+  const { end } = await fiscalRange(clientId, fiscalYear);
   const desc = batchDescription(fiscalYear);
 
   // 二重按分防止: 同年度の期末一括按分が既にあれば中止

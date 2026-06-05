@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { Home, Loader2, Plus, FileSpreadsheet, FileText, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
+import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { useAuth } from "@/components/providers/auth-provider";
 import { AlertTriangle } from "lucide-react";
 import { getClient, updateClient } from "@/actions/clients";
@@ -37,10 +38,12 @@ export default function AllocationsPage() {
   const isStaff =
     user?.role === "super_admin" || user?.role === "admin" || user?.role === "staff";
 
-  // 会計年度（4月始まり）
-  const now = new Date();
-  const currentFy = now.getMonth() + 1 >= 4 ? now.getFullYear() : now.getFullYear() - 1;
+  // 会計年度（クライアントの決算月基準）
+  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  const currentFy = currentFiscalStartYear(fiscalStartMonth);
   const [fiscalYear, setFiscalYear] = useState(currentFy);
+  // 決算月の読込後に対象年度を当年度へ合わせる（初回のみ）
+  const fyInitedRef = useRef(false);
 
   const [accounts, setAccounts] = useState<AllocatableAccount[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<AllocatableAccount[]>([]);
@@ -67,6 +70,13 @@ export default function AllocationsPage() {
       setPaymentAccounts(payAccs);
       setRates(rateMap);
       setEntityType((client as { entity_type?: "individual" | "corporation" | null } | null)?.entity_type ?? null);
+      const sm = (client as { fiscal_year_start_month?: number } | null)?.fiscal_year_start_month ?? 4;
+      setFiscalStartMonth(sm);
+      // 初回のみ、対象年度を決算月基準の当年度へ補正
+      if (!fyInitedRef.current) {
+        fyInitedRef.current = true;
+        setFiscalYear(currentFiscalStartYear(sm));
+      }
       setDrafts({});
     } catch (e) {
       console.error("家事按分設定の取得に失敗:", e);
@@ -330,11 +340,14 @@ export default function AllocationsPage() {
               onChange={(e) => setFiscalYear(Number(e.target.value))}
               className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-sm"
             >
-              {years.map((y) => (
-                <option key={y} value={y}>
-                  {y}年度（{y}/4〜{y + 1}/3）
-                </option>
-              ))}
+              {years.map((y) => {
+                const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, y);
+                return (
+                  <option key={y} value={y}>
+                    {y}年度（{startDate.slice(0, 7).replace("-", "/")}〜{endDate.slice(0, 7).replace("-", "/")}）
+                  </option>
+                );
+              })}
             </select>
           </div>
         </CardContent>
@@ -608,7 +621,7 @@ export default function AllocationsPage() {
                     </Button>
                   </div>
                   <p className="mt-2 text-xs text-muted-foreground">
-                    ※ 期末日（{fiscalYear + 1}/3/31）付の下書き仕訳を作成します。同年度で重複作成はできません（二重按分防止）。
+                    ※ 期末日（{fiscalRangeFromStartYear(fiscalStartMonth, fiscalYear).endDate}）付の下書き仕訳を作成します。同年度で重複作成はできません（二重按分防止）。
                   </p>
                 </>
               )

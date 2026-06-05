@@ -46,6 +46,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { getAccounts } from "@/actions/accounts";
+import { getClient } from "@/actions/clients";
+import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { useAuth } from "@/components/providers/auth-provider";
 import {
@@ -794,14 +796,32 @@ export default function LedgersPage() {
   const now = new Date();
   const year = now.getFullYear();
   const month = now.getMonth() + 1;
-  // デフォルトは今年度（4月〜翌3月）の全期間
-  const fyStart = month >= 4 ? year : year - 1;
-  const defaultFrom = `${fyStart}-04-01`;
-  const defaultTo = `${fyStart + 1}-03-31`;
+  // 決算月（期首月）— クライアント設定。既定4月。読込後に既定期間を補正
+  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  const fyStart = currentFiscalStartYear(fiscalStartMonth, now);
+  const { startDate: defaultFrom, endDate: defaultTo } = fiscalRangeFromStartYear(fiscalStartMonth, fyStart);
+  const periodInitedRef = useRef(false);
 
   const [activeTab, setActiveTab] = useState<LedgerTab>("journal");
   const [dateFrom, setDateFrom] = useState(defaultFrom);
   const [dateTo, setDateTo] = useState(defaultTo);
+
+  // クライアントの決算月を取得し、初回のみ既定期間（当年度）に補正
+  useEffect(() => {
+    getClient(id)
+      .then((c) => {
+        const sm = (c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4;
+        setFiscalStartMonth(sm);
+        if (!periodInitedRef.current) {
+          periodInitedRef.current = true;
+          const sy = currentFiscalStartYear(sm, new Date());
+          const { startDate, endDate } = fiscalRangeFromStartYear(sm, sy);
+          setDateFrom(startDate);
+          setDateTo(endDate);
+        }
+      })
+      .catch(() => {});
+  }, [id]);
   const [glAccount, setGlAccount] = useState("現金");
   const [depositAccount, setDepositAccount] = useState("普通預金");
 
@@ -1231,8 +1251,9 @@ export default function LedgersPage() {
                       return;
                     }
                     const fy = parseInt(v);
-                    setDateFrom(`${fy}-04-01`);
-                    setDateTo(`${fy + 1}-03-31`);
+                    const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, fy);
+                    setDateFrom(startDate);
+                    setDateTo(endDate);
                     setPeriodMode("year");
                   }}
                   className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
@@ -1240,9 +1261,10 @@ export default function LedgersPage() {
                   <option value="">選択なし</option>
                   {Array.from({ length: 5 }, (_, i) => {
                     const y = new Date().getFullYear() - i;
+                    const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, y);
                     return (
                       <option key={y} value={y}>
-                        {y}年度（{y}/4〜{y + 1}/3）
+                        {y}年度（{startDate.slice(0, 7).replace("-", "/")}〜{endDate.slice(0, 7).replace("-", "/")}）
                       </option>
                     );
                   })}

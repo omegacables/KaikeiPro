@@ -35,6 +35,8 @@ import {
   updateInventoryCount,
   deleteInventoryCount,
 } from "@/actions/inventory";
+import { getClient } from "@/actions/clients";
+import { getFiscalPeriod } from "@/lib/fiscal";
 
 type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 
@@ -976,13 +978,19 @@ export default function StatementsPage() {
   const [inventoryData, setInventoryData] = useState<InventoryScheduleRow[]>([]);
   const [inventoryMode, setInventoryMode] = useState<"physical" | "journal">("physical");
 
-  // 会計年度の開始月（4月始まり）を算出
+  // クライアントの決算月（期首月）を取得（既定4月）
+  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  useEffect(() => {
+    getClient(id)
+      .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
+      .catch(() => setFiscalStartMonth(4));
+  }, [id]);
+
+  // 会計年度の期間（クライアントの決算月基準）
   const fiscalYearStart = useMemo(() => {
     const [y, m] = period.split("-").map(Number);
-    // 4月始まり: 4月〜3月。1〜3月は前年度
-    const fyStartYear = m >= 4 ? y : y - 1;
-    return `${fyStartYear}-04-01`;
-  }, [period]);
+    return getFiscalPeriod(fiscalStartMonth, y, m).startDate;
+  }, [period, fiscalStartMonth]);
 
   // 試算表/BS/PL: 会計年度開始〜選択月末の累計
   const startDate = useMemo(() => fiscalYearStart, [fiscalYearStart]);
@@ -992,12 +1000,11 @@ export default function StatementsPage() {
     return `${period}-${String(lastDay).padStart(2, "0")}`;
   }, [period]);
 
-  // 月次推移: 会計年度（4月〜翌3月）
+  // 月次推移: 会計年度（決算月基準の12ヶ月）
   const fiscalYearEnd = useMemo(() => {
     const [y, m] = period.split("-").map(Number);
-    const fyStartYear = m >= 4 ? y : y - 1;
-    return `${fyStartYear + 1}-03-31`;
-  }, [period]);
+    return getFiscalPeriod(fiscalStartMonth, y, m).endDate;
+  }, [period, fiscalStartMonth]);
 
   const fetchTrialBalance = useCallback(async () => {
     setTrialLoading(true);
@@ -1161,7 +1168,7 @@ export default function StatementsPage() {
       {/* Footer */}
       <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
         <span>
-          対象期間: {startDate} 〜 {endDate}（会計年度: {fiscalYearStart.slice(0, 4)}年4月〜{Number(fiscalYearStart.slice(0, 4)) + 1}年3月）
+          対象期間: {startDate} 〜 {endDate}（会計年度: {fiscalYearStart} 〜 {fiscalYearEnd}）
         </span>
       </div>
     </>
