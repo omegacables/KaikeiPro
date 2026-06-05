@@ -6,15 +6,21 @@ import { cn } from "@/lib/utils";
 import { ReceiptsPageContent } from "../receipts/page";
 import { InvoicesPageContent } from "../invoices/page";
 
-type DocumentTab = "receipts" | "invoices";
+type DocumentTab =
+  | "receipts_received"
+  | "receipts_issued"
+  | "invoices_purchase"
+  | "invoices_sales";
 
 const tabs: { key: DocumentTab; label: string; icon: typeof Receipt }[] = [
-  { key: "receipts", label: "領収書", icon: Receipt },
-  { key: "invoices", label: "請求書", icon: FileText },
+  { key: "receipts_received", label: "領収書（受領）", icon: Receipt },
+  { key: "receipts_issued", label: "領収書（発行）", icon: Receipt },
+  { key: "invoices_purchase", label: "請求書（受領）", icon: FileText },
+  { key: "invoices_sales", label: "請求書（発行）", icon: FileText },
 ];
 
 export default function DocumentsPage() {
-  const [activeTab, setActiveTab] = useState<DocumentTab>("receipts");
+  const [activeTab, setActiveTab] = useState<DocumentTab>("receipts_received");
 
   return (
     <>
@@ -26,7 +32,7 @@ export default function DocumentsPage() {
             証憑管理
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            領収書・請求書の管理
+            領収書・請求書を「発行（自社）／受領（取引先）」で分けて管理
           </p>
         </div>
       </div>
@@ -51,8 +57,10 @@ export default function DocumentsPage() {
       </div>
 
       {/* Content */}
-      {activeTab === "receipts" && <ReceiptsPageContent hideHeader />}
-      {activeTab === "invoices" && <InvoicesPageContent hideHeader />}
+      {activeTab === "receipts_received" && <ReceiptsPageContent hideHeader lockedDirection="received" />}
+      {activeTab === "receipts_issued" && <ReceiptsPageContent hideHeader lockedDirection="issued" />}
+      {activeTab === "invoices_purchase" && <InvoicesPageContent hideHeader lockedDirection="purchase" />}
+      {activeTab === "invoices_sales" && <InvoicesPageContent hideHeader lockedDirection="sales" />}
     </>
   );
 }

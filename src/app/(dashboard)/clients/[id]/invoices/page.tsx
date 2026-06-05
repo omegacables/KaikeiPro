@@ -82,7 +82,7 @@ const statusConfig: Record<
   void: { label: "無効", variant: "muted", icon: Ban },
 };
 
-export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
+export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { hideHeader?: boolean; lockedDirection?: "sales" | "purchase" }) {
   const { id } = useParams<{ id: string }>();
   const [activeStatus, setActiveStatus] = useState<InvoiceStatus>("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -94,7 +94,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
     business_partner_id: "",
     issued_date: new Date().toISOString().split("T")[0],
     due_date: "",
-    direction: "sales" as "sales" | "purchase",
+    direction: (lockedDirection ?? "sales") as "sales" | "purchase",
   });
   const [directionFilter, setDirectionFilter] = useState<"all" | "sales" | "purchase">("all");
   const [importing, setImporting] = useState(false);
@@ -235,8 +235,9 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
     [] as Invoice[]
   );
 
+  const effectiveDirection = lockedDirection ?? directionFilter;
   const filteredInvoices = invoices.filter((inv) => {
-    if (directionFilter !== "all" && inv.direction !== directionFilter) return false;
+    if (effectiveDirection !== "all" && inv.direction !== effectiveDirection) return false;
     if (activeStatus !== "all" && inv.status !== activeStatus) return false;
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -321,6 +322,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
             </Button>
           </CardHeader>
           <CardContent>
+            {!lockedDirection && (
             <div className="mb-4">
               <label className="block text-sm font-medium text-foreground mb-1">区分</label>
               <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
@@ -349,6 +351,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
                 {newInvoice.direction === "sales" ? "計上時の仕訳: 売掛金 / 売上高（＋仮受消費税）" : "計上時の仕訳: 仕入高（＋仮払消費税）/ 買掛金"}
               </p>
             </div>
+            )}
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">請求書番号</label>
@@ -534,7 +537,8 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
         </div>
       </Card>
 
-      {/* 発行/受領フィルター */}
+      {/* 発行/受領フィルター（区分固定時は非表示） */}
+      {!lockedDirection && (
       <div className="inline-flex gap-1 mb-3 bg-muted/20 p-1 rounded-lg">
         {([["all", "すべて"], ["sales", "発行（売上）"], ["purchase", "受領（仕入）"]] as const).map(([key, label]) => (
           <button
@@ -549,6 +553,7 @@ export function InvoicesPageContent({ hideHeader = false }: { hideHeader?: boole
           </button>
         ))}
       </div>
+      )}
 
       {/* Status filter tabs */}
       <div className="flex gap-1 mb-6 bg-muted/20 p-1 rounded-lg overflow-x-auto">

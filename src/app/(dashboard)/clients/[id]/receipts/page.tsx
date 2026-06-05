@@ -142,7 +142,7 @@ const statusFlowSteps: { key: ReceiptStatus; label: string; icon: React.ElementT
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
+export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { hideHeader?: boolean; lockedDirection?: "received" | "issued" }) {
   const { id } = useParams<{ id: string }>();
 
   // Fetch real data
@@ -423,8 +423,9 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
   };
 
   // Filtered
+  const effectiveDirection = lockedDirection ?? directionFilter;
   const filtered = receipts.filter((r) => {
-    if (directionFilter !== "all" && r.direction !== directionFilter) return false;
+    if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
     if (activeTab === "reviewed") {
       if (!isReviewPending(r)) return false;
     } else if (activeTab === "journalized") {
@@ -534,7 +535,8 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
           ))}
         </div>
 
-        {/* 発行/受領フィルター */}
+        {/* 発行/受領フィルター（区分固定時は非表示） */}
+        {!lockedDirection && (
         <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
           {([["all", "すべて"], ["received", "受領"], ["issued", "発行"]] as const).map(([key, label]) => (
             <button
@@ -549,6 +551,7 @@ export function ReceiptsPageContent({ hideHeader = false }: { hideHeader?: boole
             </button>
           ))}
         </div>
+        )}
 
         {/* Period filter + search + view toggle */}
         <div className="flex items-center gap-2">
