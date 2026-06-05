@@ -415,6 +415,10 @@ export default function JournalsPage() {
     setReceiptSummary({ done: doneCount, failed: failedCount, withMemo: hasMemo });
     setReceiptUploading(false);
     setReceiptMemo("");
+    // 成功したアイテムは1秒後にリストから削除（エラーのみ残す）
+    setTimeout(() => {
+      setReceiptItems((prev) => prev.filter((p) => p.status === "error"));
+    }, 1000);
   };
 
   // Load accounts from DB
@@ -756,13 +760,21 @@ export default function JournalsPage() {
                           {item.error && ` — ${item.error}`}
                         </p>
                       </div>
-                      <div className="shrink-0">
+                      <div className="shrink-0 flex items-center gap-1.5">
                         {item.status === "uploading" ? (
                           <Loader2 className="size-4 animate-spin text-primary" />
                         ) : item.status === "done" ? (
                           <Check className="size-4 text-emerald-600" />
                         ) : item.status === "error" ? (
-                          <AlertTriangle className="size-4 text-destructive" />
+                          <>
+                            <AlertTriangle className="size-4 text-destructive" />
+                            <button
+                              onClick={() => handleRemoveReceiptItem(item.id)}
+                              className="size-5 rounded-full bg-destructive/10 text-destructive flex items-center justify-center hover:bg-destructive/20"
+                            >
+                              <X className="size-3" />
+                            </button>
+                          </>
                         ) : (
                           !receiptUploading && (
                             <button
