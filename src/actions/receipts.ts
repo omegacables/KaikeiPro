@@ -77,27 +77,8 @@ export async function updateReceipt(id: string, input: ReceiptUpdate) {
 }
 
 export async function deleteReceipt(id: string) {
-  const supabase = await createServerSupabaseClient();
-
-  // 削除前にimage_pathを取得
-  const { data: receipt } = await supabase
-    .from("receipts")
-    .select("image_path")
-    .eq("id", id)
-    .single();
-
-  const { error } = await supabase.from("receipts").delete().eq("id", id);
-  if (error) throw new Error(error.message);
-
-  // ストレージからも削除（非クリティカル）
-  if (receipt?.image_path) {
-    try {
-      const { deleteReceiptImage } = await import("./receipt-storage");
-      await deleteReceiptImage(receipt.image_path);
-    } catch {
-      // ストレージ削除失敗は無視
-    }
-  }
+  // 紐づく仕訳・コメント・画像もまとめて削除（証憑→仕訳の連動）
+  await deleteReceipts([id]);
 }
 
 /**

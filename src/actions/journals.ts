@@ -126,13 +126,8 @@ export async function updateJournalEntry(
 }
 
 export async function deleteJournalEntry(id: string) {
-  const supabase = await createServerSupabaseClient();
-  const { error } = await supabase
-    .from("journal_entries")
-    .delete()
-    .eq("id", id);
-
-  if (error) throw new Error(error.message);
+  // 紐づく証憑も連動削除＋会計年度ロックチェックのため、まとめ削除に委譲
+  await deleteJournalEntries([id]);
 }
 
 /**
@@ -167,12 +162,11 @@ export async function deleteJournalEntries(ids: string[]): Promise<void> {
     .delete()
     .in("id", ids);
 
-  // 紐づくレシートのステータスをリセット
+  // 紐づく証憑（領収書）も削除（仕訳→証憑の連動）。
+  // 仕訳は上で削除済みのため、deleteReceipts 内の仕訳削除は実質no-opで再帰しない。
   if (receiptIds.length > 0) {
-    await admin
-      .from("receipts")
-      .update({ status: "ocr_done" as const })
-      .in("id", receiptIds);
+    const { deleteReceipts } = await import("./receipts");
+    await deleteReceipts(receiptIds);
   }
 }
 
