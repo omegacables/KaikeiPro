@@ -1,6 +1,6 @@
 "use server";
 
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import type { Database } from "@/types/database";
 
 type InvoiceRow = Database["public"]["Tables"]["invoices"]["Row"];
@@ -85,19 +85,49 @@ export async function updateInvoice(id: string, input: InvoiceUpdate) {
 
 export async function deleteInvoice(id: string) {
   const supabase = await createServerSupabaseClient();
-  const { error } = await supabase.from("invoices").delete().eq("id", id);
+  // 紐づく計上仕訳IDを取得（削除すると全帳簿からも消える）
+  const { data: inv } = await supabase
+    .from("invoices")
+    .select("journal_entry_id")
+    .eq("id", id)
+    .maybeSingle();
+  const jeId = (inv as { journal_entry_id?: string | null } | null)?.journal_entry_id ?? null;
 
+  // 請求書を削除（invoice_items はカスケード）
+  const { error } = await supabase.from("invoices").delete().eq("id", id);
   if (error) throw new Error(error.message);
+
+  // 紐づく仕訳も連動削除
+  if (jeId) {
+    const admin = createAdminSupabaseClient();
+    await admin.from("journal_entry_lines").delete().eq("journal_entry_id", jeId);
+    await admin.from("journal_entries").delete().eq("id", jeId);
+  }
 }
 
 export async function deleteAllInvoices(clientId: string) {
   const supabase = await createServerSupabaseClient();
+  // 紐づく計上仕訳IDを収集
+  const { data: invs } = await supabase
+    .from("invoices")
+    .select("journal_entry_id")
+    .eq("client_id", clientId);
+  const jeIds = (invs ?? [])
+    .map((i) => i.journal_entry_id)
+    .filter((x): x is string => !!x);
+
   const { error } = await supabase
     .from("invoices")
     .delete()
     .eq("client_id", clientId);
-
   if (error) throw new Error(error.message);
+
+  // 紐づく仕訳も連動削除
+  if (jeIds.length > 0) {
+    const admin = createAdminSupabaseClient();
+    await admin.from("journal_entry_lines").delete().in("journal_entry_id", jeIds);
+    await admin.from("journal_entries").delete().in("id", jeIds);
+  }
 }
 
 // ── 請求書発行 + 自動仕訳 ────────────────────────────────────────────────────

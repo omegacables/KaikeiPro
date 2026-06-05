@@ -150,6 +150,18 @@ export async function deleteJournalEntries(ids: string[]): Promise<void> {
     .map((e) => e.receipt_id)
     .filter((rid): rid is string => !!rid);
 
+  // 紐づく請求書を取得（仕訳削除で journal_entry_id が SET NULL になる前に収集）
+  const { data: linkedInvoices } = await admin
+    .from("invoices")
+    .select("id")
+    .in("journal_entry_id", ids);
+  const invoiceIds = (linkedInvoices ?? []).map((i) => i.id);
+
+  // 紐づく請求書を先に削除（invoice_items はカスケード／請求書→仕訳の連動）
+  if (invoiceIds.length > 0) {
+    await admin.from("invoices").delete().in("id", invoiceIds);
+  }
+
   // 明細を先に削除（FK制約）
   await admin
     .from("journal_entry_lines")
