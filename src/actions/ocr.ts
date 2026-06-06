@@ -121,7 +121,7 @@ export async function processReceiptOcr(
       "currency": "通貨コード（ISO 4217。例: JPY, USD, EUR, GBP, CNY, KRW, TWD）",
       "items": ["品目1", "品目2"],
       "invoice_number": "インボイス番号（日本のT+13桁、あれば）",
-      "document_type": "書類種別: qualified_invoice（適格請求書: T+13桁のインボイス登録番号がある）/ category_invoice（区分記載請求書: 税率別の区分記載があるがT番号なし）/ receipt（領収書・レシート）/ other",
+      "document_type": "書類種別を以下の定義に従って判定してください（優先順位順）: qualified_invoice（適格請求書インボイス: 書類のどこかに「登録番号」または「T」で始まる13桁の数字が印刷されている請求書形式の書類）/ category_invoice（区分記載請求書: T番号はないが「8%対象」「10%対象」など税率別に金額が区分記載されている請求書形式）/ receipt（領収書・レシート: 商品購入やサービス利用の代金受取証明。コンビニ・スーパー・飲食店・タクシーのレシートを含む。インボイス番号があっても領収書・レシート形式ならこちら）/ statement（明細書: 利用明細書・取引明細書・クレジットカード明細・銀行口座明細・給与明細など、複数取引をまとめた一覧表形式の書類）/ delivery_note（納品書: 商品やサービスの納品を証明する書類）/ estimate（見積書・注文書・発注書: 金額の見積もりや注文・発注内容を記載した書類）/ contract（契約書・覚書・合意書: 当事者間の契約内容を記載した書類）/ other（上記に該当しない書類）",
       "payment_method": "cash / card / e_money / bank_transfer / null",
       "direction": "issued / received（後述の判定）",
       "confidence": 0.0〜1.0の信頼度
@@ -181,7 +181,7 @@ export async function processReceiptOcr(
     ): Promise<{
       ocrResult: OcrResult;
       detectedPayment: "cash" | "card" | "e_money" | "bank_transfer" | null;
-      documentType: "qualified_invoice" | "category_invoice" | "receipt" | "other" | undefined;
+      documentType: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other" | undefined;
     }> => {
       const currency: string = (parsed.currency as string) ?? "JPY";
       const originalAmount =
@@ -214,9 +214,9 @@ export async function processReceiptOcr(
       const taxAmt =
         typeof parsed.tax_amount === "number" ? parsed.tax_amount : undefined;
 
-      const validDocumentTypes = ["qualified_invoice", "category_invoice", "receipt", "other"];
+      const validDocumentTypes = ["qualified_invoice", "category_invoice", "receipt", "statement", "delivery_note", "estimate", "contract", "other"];
       const documentType = validDocumentTypes.includes(parsed.document_type as string)
-        ? (parsed.document_type as "qualified_invoice" | "category_invoice" | "receipt" | "other")
+        ? (parsed.document_type as "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other")
         : undefined;
 
       const ocrResult: OcrResult = {

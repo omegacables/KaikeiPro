@@ -105,7 +105,7 @@ interface ReceiptData {
   taxExcluded?: number;
   taxRate?: number;
   invoiceNumber?: string;
-  documentType?: "qualified_invoice" | "category_invoice" | "receipt" | "other";
+  documentType?: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
   folderId?: string | null;
 }
 
@@ -137,12 +137,16 @@ const paymentMethodConfig: Record<
 
 const defaultPaymentConfig = { label: "不明", icon: Banknote };
 
-type DocumentType = "qualified_invoice" | "category_invoice" | "receipt" | "other";
+type DocumentType = "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
 
-const documentTypeConfig: Record<DocumentType, { label: string; variant: "success" | "accent" | "muted" | "default" }> = {
-  qualified_invoice: { label: "適格", variant: "success" },
-  category_invoice: { label: "区分記載", variant: "accent" },
+const documentTypeConfig: Record<DocumentType, { label: string; variant: "success" | "accent" | "muted" | "default" | "warning" }> = {
+  qualified_invoice: { label: "適格請求書", variant: "success" },
+  category_invoice: { label: "区分記載請求書", variant: "accent" },
   receipt: { label: "領収書", variant: "muted" },
+  statement: { label: "明細書", variant: "default" },
+  delivery_note: { label: "納品書", variant: "default" },
+  estimate: { label: "見積書", variant: "warning" },
+  contract: { label: "契約書", variant: "warning" },
   other: { label: "その他", variant: "muted" },
 };
 
@@ -208,7 +212,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
             taxRate: ocr?.tax_rate,
             invoiceNumber: ocr?.invoice_number,
             needsReview: r.needs_review ?? false,
-            documentType: (r as { document_type?: string }).document_type as "qualified_invoice" | "category_invoice" | "receipt" | "other" | undefined,
+            documentType: (r as { document_type?: string }).document_type as "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other" | undefined,
             folderId: (r as { folder_id?: string | null }).folder_id ?? null,
           };
         })
