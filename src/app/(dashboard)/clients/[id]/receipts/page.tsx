@@ -652,9 +652,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
               {bulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
               まとめて削除
             </Button>
-            <button onClick={() => setSelectedIds(new Set())} className="text-xs text-primary hover:underline">
-              選択解除
-            </button>
           </>
         )}
       </div>
