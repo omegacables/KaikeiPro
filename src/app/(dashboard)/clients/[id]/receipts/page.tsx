@@ -478,6 +478,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
     setEditingOcr(false);
   }, [selectedReceipt]);
 
+  const [documentTypeFilter, setDocumentTypeFilter] = useState<DocumentType | "all">("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
   const [receiptFiscalStartMonth, setReceiptFiscalStartMonth] = useState(4);
   useEffect(() => {
@@ -508,10 +509,21 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
       .finally(() => setLoadingImage(false));
   }, [selectedData?.id, selectedData?.imagePath]);
 
+  // 書類種別ごとの件数（フォルダ・方向フィルター適用前の全件から集計）
+  const docTypeCounts = receipts.reduce<Record<string, number>>((acc, r) => {
+    const key = r.documentType ?? "unknown";
+    acc[key] = (acc[key] ?? 0) + 1;
+    return acc;
+  }, {});
+
   // Filtered
   const effectiveDirection = lockedDirection ?? directionFilter;
   const filtered = receipts.filter((r) => {
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
+    // 書類種別フィルター
+    if (documentTypeFilter !== "all") {
+      if (r.documentType !== documentTypeFilter) return false;
+    }
     // フォルダフィルター
     if (selectedFolderId !== "all") {
       if (selectedFolderId === null) {
@@ -685,6 +697,69 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
 
         {/* Content area */}
         <div className="flex-1 min-w-0">
+
+      {/* Document Type Filter Tabs */}
+      <div className="flex gap-1.5 mb-4 flex-wrap">
+        {/* すべて */}
+        <button
+          onClick={() => setDocumentTypeFilter("all")}
+          className={cn(
+            "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all",
+            documentTypeFilter === "all"
+              ? "bg-primary text-cream border-primary"
+              : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+          )}
+        >
+          すべて
+          <span className={cn(
+            "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+            documentTypeFilter === "all" ? "bg-white/20 text-cream" : "bg-muted/40 text-muted-foreground"
+          )}>
+            {receipts.length}
+          </span>
+        </button>
+        {/* 各書類種別（1件以上ある場合のみ表示） */}
+        {(Object.entries(documentTypeConfig) as [DocumentType, typeof documentTypeConfig[DocumentType]][]).map(([type, cfg]) => {
+          const count = docTypeCounts[type] ?? 0;
+          if (count === 0) return null;
+          const isActive = documentTypeFilter === type;
+          return (
+            <button
+              key={type}
+              onClick={() => setDocumentTypeFilter(type)}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all",
+                isActive
+                  ? "bg-primary text-cream border-primary"
+                  : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+              )}
+            >
+              {cfg.label}
+              <span className={cn(
+                "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
+                isActive ? "bg-white/20 text-cream" : "bg-muted/40 text-muted-foreground"
+              )}>
+                {count}
+              </span>
+            </button>
+          );
+        })}
+        {/* 未判定（OCR前など） */}
+        {(docTypeCounts["unknown"] ?? 0) > 0 && (
+          <button
+            onClick={() => setDocumentTypeFilter("other")}
+            className={cn(
+              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all",
+              "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
+            )}
+          >
+            未判定
+            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none bg-muted/40 text-muted-foreground">
+              {docTypeCounts["unknown"]}
+            </span>
+          </button>
+        )}
+      </div>
 
       {/* Filter Bar */}
       <div className="flex items-center justify-between mb-4 gap-4">
