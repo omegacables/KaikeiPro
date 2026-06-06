@@ -744,21 +744,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
             </button>
           );
         })}
-        {/* 未判定（OCR前など） */}
-        {(docTypeCounts["unknown"] ?? 0) > 0 && (
-          <button
-            onClick={() => setDocumentTypeFilter("other")}
-            className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold border transition-all",
-              "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
-            )}
-          >
-            未判定
-            <span className="rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none bg-muted/40 text-muted-foreground">
-              {docTypeCounts["unknown"]}
-            </span>
-          </button>
-        )}
       </div>
 
       {/* Filter Bar */}
