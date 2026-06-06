@@ -211,6 +211,16 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
   const receiptsLoading = dbReceipts === null;
   const receipts: ReceiptData[] = dbReceipts ?? [];
 
+  // OCR処理中のレシートがある間は10秒ごとに自動リフレッシュ
+  const hasProcessing = receipts.some(
+    (r) => r.status === "processing" || r.status === "uploaded"
+  );
+  useEffect(() => {
+    if (!hasProcessing) return;
+    const timer = setInterval(() => { refetch(); }, 10000);
+    return () => clearInterval(timer);
+  }, [hasProcessing, refetch]);
+
   // Detail / status change / delete
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
   const [updatingStatus, setUpdatingStatus] = useState(false);

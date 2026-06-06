@@ -104,55 +104,27 @@ export async function processReceiptOcr(
         },
       },
       {
-        text: `${isPdf ? "このPDF" : "この画像"}には1つまたは複数の領収書・レシートが含まれている可能性があります。
-それぞれを別の取引として認識し、すべてのレシートを配列として返してください。
+        text: `${isPdf ? "このPDF" : "この画像"}に含まれる領収書・書類を全て読み取り、以下のJSON形式で返してください。値が不明な場合はnullにしてください。JSONのみ返し、説明文は不要です。
 
-必ず以下のJSON形式（オブジェクトの配列）で回答してください。値が読み取れない場合はnullにしてください。
+{"receipts":[{"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"T番号等","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","confidence":0.0-1.0}]}
 
-{
-  "receipts": [
-    {
-      "date": "YYYY-MM-DD形式の日付",
-      "vendor_name": "店名・発行者名（そのまま）",
-      "amount_total": 合計金額（税込、数値のみ、原通貨のまま）,
-      "amount_tax_excluded": 税抜金額（数値のみ、原通貨のまま）,
-      "tax_amount": 税額（数値のみ、原通貨のまま）,
-      "tax_rate": 税率（小数。例: 10% → 0.10, 8.875% → 0.08875）,
-      "currency": "通貨コード（ISO 4217。例: JPY, USD, EUR, GBP, CNY, KRW, TWD）",
-      "items": ["品目1", "品目2"],
-      "invoice_number": "インボイス番号（日本のT+13桁、あれば）",
-      "document_type": "書類種別を以下の定義に従って判定してください（優先順位順）: qualified_invoice（適格請求書インボイス: 書類のどこかに「登録番号」または「T」で始まる13桁の数字が印刷されている請求書形式の書類）/ category_invoice（区分記載請求書: T番号はないが「8%対象」「10%対象」など税率別に金額が区分記載されている請求書形式）/ receipt（領収書・レシート: 商品購入やサービス利用の代金受取証明。コンビニ・スーパー・飲食店・タクシーのレシートを含む。インボイス番号があっても領収書・レシート形式ならこちら）/ statement（明細書: 利用明細書・取引明細書・クレジットカード明細・銀行口座明細・給与明細など、複数取引をまとめた一覧表形式の書類）/ delivery_note（納品書: 商品やサービスの納品を証明する書類）/ estimate（見積書・注文書・発注書: 金額の見積もりや注文・発注内容を記載した書類）/ contract（契約書・覚書・合意書: 当事者間の契約内容を記載した書類）/ other（上記に該当しない書類）",
-      "payment_method": "cash / card / e_money / bank_transfer / null",
-      "direction": "issued / received（後述の判定）",
-      "confidence": 0.0〜1.0の信頼度
-    }
-  ]
-}
+document_typeの判定基準:
+- qualified_invoice: T+13桁の登録番号がある請求書
+- category_invoice: 8%/10%区分記載のある請求書（T番号なし）
+- receipt: 領収書・レシート（コンビニ・飲食店・タクシー等）
+- statement: 利用明細・クレカ明細・銀行明細・給与明細
+- delivery_note: 納品書
+- estimate: 見積書・注文書・発注書
+- contract: 契約書・覚書
+- other: 上記以外
 
-重要:
-- レシートが1つしか見つからない場合も、必ず1要素の配列として返してください
-- 【最重要】画像内のレシートを漏れなく全て検出してください。1枚の画像/ページに複数のレシートが
-  並んで（横並び・縦並び・グリッド状・斜め・一部重なり・余白に小さく）写っている場合も、
-  視覚的に分離できる領収書は全て個別の要素として返してください。読み取れた枚数だけ配列要素を作ること
-- まず画像内にレシートが何枚あるかを数え、その枚数と同じ数の要素を必ず返してください
-- 一部が見切れている・傾いている・薄い・手書きのレシートも、判読できる範囲で1件として含めてください
-- 同じレシートの裏表や続き（合計が連続する等）と明確に判断できるものだけ1つにまとめてください
-- 金額は数値のみ（カンマや通貨記号は除く）
-- 日付は西暦YYYY-MM-DD形式に変換（令和・平成は西暦に変換）
-- 通貨は$ならUSD、¥で日本の店ならJPY、€ならEUR等を正確に判定
-- 店名や品目はレシートに記載されたままの言語で返す（翻訳不要）
-- 軽減税率(8%)対象品目がある場合はtax_rateに0.08を設定
-- payment_methodはレシート記載から判定:
-  - "cash": 現金、お釣り記載がある場合
-  - "card": クレジット、VISA、Mastercard、JCB、AMEX、デビット等の記載
-  - "e_money": Suica、PASMO、PayPay、iD、QUICPay、楽天Edy、nanaco、WAON等
-  - "bank_transfer": 振込、振替、口座引落等の記載
-  - null: 判別不可の場合
-- direction（発行/受領の判定）: この会計事業者（自社）は「${clientName || "（名称不明）"}」です。
-  - "issued": 自社が発行した書類（自社が発行者・売手・宛名が取引先側。例: 自社名が発行元/差出人/「御中」の前が取引先）
-  - "received": 取引先から受領した書類（取引先が発行者・自社が宛名/買手。多くの領収書・請求書はこちら）
-  - 自社名が書類の発行者欄にあれば issued、宛名（〜御中/様）にあれば received。判断が難しい場合は "received" とする。
-- JSONのみ返してください。説明文は不要です。`,
+direction（自社「${clientName || "名称不明"}」基準）:
+- issued: 自社が発行者（発行元に自社名）
+- received: 取引先から受領（宛名に自社名、または判断不能）
+
+payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e_money=電子マネー/QR決済、bank_transfer=振込
+
+複数のレシートが写っている場合はreceipts配列を複数要素にしてください。`,
       },
     ]);
 
@@ -252,16 +224,13 @@ export async function processReceiptOcr(
     };
 
     // 8. 1件目は元レコード更新、2件目以降はsibling行作成
-    const firstReceiptId = receiptId;
-    const allReceiptIds: string[] = [firstReceiptId];
-
     for (let i = 0; i < receiptsArray.length; i++) {
       const parsed = (receiptsArray[i] as Record<string, unknown>) ?? {};
       const { ocrResult, detectedPayment, documentType } = await buildOcrFromParsed(parsed);
 
       let currentId: string;
       if (i === 0) {
-        currentId = firstReceiptId;
+        currentId = receiptId;
       } else {
         // 兄弟レコード作成（同じimage_path・file_hash・payment_method等を継承）
         const { data: sibling, error: createErr } = await supabase
@@ -287,7 +256,6 @@ export async function processReceiptOcr(
           continue;
         }
         currentId = sibling.id;
-        allReceiptIds.push(currentId);
       }
 
       const updateData: Record<string, unknown> = {
@@ -300,11 +268,26 @@ export async function processReceiptOcr(
       if (!receipt.payment_method && detectedPayment) {
         updateData.payment_method = detectedPayment;
       }
-      await supabase.from("receipts").update(updateData).eq("id", currentId);
+
+      const { error: updateErr } = await supabase
+        .from("receipts")
+        .update(updateData)
+        .eq("id", currentId);
+      if (updateErr) {
+        console.error(`[ocr] DB更新エラー (${currentId}): ${updateErr.message}`);
+        throw new Error(`OCR結果の保存に失敗しました: ${updateErr.message}`);
+      }
 
       console.log(`[ocr] OCR完了 (${i + 1}/${receiptsArray.length}): ${currentId}`);
-      await generateJournalSuggestion(currentId, memo);
-      console.log(`[ocr] 仕訳提案→記帳完了: ${currentId}`);
+
+      // 仕訳提案は別途 try/catch — 失敗しても OCR 結果は保持する
+      try {
+        await generateJournalSuggestion(currentId, memo);
+        console.log(`[ocr] 仕訳提案→記帳完了: ${currentId}`);
+      } catch (suggErr) {
+        // 仕訳提案が失敗してもOCR結果は維持 (status は ocr_done のまま)
+        console.error(`[ocr] 仕訳提案エラー (${currentId}):`, suggErr instanceof Error ? suggErr.message : suggErr);
+      }
     }
 
     // 1件目のOcrResultを返す（後方互換）
