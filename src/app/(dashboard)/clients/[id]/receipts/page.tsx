@@ -501,13 +501,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
               : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
           )}
         >
-          すべて
-          <span className={cn(
-            "rounded-full px-1.5 py-0.5 text-[10px] font-bold leading-none",
-            documentTypeFilter === "all" ? "bg-white/20 text-cream" : "bg-muted/40 text-muted-foreground"
-          )}>
-            {receipts.length}
-          </span>
+          全{receipts.length}件
         </button>
         {/* 各書類種別（1件以上ある場合のみ表示） */}
         {(Object.entries(documentTypeConfig) as [DocumentType, typeof documentTypeConfig[DocumentType]][]).map(([type, cfg]) => {
