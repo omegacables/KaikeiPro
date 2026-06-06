@@ -758,12 +758,21 @@ export default function JournalsPage() {
                       </div>
                       <div className="shrink-0 flex items-center gap-1.5">
                         {item.status === "uploading" ? (
-                          <Loader2 className="size-4 animate-spin text-primary" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
+                            <Loader2 className="size-3 animate-spin" />
+                            処理中
+                          </span>
                         ) : item.status === "done" ? (
-                          <Check className="size-4 text-emerald-600" />
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                            <Check className="size-3" />
+                            完了
+                          </span>
                         ) : item.status === "error" ? (
                           <>
-                            <AlertTriangle className="size-4 text-destructive" />
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/10 text-destructive border border-destructive/20">
+                              <AlertTriangle className="size-3" />
+                              エラー
+                            </span>
                             <button
                               onClick={() => handleRemoveReceiptItem(item.id)}
                               className="size-5 rounded-full bg-destructive/10 text-destructive flex items-center justify-center hover:bg-destructive/20"
@@ -772,14 +781,21 @@ export default function JournalsPage() {
                             </button>
                           </>
                         ) : (
-                          !receiptUploading && (
-                            <button
-                              onClick={() => handleRemoveReceiptItem(item.id)}
-                              className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
-                            >
-                              <X className="size-3.5" />
-                            </button>
-                          )
+                          <>
+                            {receiptUploading && (
+                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted/40 text-muted-foreground border border-border">
+                                待機中
+                              </span>
+                            )}
+                            {!receiptUploading && (
+                              <button
+                                onClick={() => handleRemoveReceiptItem(item.id)}
+                                className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
+                              >
+                                <X className="size-3.5" />
+                              </button>
+                            )}
+                          </>
                         )}
                       </div>
                     </li>
