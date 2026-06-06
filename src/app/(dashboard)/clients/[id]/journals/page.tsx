@@ -84,6 +84,7 @@ export default function JournalsPage() {
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [receiptDragOver, setReceiptDragOver] = useState(false);
   const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number } | null>(null);
+  const [ocrError, setOcrError] = useState<string | null>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
 
   const addReceiptFiles = (files: FileList | File[]) => {
@@ -371,6 +372,7 @@ export default function JournalsPage() {
     if (receiptItems.length === 0 || !user?.id) return;
     setReceiptUploading(true);
     setReceiptSummary(null);
+    setOcrError(null);
 
     let doneCount = 0;
     let failedCount = 0;
@@ -391,9 +393,11 @@ export default function JournalsPage() {
 
         // OCR/仕訳はバックグラウンド（await しない）
         if (item.file.type.startsWith("image/") || item.file.type === "application/pdf") {
-          processReceiptOcr(result.id).catch((err) =>
-            console.error("OCR/仕訳エラー:", err instanceof Error ? err.message : err)
-          );
+          processReceiptOcr(result.id).catch((err) => {
+            const msg = err instanceof Error ? err.message : "OCR処理に失敗しました";
+            console.error("OCR/仕訳エラー:", msg);
+            setOcrError(msg);
+          });
         }
 
         setReceiptItems((prev) =>
@@ -833,6 +837,18 @@ export default function JournalsPage() {
           )}
 
           {/* Summary */}
+          {ocrError && (
+            <div className="mt-3 p-2.5 rounded-lg flex items-start gap-2 bg-destructive/10 border border-destructive/20">
+              <AlertTriangle className="size-4 shrink-0 text-destructive mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-destructive">OCR処理エラー</p>
+                <p className="text-xs text-destructive/80 break-all">{ocrError}</p>
+              </div>
+              <button onClick={() => setOcrError(null)} className="shrink-0 text-destructive/60 hover:text-destructive">
+                <X className="size-3.5" />
+              </button>
+            </div>
+          )}
           {receiptSummary && (
             <div className={cn(
               "mt-3 p-2.5 rounded-lg flex items-center justify-between",
