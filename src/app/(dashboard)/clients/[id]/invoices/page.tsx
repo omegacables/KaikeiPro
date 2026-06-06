@@ -11,13 +11,14 @@ import {
   CheckCircle,
   Send,
   Ban,
-  Filter,
   Loader2,
   X,
   Trash2,
-  RefreshCw,
   Package,
   AlertTriangle,
+  Download,
+  CreditCard,
+  ReceiptText,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -28,17 +29,71 @@ import { getInvoices, createInvoice, deleteInvoice, deleteAllInvoices, issueInvo
 import { getPartners } from "@/actions/partners";
 import { importRaqtoSalesOrders, type RaqtoSyncResult } from "@/actions/raqto-sync";
 
-type InvoiceStatus = "all" | "draft" | "issued" | "sent" | "paid" | "overdue" | "void";
+// ---------------------------------------------------------------------------
+// Types & config
+// ---------------------------------------------------------------------------
 
-const statusTabs: { key: InvoiceStatus; label: string }[] = [
-  { key: "all", label: "すべて" },
-  { key: "draft", label: "下書き" },
-  { key: "issued", label: "発行済" },
-  { key: "sent", label: "送付済" },
-  { key: "paid", label: "入金済" },
+type InvoiceStatus = "all" | "draft" | "issued" | "sent" | "paid" | "overdue" | "void";
+type Direction = "sales" | "purchase";
+
+// 発行（売上）用ステータス設定
+const salesStatusConfig: Record<
+  Exclude<InvoiceStatus, "all">,
+  { label: string; variant: "default" | "success" | "warning" | "destructive" | "muted" | "accent"; icon: typeof FileText }
+> = {
+  draft:   { label: "下書き",   variant: "muted",        icon: FileText    },
+  issued:  { label: "発行済",   variant: "default",      icon: CheckCircle },
+  sent:    { label: "送付済",   variant: "accent",       icon: Send        },
+  paid:    { label: "入金済",   variant: "success",      icon: CheckCircle },
+  overdue: { label: "期限超過", variant: "destructive",  icon: AlertCircle },
+  void:    { label: "無効",     variant: "muted",        icon: Ban         },
+};
+
+// 受領（仕入）用ステータス設定
+const purchaseStatusConfig: Record<
+  Exclude<InvoiceStatus, "all">,
+  { label: string; variant: "default" | "success" | "warning" | "destructive" | "muted" | "accent"; icon: typeof FileText }
+> = {
+  draft:   { label: "未処理",   variant: "muted",        icon: FileText    },
+  issued:  { label: "受領済",   variant: "default",      icon: ReceiptText },
+  sent:    { label: "確認済",   variant: "accent",       icon: CheckCircle },
+  paid:    { label: "支払済",   variant: "success",      icon: CreditCard  },
+  overdue: { label: "期限超過", variant: "destructive",  icon: AlertCircle },
+  void:    { label: "無効",     variant: "muted",        icon: Ban         },
+};
+
+const salesStatusTabs:    { key: InvoiceStatus; label: string }[] = [
+  { key: "all",     label: "すべて"   },
+  { key: "draft",   label: "下書き"   },
+  { key: "issued",  label: "発行済"   },
+  { key: "sent",    label: "送付済"   },
+  { key: "paid",    label: "入金済"   },
   { key: "overdue", label: "期限超過" },
-  { key: "void", label: "無効" },
+  { key: "void",    label: "無効"     },
 ];
+
+const purchaseStatusTabs: { key: InvoiceStatus; label: string }[] = [
+  { key: "all",     label: "すべて"   },
+  { key: "draft",   label: "未処理"   },
+  { key: "issued",  label: "受領済"   },
+  { key: "sent",    label: "確認済"   },
+  { key: "paid",    label: "支払済"   },
+  { key: "overdue", label: "期限超過" },
+  { key: "void",    label: "無効"     },
+];
+
+const raqtoStatusLabels: Record<string, { label: string; variant: "default" | "success" | "warning" | "destructive" | "muted" | "accent" }> = {
+  draft:              { label: "下書き",   variant: "muted"       },
+  confirmed:          { label: "確定",     variant: "default"     },
+  sent:               { label: "送付済",   variant: "accent"      },
+  delivered:          { label: "納品済",   variant: "default"     },
+  payment_pending:    { label: "入金待ち", variant: "warning"     },
+  payment_completed:  { label: "入金済",   variant: "success"     },
+  completed:          { label: "完了",     variant: "success"     },
+  canceled:           { label: "キャンセル", variant: "destructive" },
+  order:              { label: "受注",     variant: "muted"       },
+  document:           { label: "書類",     variant: "accent"      },
+};
 
 type Invoice = {
   id: string;
@@ -46,75 +101,127 @@ type Invoice = {
   partnerName: string;
   issuedDate: string;
   dueDate: string;
-  subtotal10: number;
-  tax10: number;
-  subtotal8: number;
-  tax8: number;
+  subtotal: number;
+  taxAmount: number;
   totalAmount: number;
   status: Exclude<InvoiceStatus, "all">;
-  direction: "sales" | "purchase";
+  direction: Direction;
   raqtoOrderStatus: string | null;
 };
 
-const raqtoStatusLabels: Record<string, { label: string; variant: "default" | "success" | "warning" | "destructive" | "muted" | "accent" }> = {
-  draft: { label: "下書き", variant: "muted" },
-  confirmed: { label: "確定", variant: "default" },
-  sent: { label: "送付済", variant: "accent" },
-  delivered: { label: "納品済", variant: "default" },
-  payment_pending: { label: "入金待ち", variant: "warning" },
-  payment_completed: { label: "入金済", variant: "success" },
-  completed: { label: "完了", variant: "success" },
-  canceled: { label: "キャンセル", variant: "destructive" },
-  order: { label: "受注", variant: "muted" },
-  document: { label: "書類", variant: "accent" },
-};
+// ---------------------------------------------------------------------------
+// Component
+// ---------------------------------------------------------------------------
 
-
-const statusConfig: Record<
-  Exclude<InvoiceStatus, "all">,
-  { label: string; variant: "default" | "success" | "warning" | "destructive" | "muted" | "accent"; icon: typeof FileText }
-> = {
-  draft: { label: "下書き", variant: "muted", icon: FileText },
-  issued: { label: "発行済", variant: "default", icon: CheckCircle },
-  sent: { label: "送付済", variant: "accent", icon: Send },
-  paid: { label: "入金済", variant: "success", icon: CheckCircle },
-  overdue: { label: "期限超過", variant: "destructive", icon: AlertCircle },
-  void: { label: "無効", variant: "muted", icon: Ban },
-};
-
-export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { hideHeader?: boolean; lockedDirection?: "sales" | "purchase" }) {
+export function InvoicesPageContent({
+  hideHeader = false,
+  lockedDirection,
+}: {
+  hideHeader?: boolean;
+  lockedDirection?: Direction;
+}) {
   const { id } = useParams<{ id: string }>();
-  const [activeStatus, setActiveStatus] = useState<InvoiceStatus>("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [showNewForm, setShowNewForm] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [partnerList, setPartnerList] = useState<{ id: string; name: string }[]>([]);
+
+  const [activeStatus, setActiveStatus]   = useState<InvoiceStatus>("all");
+  const [searchQuery, setSearchQuery]     = useState("");
+  const [directionFilter, setDirectionFilter] = useState<"all" | Direction>("all");
+  const [showNewForm, setShowNewForm]     = useState(false);
+  const [saving, setSaving]               = useState(false);
+  const [partnerList, setPartnerList]     = useState<{ id: string; name: string }[]>([]);
+  const [importing, setImporting]         = useState(false);
+  const [importResult, setImportResult]   = useState<RaqtoSyncResult | null>(null);
+  const [deletingId, setDeletingId]       = useState<string | null>(null);
+  const [issuingId, setIssuingId]         = useState<string | null>(null);
+  const [clearingAll, setClearingAll]     = useState(false);
+
   const [newInvoice, setNewInvoice] = useState({
     invoice_number: "",
     business_partner_id: "",
     issued_date: new Date().toISOString().split("T")[0],
     due_date: "",
-    direction: (lockedDirection ?? "sales") as "sales" | "purchase",
+    direction: (lockedDirection ?? "sales") as Direction,
   });
-  const [directionFilter, setDirectionFilter] = useState<"all" | "sales" | "purchase">("all");
-  const [importing, setImporting] = useState(false);
-  const [importResult, setImportResult] = useState<RaqtoSyncResult | null>(null);
   const [newItems, setNewItems] = useState([
     { description: "", quantity: 1, unit_price: 0, tax_rate: 10 },
   ]);
 
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-  const [issuingId, setIssuingId] = useState<string | null>(null);
-  const [clearingAll, setClearingAll] = useState(false);
+  // ---- Derived direction context ----
+  const effectiveDirection = lockedDirection ?? directionFilter;
+  const isSalesView    = effectiveDirection === "sales";
+  const isPurchaseView = effectiveDirection === "purchase";
+  const statusConfig   = isPurchaseView ? purchaseStatusConfig : salesStatusConfig;
+  const statusTabs     = isPurchaseView ? purchaseStatusTabs   : salesStatusTabs;
 
-  const handleIssueInvoice = async (invoiceId: string) => {
-    if (!confirm("この請求書を計上し、仕訳を自動作成しますか？（売上=売掛金/売上高、仕入=仕入高/買掛金）")) return;
+  // ---- Data ----
+  const { data: invoices, refetch } = useData(
+    () =>
+      getInvoices(id).then((rows) =>
+        rows.map((r) => ({
+          id: r.id,
+          invoiceNumber: r.invoice_number,
+          partnerName: (r as unknown as { business_partners?: { name?: string } }).business_partners?.name ?? "",
+          issuedDate:  r.issued_date?.replace(/-/g, "/") ?? "",
+          dueDate:     r.due_date?.replace(/-/g, "/") ?? "",
+          subtotal:    r.subtotal,
+          taxAmount:   r.tax_amount,
+          totalAmount: r.total_amount,
+          status:      r.status as Exclude<InvoiceStatus, "all">,
+          direction:   ((r as { direction?: Direction }).direction ?? "sales"),
+          raqtoOrderStatus: r.raqto_order_status ?? null,
+        }))
+      ),
+    [] as Invoice[]
+  );
+
+  // ---- Filtered list ----
+  const filteredInvoices = invoices.filter((inv) => {
+    if (effectiveDirection !== "all" && inv.direction !== effectiveDirection) return false;
+    if (activeStatus !== "all" && inv.status !== activeStatus) return false;
+    if (searchQuery) {
+      const q = searchQuery.toLowerCase();
+      return inv.invoiceNumber.toLowerCase().includes(q) || inv.partnerName.toLowerCase().includes(q);
+    }
+    return true;
+  });
+
+  // ---- Summary metrics ----
+  const now = new Date();
+  const thisMonthPrefix = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
+
+  // 発行ビュー用
+  const unpaidReceivables = invoices
+    .filter((inv) => inv.direction === "sales" && ["issued", "sent", "overdue"].includes(inv.status))
+    .reduce((s, inv) => s + inv.totalAmount, 0);
+  const thisMonthIssued = invoices.filter(
+    (inv) => inv.direction === "sales" && inv.issuedDate.startsWith(thisMonthPrefix)
+  ).length;
+  const salesOverdueCount = invoices.filter(
+    (inv) => inv.direction === "sales" && inv.status === "overdue"
+  ).length;
+
+  // 受領ビュー用
+  const unpaidPayables = invoices
+    .filter((inv) => inv.direction === "purchase" && ["draft", "issued", "sent", "overdue"].includes(inv.status))
+    .reduce((s, inv) => s + inv.totalAmount, 0);
+  const thisMonthReceived = invoices.filter(
+    (inv) => inv.direction === "purchase" && inv.issuedDate.startsWith(thisMonthPrefix)
+  ).length;
+  const purchaseOverdueCount = invoices.filter(
+    (inv) => inv.direction === "purchase" && inv.status === "overdue"
+  ).length;
+
+  // ---- Handlers ----
+  const handleIssueInvoice = async (invoiceId: string, dir: Direction) => {
+    const msg = dir === "sales"
+      ? "この請求書を計上し、仕訳を自動作成しますか？\n（売掛金 / 売上高 ＋ 仮受消費税）"
+      : "この請求書を計上し、仕訳を自動作成しますか？\n（仕入高 ＋ 仮払消費税 / 買掛金）";
+    if (!confirm(msg)) return;
     setIssuingId(invoiceId);
     try {
       await issueInvoiceWithJournal(invoiceId);
       refetch();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "発行に失敗しました");
+      alert(err instanceof Error ? err.message : "計上に失敗しました");
     } finally {
       setIssuingId(null);
     }
@@ -147,6 +254,7 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
   };
 
   const openNewForm = async () => {
+    setNewInvoice((prev) => ({ ...prev, direction: lockedDirection ?? "sales" }));
     setShowNewForm(true);
     try {
       const partners = await getPartners(id);
@@ -163,21 +271,18 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
       if (result.counts.salesOrders > 0) {
         setTimeout(() => window.location.reload(), 2000);
       }
-    } catch {
-      // ignore
-    } finally {
-      setImporting(false);
-    }
+    } catch { /* ignore */ }
+    finally { setImporting(false); }
   };
 
-  const addItem = () => setNewItems((prev) => [...prev, { description: "", quantity: 1, unit_price: 0, tax_rate: 10 }]);
+  const addItem    = () => setNewItems((prev) => [...prev, { description: "", quantity: 1, unit_price: 0, tax_rate: 10 }]);
   const removeItem = (idx: number) => setNewItems((prev) => prev.filter((_, i) => i !== idx));
   const updateItem = (idx: number, field: string, value: string | number) =>
     setNewItems((prev) => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)));
 
   const itemsSubtotal = newItems.reduce((s, item) => s + item.quantity * item.unit_price, 0);
-  const itemsTax = newItems.reduce((s, item) => s + Math.floor(item.quantity * item.unit_price * item.tax_rate / 100), 0);
-  const itemsTotal = itemsSubtotal + itemsTax;
+  const itemsTax      = newItems.reduce((s, item) => s + Math.floor(item.quantity * item.unit_price * item.tax_rate / 100), 0);
+  const itemsTotal    = itemsSubtotal + itemsTax;
 
   const handleCreateInvoice = async () => {
     if (!newInvoice.invoice_number || !newInvoice.business_partner_id) return;
@@ -213,67 +318,24 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
     }
   };
 
-  const { data: invoices, refetch } = useData(
-    () =>
-      getInvoices(id).then((rows) =>
-        rows.map((r) => ({
-          id: r.id,
-          invoiceNumber: r.invoice_number,
-          partnerName: (r as unknown as { business_partners?: { name?: string } }).business_partners?.name ?? "",
-          issuedDate: r.issued_date?.replace(/-/g, "/") ?? "",
-          dueDate: r.due_date?.replace(/-/g, "/") ?? "",
-          subtotal10: r.subtotal,
-          tax10: r.tax_amount,
-          subtotal8: 0,
-          tax8: 0,
-          totalAmount: r.total_amount,
-          status: r.status as Exclude<InvoiceStatus, "all">,
-          direction: ((r as { direction?: "sales" | "purchase" }).direction ?? "sales"),
-          raqtoOrderStatus: r.raqto_order_status ?? null,
-        }))
-      ),
-    [] as Invoice[]
-  );
-
-  const effectiveDirection = lockedDirection ?? directionFilter;
-  const filteredInvoices = invoices.filter((inv) => {
-    if (effectiveDirection !== "all" && inv.direction !== effectiveDirection) return false;
-    if (activeStatus !== "all" && inv.status !== activeStatus) return false;
-    if (searchQuery) {
-      const q = searchQuery.toLowerCase();
-      return (
-        inv.invoiceNumber.toLowerCase().includes(q) ||
-        inv.partnerName.toLowerCase().includes(q)
-      );
-    }
-    return true;
-  });
-
-  const unpaidTotal = invoices
-    .filter((inv) => ["issued", "sent", "overdue"].includes(inv.status))
-    .reduce((sum, inv) => sum + inv.totalAmount, 0);
-
-  const now = new Date();
-  const thisMonthPrefix = `${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, "0")}`;
-  const thisMonthCount = invoices.filter(
-    (inv) => inv.issuedDate.startsWith(thisMonthPrefix)
-  ).length;
-
-  const overdueCount = invoices.filter(
-    (inv) => inv.status === "overdue"
-  ).length;
-
+  // ---- Render ----
   return (
     <>
+      {/* ===== ヘッダー ===== */}
       <div className="flex items-center justify-between mb-6">
         {!hideHeader ? (
           <div>
             <h1 className="text-2xl font-bold text-foreground">請求書管理</h1>
             <p className="text-muted-foreground text-sm mt-1">
-              請求書の作成・発行・管理
+              {isPurchaseView
+                ? "受領した請求書の登録・支払い管理"
+                : isSalesView
+                  ? "請求書の作成・発行・入金管理"
+                  : "請求書の作成・発行・受領管理"}
             </p>
           </div>
         ) : <div />}
+
         <div className="flex gap-2">
           {invoices.length > 0 && (
             <Button variant="outline" onClick={handleClearAll} disabled={clearingAll} className="text-destructive border-destructive/30 hover:bg-destructive/10">
@@ -281,17 +343,21 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
               一括クリア
             </Button>
           )}
-          <Button variant="outline" onClick={handleRaqtoImport} disabled={importing}>
-            {importing ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
-            受発注から取込
-          </Button>
+          {/* 発行ビューのみ: 受発注取込 */}
+          {!isPurchaseView && (
+            <Button variant="outline" onClick={handleRaqtoImport} disabled={importing}>
+              {importing ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
+              受発注から取込
+            </Button>
+          )}
           <Button onClick={openNewForm}>
             <Plus className="size-4" />
-            新規請求書
+            {isPurchaseView ? "請求書を受領登録" : "新規請求書作成"}
           </Button>
         </div>
       </div>
 
+      {/* Raqto取込結果 */}
       {importResult && (
         <Card className={`mb-4 p-4 border-l-4 ${importResult.success ? "border-l-success bg-success/5" : "border-l-destructive bg-destructive/5"}`}>
           <div className="flex items-center gap-3">
@@ -306,90 +372,96 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
                 <p className="text-xs text-destructive mt-1">{importResult.errors.join(", ")}</p>
               )}
             </div>
-            <Button variant="ghost" size="sm" onClick={() => setImportResult(null)}>
-              <X className="size-4" />
-            </Button>
+            <Button variant="ghost" size="sm" onClick={() => setImportResult(null)}><X className="size-4" /></Button>
           </div>
         </Card>
       )}
 
+      {/* ===== 新規フォーム ===== */}
       {showNewForm && (
         <Card className="mb-6 border-primary/30 overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between">
-            <CardTitle>新規請求書</CardTitle>
+            <CardTitle>
+              {newInvoice.direction === "purchase" ? "受領請求書の登録" : "新規請求書作成"}
+            </CardTitle>
             <Button variant="ghost" size="sm" onClick={() => setShowNewForm(false)}>
               <X className="size-4" />
             </Button>
           </CardHeader>
           <CardContent>
+            {/* 区分選択（固定でない場合のみ） */}
             {!lockedDirection && (
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-foreground mb-1">区分</label>
-              <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
-                <button
-                  type="button"
-                  onClick={() => setNewInvoice({ ...newInvoice, direction: "sales" })}
-                  className={cn(
-                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
-                    newInvoice.direction === "sales" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  発行（売上請求書）
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setNewInvoice({ ...newInvoice, direction: "purchase" })}
-                  className={cn(
-                    "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
-                    newInvoice.direction === "purchase" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
-                  )}
-                >
-                  受領（仕入請求書）
-                </button>
+              <div className="mb-4">
+                <label className="block text-sm font-medium text-foreground mb-1">区分</label>
+                <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+                  <button type="button"
+                    onClick={() => setNewInvoice({ ...newInvoice, direction: "sales" })}
+                    className={cn("px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                      newInvoice.direction === "sales" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    発行（売上請求書）
+                  </button>
+                  <button type="button"
+                    onClick={() => setNewInvoice({ ...newInvoice, direction: "purchase" })}
+                    className={cn("px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+                      newInvoice.direction === "purchase" ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    受領（仕入請求書）
+                  </button>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  {newInvoice.direction === "sales"
+                    ? "計上時の仕訳: 売掛金 / 売上高（＋仮受消費税）"
+                    : "計上時の仕訳: 仕入高（＋仮払消費税）/ 買掛金"}
+                </p>
               </div>
-              <p className="text-xs text-muted-foreground mt-1">
-                {newInvoice.direction === "sales" ? "計上時の仕訳: 売掛金 / 売上高（＋仮受消費税）" : "計上時の仕訳: 仕入高（＋仮払消費税）/ 買掛金"}
-              </p>
-            </div>
             )}
+            {/* 固定方向の場合はラベルのみ表示 */}
+            {lockedDirection && (
+              <div className="mb-4 px-3 py-2 bg-muted/20 rounded-lg text-xs text-muted-foreground">
+                {lockedDirection === "sales"
+                  ? "発行（売上請求書）— 計上時: 売掛金 / 売上高（＋仮受消費税）"
+                  : "受領（仕入請求書）— 計上時: 仕入高（＋仮払消費税）/ 買掛金"}
+              </div>
+            )}
+
             <div className="grid grid-cols-2 gap-4 mb-4">
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">請求書番号</label>
-                <input
-                  type="text"
-                  value={newInvoice.invoice_number}
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {newInvoice.direction === "purchase" ? "先方請求書番号" : "請求書番号"}
+                </label>
+                <input type="text" value={newInvoice.invoice_number}
                   onChange={(e) => setNewInvoice({ ...newInvoice, invoice_number: e.target.value })}
-                  placeholder="INV-2024-XXXX"
+                  placeholder={newInvoice.direction === "purchase" ? "取引先の請求書番号" : "INV-2024-XXXX"}
                   className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">取引先</label>
-                <select
-                  value={newInvoice.business_partner_id}
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {newInvoice.direction === "purchase" ? "仕入先" : "請求先（取引先）"}
+                </label>
+                <select value={newInvoice.business_partner_id}
                   onChange={(e) => setNewInvoice({ ...newInvoice, business_partner_id: e.target.value })}
                   className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                 >
                   <option value="">選択してください</option>
-                  {partnerList.map((p) => (
-                    <option key={p.id} value={p.id}>{p.name}</option>
-                  ))}
+                  {partnerList.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}
                 </select>
               </div>
               <div>
-                <label className="block text-sm font-medium text-foreground mb-1">発行日</label>
-                <input
-                  type="date"
-                  value={newInvoice.issued_date}
+                <label className="block text-sm font-medium text-foreground mb-1">
+                  {newInvoice.direction === "purchase" ? "受領日" : "発行日"}
+                </label>
+                <input type="date" value={newInvoice.issued_date}
                   onChange={(e) => setNewInvoice({ ...newInvoice, issued_date: e.target.value })}
                   className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                 />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">支払期限</label>
-                <input
-                  type="date"
-                  value={newInvoice.due_date}
+                <input type="date" value={newInvoice.due_date}
                   onChange={(e) => setNewInvoice({ ...newInvoice, due_date: e.target.value })}
                   className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                 />
@@ -412,34 +484,27 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
                 {newItems.map((item, idx) => (
                   <tr key={idx} className="border-b border-border/50">
                     <td className="py-2 pr-2">
-                      <input
-                        type="text"
-                        value={item.description}
+                      <input type="text" value={item.description}
                         onChange={(e) => updateItem(idx, "description", e.target.value)}
                         placeholder="品目名"
                         className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
                       />
                     </td>
                     <td className="py-2 px-2">
-                      <input
-                        type="number"
-                        value={item.quantity}
+                      <input type="number" value={item.quantity}
                         onChange={(e) => updateItem(idx, "quantity", Number(e.target.value) || 0)}
                         className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right"
                       />
                     </td>
                     <td className="py-2 px-2">
-                      <input
-                        type="number"
-                        value={item.unit_price || ""}
+                      <input type="number" value={item.unit_price || ""}
                         onChange={(e) => updateItem(idx, "unit_price", Number(e.target.value) || 0)}
                         placeholder="0"
                         className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right font-mono"
                       />
                     </td>
                     <td className="py-2 px-2">
-                      <select
-                        value={item.tax_rate}
+                      <select value={item.tax_rate}
                         onChange={(e) => updateItem(idx, "tax_rate", Number(e.target.value))}
                         className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
                       >
@@ -465,8 +530,7 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
 
             <div className="flex items-start justify-between">
               <Button variant="outline" size="sm" onClick={addItem}>
-                <Plus className="size-3" />
-                行追加
+                <Plus className="size-3" />行追加
               </Button>
               <div className="text-right space-y-1">
                 <p className="text-sm text-muted-foreground">小計: <span className="font-mono font-bold text-foreground">¥{itemsSubtotal.toLocaleString()}</span></p>
@@ -479,93 +543,153 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
               <Button variant="ghost" onClick={() => setShowNewForm(false)}>キャンセル</Button>
               <Button onClick={handleCreateInvoice} disabled={saving || !newInvoice.invoice_number || !newInvoice.business_partner_id}>
                 {saving && <Loader2 className="size-4 animate-spin" />}
-                請求書を作成
+                {newInvoice.direction === "purchase" ? "受領登録" : "請求書を作成"}
               </Button>
             </div>
           </CardContent>
         </Card>
       )}
 
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <Clock className="size-4 text-warning" />
-            <span className="text-sm text-muted-foreground">未入金合計</span>
-          </div>
-          <p className="text-2xl font-bold text-foreground">
-            {formatCurrency(unpaidTotal)}
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">
-            {invoices.filter((inv) =>
-              ["issued", "sent", "overdue"].includes(inv.status)
-            ).length}
-            件
-          </p>
-        </Card>
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <FileText className="size-4 text-primary" />
-            <span className="text-sm text-muted-foreground">今月発行数</span>
-          </div>
-          <p className="text-2xl font-bold text-foreground">{thisMonthCount}件</p>
-          <p className="text-xs text-muted-foreground mt-1">{now.getFullYear()}年{now.getMonth() + 1}月</p>
-        </Card>
-        <Card className="p-5">
-          <div className="flex items-center gap-2 mb-2">
-            <AlertCircle className="size-4 text-destructive" />
-            <span className="text-sm text-muted-foreground">期限超過数</span>
-          </div>
-          <p className={cn("text-2xl font-bold", overdueCount > 0 ? "text-destructive" : "text-foreground")}>
-            {overdueCount}件
-          </p>
-          <p className="text-xs text-muted-foreground mt-1">要対応</p>
-        </Card>
-      </div>
+      {/* ===== サマリーカード ===== */}
+      {!isPurchaseView && (
+        // 発行ビュー: 売掛金・今月発行・期限超過
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Clock className="size-4 text-warning" />
+              <span className="text-sm text-muted-foreground">未回収売掛金</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">{formatCurrency(unpaidReceivables)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {invoices.filter((inv) => inv.direction === "sales" && ["issued", "sent", "overdue"].includes(inv.status)).length}件 入金待ち
+            </p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <FileText className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">今月発行数</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">{thisMonthIssued}件</p>
+            <p className="text-xs text-muted-foreground mt-1">{now.getFullYear()}年{now.getMonth() + 1}月</p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="size-4 text-destructive" />
+              <span className="text-sm text-muted-foreground">入金期限超過</span>
+            </div>
+            <p className={cn("text-2xl font-bold", salesOverdueCount > 0 ? "text-destructive" : "text-foreground")}>
+              {salesOverdueCount}件
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">要フォローアップ</p>
+          </Card>
+        </div>
+      )}
 
-      {/* Search */}
-      <Card className="mb-4 p-4">
-        <div className="relative">
+      {isPurchaseView && (
+        // 受領ビュー: 買掛金・今月受領・支払期限超過
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <CreditCard className="size-4 text-warning" />
+              <span className="text-sm text-muted-foreground">未払い買掛金</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">{formatCurrency(unpaidPayables)}</p>
+            <p className="text-xs text-muted-foreground mt-1">
+              {invoices.filter((inv) => inv.direction === "purchase" && ["draft", "issued", "sent", "overdue"].includes(inv.status)).length}件 支払い待ち
+            </p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <ReceiptText className="size-4 text-primary" />
+              <span className="text-sm text-muted-foreground">今月受領数</span>
+            </div>
+            <p className="text-2xl font-bold text-foreground">{thisMonthReceived}件</p>
+            <p className="text-xs text-muted-foreground mt-1">{now.getFullYear()}年{now.getMonth() + 1}月</p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="size-4 text-destructive" />
+              <span className="text-sm text-muted-foreground">支払期限超過</span>
+            </div>
+            <p className={cn("text-2xl font-bold", purchaseOverdueCount > 0 ? "text-destructive" : "text-foreground")}>
+              {purchaseOverdueCount}件
+            </p>
+            <p className="text-xs text-muted-foreground mt-1">要支払い処理</p>
+          </Card>
+        </div>
+      )}
+
+      {/* すべてビューのサマリー */}
+      {!isSalesView && !isPurchaseView && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <Clock className="size-4 text-warning" />
+              <span className="text-sm text-muted-foreground">未回収売掛金</span>
+            </div>
+            <p className="text-xl font-bold text-foreground">{formatCurrency(unpaidReceivables)}</p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <CreditCard className="size-4 text-warning" />
+              <span className="text-sm text-muted-foreground">未払い買掛金</span>
+            </div>
+            <p className="text-xl font-bold text-foreground">{formatCurrency(unpaidPayables)}</p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="size-4 text-destructive" />
+              <span className="text-sm text-muted-foreground">入金期限超過</span>
+            </div>
+            <p className={cn("text-xl font-bold", salesOverdueCount > 0 ? "text-destructive" : "text-foreground")}>{salesOverdueCount}件</p>
+          </Card>
+          <Card className="p-5">
+            <div className="flex items-center gap-2 mb-2">
+              <AlertCircle className="size-4 text-destructive" />
+              <span className="text-sm text-muted-foreground">支払期限超過</span>
+            </div>
+            <p className={cn("text-xl font-bold", purchaseOverdueCount > 0 ? "text-destructive" : "text-foreground")}>{purchaseOverdueCount}件</p>
+          </Card>
+        </div>
+      )}
+
+      {/* ===== 検索 & フィルター ===== */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        {/* 発行/受領フィルター（区分固定時は非表示） */}
+        {!lockedDirection && (
+          <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
+            {([["all", "すべて"], ["sales", "発行（売上）"], ["purchase", "受領（仕入）"]] as const).map(([key, label]) => (
+              <button key={key} onClick={() => setDirectionFilter(key)}
+                className={cn(
+                  "px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap",
+                  directionFilter === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* 検索 */}
+        <div className="relative flex-1 min-w-[200px]">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
-          <input
-            type="text"
+          <input type="text"
             placeholder="請求書番号・取引先名で検索..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
           />
         </div>
-      </Card>
-
-      {/* 発行/受領フィルター（区分固定時は非表示） */}
-      {!lockedDirection && (
-      <div className="inline-flex gap-1 mb-3 bg-muted/20 p-1 rounded-lg">
-        {([["all", "すべて"], ["sales", "発行（売上）"], ["purchase", "受領（仕入）"]] as const).map(([key, label]) => (
-          <button
-            key={key}
-            onClick={() => setDirectionFilter(key)}
-            className={cn(
-              "px-3 py-1.5 rounded-md text-xs font-bold transition-all whitespace-nowrap",
-              directionFilter === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            {label}
-          </button>
-        ))}
       </div>
-      )}
 
-      {/* Status filter tabs */}
+      {/* ステータスタブ */}
       <div className="flex gap-1 mb-6 bg-muted/20 p-1 rounded-lg overflow-x-auto">
         {statusTabs.map((tab) => (
-          <button
-            key={tab.key}
-            onClick={() => setActiveStatus(tab.key)}
+          <button key={tab.key} onClick={() => setActiveStatus(tab.key)}
             className={cn(
               "flex items-center gap-1.5 px-3 py-2 rounded-md text-sm font-bold transition-all whitespace-nowrap",
-              activeStatus === tab.key
-                ? "bg-card text-primary shadow-sm"
-                : "text-muted-foreground hover:text-foreground"
+              activeStatus === tab.key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
             )}
           >
             {tab.label}
@@ -573,110 +697,107 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
         ))}
       </div>
 
-      {/* Invoice table */}
+      {/* ===== テーブル ===== */}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead>
               <tr className="bg-muted/20 border-b border-border">
+                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">請求書番号</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
-                  請求書番号
-                </th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
-                  取引先
+                  {isPurchaseView ? "仕入先" : "請求先"}
                 </th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
-                  発行日
+                  {isPurchaseView ? "受領日" : "発行日"}
                 </th>
-                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
-                  支払期限
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">
-                  税抜10%
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">
-                  税抜8%
-                </th>
-                <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">
-                  合計金額(税込)
-                </th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">支払期限</th>
+                <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">税抜金額</th>
+                <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">合計（税込）</th>
+                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">ステータス</th>
+                {!lockedDirection && (
+                  <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">区分</th>
+                )}
+                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">受発注</th>
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
-                  ステータス
-                </th>
-                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
-                  受発注
-                </th>
-                <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">
-                  発行
+                  {isPurchaseView ? "計上" : "発行・計上"}
                 </th>
                 <th className="w-12" />
               </tr>
             </thead>
             <tbody>
               {filteredInvoices.map((inv) => {
-                const config = statusConfig[inv.status];
+                const cfg = statusConfig[inv.status];
+                const StatusIcon = cfg.icon;
+                const isPurchaseInv = inv.direction === "purchase";
+
                 return (
-                  <tr
-                    key={inv.id}
-                    className="border-b border-border last:border-0 hover:bg-muted/10 cursor-pointer"
-                  >
+                  <tr key={inv.id} className="border-b border-border last:border-0 hover:bg-muted/10">
+                    {/* 請求書番号 */}
                     <td className="px-4 py-3 font-mono font-medium text-primary">
-                      <Badge variant={inv.direction === "purchase" ? "accent" : "muted"} className="text-[10px] mr-2 align-middle">
-                        {inv.direction === "purchase" ? "受領" : "発行"}
-                      </Badge>
                       {inv.invoiceNumber}
                     </td>
-                    <td className="px-4 py-3 font-medium text-foreground">
-                      {inv.partnerName}
+                    {/* 取引先 */}
+                    <td className="px-4 py-3 font-medium text-foreground">{inv.partnerName}</td>
+                    {/* 発行日/受領日 */}
+                    <td className="px-4 py-3 text-muted-foreground">{inv.issuedDate || "-"}</td>
+                    {/* 支払期限 */}
+                    <td className={cn("px-4 py-3", inv.status === "overdue" ? "text-destructive font-bold" : "text-muted-foreground")}>
+                      {inv.dueDate || "-"}
                     </td>
-                    <td className="px-4 py-3 text-muted-foreground">
-                      {inv.issuedDate || "-"}
-                    </td>
-                    <td
-                      className={cn(
-                        "px-4 py-3",
-                        inv.status === "overdue"
-                          ? "text-destructive font-bold"
-                          : "text-muted-foreground"
-                      )}
-                    >
-                      {inv.dueDate}
-                    </td>
+                    {/* 税抜金額 */}
                     <td className="px-4 py-3 text-right font-mono text-muted-foreground">
-                      {inv.subtotal10 > 0 ? formatCurrency(inv.subtotal10) : "-"}
+                      {formatCurrency(inv.subtotal)}
                     </td>
-                    <td className="px-4 py-3 text-right font-mono text-muted-foreground">
-                      {inv.subtotal8 > 0 ? formatCurrency(inv.subtotal8) : "-"}
-                    </td>
+                    {/* 合計 */}
                     <td className="px-4 py-3 text-right font-mono font-bold text-foreground">
                       {formatCurrency(inv.totalAmount)}
                     </td>
+                    {/* ステータス */}
                     <td className="px-4 py-3 text-center">
-                      <Badge variant={config.variant}>{config.label}</Badge>
+                      <Badge variant={cfg.variant} className="gap-1">
+                        <StatusIcon className="size-3" />
+                        {cfg.label}
+                      </Badge>
                     </td>
+                    {/* 区分バッジ（すべてビューのみ） */}
+                    {!lockedDirection && (
+                      <td className="px-4 py-3 text-center">
+                        <Badge variant={isPurchaseInv ? "accent" : "muted"} className="text-[10px]">
+                          {isPurchaseInv ? "受領" : "発行"}
+                        </Badge>
+                      </td>
+                    )}
+                    {/* 受発注 */}
                     <td className="px-4 py-3 text-center">
                       {inv.raqtoOrderStatus ? (() => {
                         const rs = raqtoStatusLabels[inv.raqtoOrderStatus] ?? { label: inv.raqtoOrderStatus, variant: "muted" as const };
                         return <Badge variant={rs.variant}>{rs.label}</Badge>;
-                      })() : <span className="text-muted-foreground">-</span>}
+                      })() : <span className="text-muted-foreground text-xs">-</span>}
                     </td>
+                    {/* アクション: 発行ビュー→発行・計上ボタン、受領ビュー→計上ボタン */}
                     <td className="px-4 py-3 text-center">
-                      {inv.status === "draft" && (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          disabled={issuingId === inv.id}
-                          onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id); }}
-                          className="text-xs"
+                      {inv.status === "draft" && !isPurchaseInv && (
+                        <Button size="sm" variant="outline" disabled={issuingId === inv.id}
+                          onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id, inv.direction); }}
+                          className="text-xs gap-1"
                         >
                           {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-                          発行
+                          発行・計上
+                        </Button>
+                      )}
+                      {(inv.status === "draft" || inv.status === "issued") && isPurchaseInv && (
+                        <Button size="sm" variant="outline" disabled={issuingId === inv.id}
+                          onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id, inv.direction); }}
+                          className="text-xs gap-1 border-accent/50 text-accent hover:bg-accent/10"
+                        >
+                          {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                          計上
                         </Button>
                       )}
                     </td>
+                    {/* 削除 */}
                     <td className="px-4 py-3 text-center">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDeleteInvoice(inv.id); }}
+                      <button onClick={(e) => { e.stopPropagation(); handleDeleteInvoice(inv.id); }}
                         disabled={deletingId === inv.id}
                         className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
                       >
@@ -688,10 +809,7 @@ export function InvoicesPageContent({ hideHeader = false, lockedDirection }: { h
               })}
               {filteredInvoices.length === 0 && (
                 <tr>
-                  <td
-                    colSpan={11}
-                    className="px-4 py-12 text-center text-muted-foreground"
-                  >
+                  <td colSpan={lockedDirection ? 10 : 11} className="px-4 py-12 text-center text-muted-foreground">
                     該当する請求書が見つかりません
                   </td>
                 </tr>
