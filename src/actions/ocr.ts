@@ -121,6 +121,7 @@ export async function processReceiptOcr(
       "currency": "通貨コード（ISO 4217。例: JPY, USD, EUR, GBP, CNY, KRW, TWD）",
       "items": ["品目1", "品目2"],
       "invoice_number": "インボイス番号（日本のT+13桁、あれば）",
+      "document_type": "書類種別: qualified_invoice（適格請求書: T+13桁のインボイス登録番号がある）/ category_invoice（区分記載請求書: 税率別の区分記載があるがT番号なし）/ receipt（領収書・レシート）/ other",
       "payment_method": "cash / card / e_money / bank_transfer / null",
       "direction": "issued / received（後述の判定）",
       "confidence": 0.0〜1.0の信頼度
@@ -180,6 +181,7 @@ export async function processReceiptOcr(
     ): Promise<{
       ocrResult: OcrResult;
       detectedPayment: "cash" | "card" | "e_money" | "bank_transfer" | null;
+      documentType: "qualified_invoice" | "category_invoice" | "receipt" | "other" | undefined;
     }> => {
       const currency: string = (parsed.currency as string) ?? "JPY";
       const originalAmount =
@@ -212,6 +214,11 @@ export async function processReceiptOcr(
       const taxAmt =
         typeof parsed.tax_amount === "number" ? parsed.tax_amount : undefined;
 
+      const validDocumentTypes = ["qualified_invoice", "category_invoice", "receipt", "other"];
+      const documentType = validDocumentTypes.includes(parsed.document_type as string)
+        ? (parsed.document_type as "qualified_invoice" | "category_invoice" | "receipt" | "other")
+        : undefined;
+
       const ocrResult: OcrResult = {
         date: (parsed.date as string) || undefined,
         vendor_name: (parsed.vendor_name as string) || undefined,
@@ -239,8 +246,9 @@ export async function processReceiptOcr(
         original_amount: currency !== "JPY" ? originalAmount : undefined,
         exchange_rate: exchangeRate,
         amount_jpy: amountJpy,
+        document_type: documentType,
       };
-      return { ocrResult, detectedPayment };
+      return { ocrResult, detectedPayment, documentType };
     };
 
     // 8. 1件目は元レコード更新、2件目以降はsibling行作成
@@ -249,7 +257,7 @@ export async function processReceiptOcr(
 
     for (let i = 0; i < receiptsArray.length; i++) {
       const parsed = (receiptsArray[i] as Record<string, unknown>) ?? {};
-      const { ocrResult, detectedPayment } = await buildOcrFromParsed(parsed);
+      const { ocrResult, detectedPayment, documentType } = await buildOcrFromParsed(parsed);
 
       let currentId: string;
       if (i === 0) {
@@ -287,6 +295,7 @@ export async function processReceiptOcr(
         status: "ocr_done",
         // AI判定: 発行(自社発行) / 受領(取引先から受領)。不明時は received
         direction: parsed.direction === "issued" ? "issued" : "received",
+        document_type: documentType ?? null,
       };
       if (!receipt.payment_method && detectedPayment) {
         updateData.payment_method = detectedPayment;

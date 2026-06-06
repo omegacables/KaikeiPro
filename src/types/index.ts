@@ -161,6 +161,8 @@ export interface OcrResult {
   original_amount?: number; // 原通貨の金額
   exchange_rate?: number; // 適用為替レート（→JPY）
   amount_jpy?: number; // 円換算額
+  // 書類種別
+  document_type?: "qualified_invoice" | "category_invoice" | "receipt" | "other";
 }
 
 // ===== AI仕訳提案 =====

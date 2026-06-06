@@ -503,6 +503,8 @@ export interface Database {
           file_hash: string | null;
           hash_algorithm: string | null;
           hash_verified_at: string | null;
+          document_type: string | null;
+          folder_id: string | null;
         };
         Insert: {
           id?: string;
@@ -525,6 +527,8 @@ export interface Database {
           file_hash?: string | null;
           hash_algorithm?: string | null;
           hash_verified_at?: string | null;
+          document_type?: string | null;
+          folder_id?: string | null;
         };
         Update: {
           id?: string;
@@ -546,6 +550,37 @@ export interface Database {
           file_hash?: string | null;
           hash_algorithm?: string | null;
           hash_verified_at?: string | null;
+          document_type?: string | null;
+          folder_id?: string | null;
+        };
+        Relationships: [];
+      };
+      receipt_folders: {
+        Row: {
+          id: string;
+          client_id: string;
+          name: string;
+          parent_id: string | null;
+          sort_order: number;
+          created_at: string;
+          created_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          name: string;
+          parent_id?: string | null;
+          sort_order?: number;
+          created_at?: string;
+          created_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          name?: string;
+          parent_id?: string | null;
+          sort_order?: number;
+          created_by?: string | null;
         };
         Relationships: [];
       };
