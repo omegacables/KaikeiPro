@@ -24,11 +24,6 @@ import {
   Save,
   RefreshCw,
   Globe,
-  Folder,
-  FolderOpen,
-  FolderPlus,
-  MoreHorizontal,
-  ChevronRight,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,14 +36,6 @@ import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { processReceiptOcr, updateOcrResult } from "@/actions/ocr";
 import { generateJournalSuggestion, approveJournalSuggestion } from "@/actions/ai-journal";
-import {
-  getFolders,
-  createFolder,
-  renameFolder,
-  deleteFolder,
-  moveReceiptToFolder,
-  type ReceiptFolder,
-} from "@/actions/receipt-folders";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -223,70 +210,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
   // null = まだ取得前（ローディング中）
   const receiptsLoading = dbReceipts === null;
   const receipts: ReceiptData[] = dbReceipts ?? [];
-
-  // Folders
-  const [folders, setFolders] = useState<ReceiptFolder[]>([]);
-  const [selectedFolderId, setSelectedFolderId] = useState<string | null | "all">("all");
-  const [folderMenuOpenId, setFolderMenuOpenId] = useState<string | null>(null);
-  const [renamingFolderId, setRenamingFolderId] = useState<string | null>(null);
-  const [renamingName, setRenamingName] = useState("");
-  const [creatingFolder, setCreatingFolder] = useState(false);
-  const [newFolderName, setNewFolderName] = useState("");
-
-  const loadFolders = () => {
-    getFolders(id).then(setFolders).catch(() => {});
-  };
-
-  useEffect(() => {
-    loadFolders();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
-
-  const handleCreateFolder = async () => {
-    const name = newFolderName.trim();
-    if (!name) return;
-    try {
-      await createFolder(id, name);
-      setNewFolderName("");
-      setCreatingFolder(false);
-      loadFolders();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "フォルダ作成に失敗しました");
-    }
-  };
-
-  const handleRenameFolder = async (folderId: string) => {
-    const name = renamingName.trim();
-    if (!name) return;
-    try {
-      await renameFolder(folderId, name);
-      setRenamingFolderId(null);
-      loadFolders();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "名前変更に失敗しました");
-    }
-  };
-
-  const handleDeleteFolder = async (folderId: string) => {
-    if (!confirm("フォルダを削除しますか？\nフォルダ内の証憑はフォルダなしに移動されます。")) return;
-    try {
-      await deleteFolder(folderId);
-      if (selectedFolderId === folderId) setSelectedFolderId("all");
-      loadFolders();
-      refetch();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "フォルダ削除に失敗しました");
-    }
-  };
-
-  const handleMoveToFolder = async (receiptId: string, folderId: string | null) => {
-    try {
-      await moveReceiptToFolder(receiptId, folderId);
-      refetch();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "移動に失敗しました");
-    }
-  };
 
   // Detail / status change / delete
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
@@ -524,14 +447,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
     if (documentTypeFilter !== "all") {
       if (r.documentType !== documentTypeFilter) return false;
     }
-    // フォルダフィルター
-    if (selectedFolderId !== "all") {
-      if (selectedFolderId === null) {
-        if (r.folderId != null) return false;
-      } else {
-        if (r.folderId !== selectedFolderId) return false;
-      }
-    }
     // 日付範囲フィルター
     if (dateFrom && r.date < dateFrom) return false;
     if (dateTo && r.date > dateTo) return false;
@@ -572,131 +487,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
         </div>
       )}
 
-      {/* Main layout: folder sidebar + content */}
-      <div className="flex gap-4">
-        {/* Folder Sidebar */}
-        <div className="w-48 shrink-0">
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-3 py-2.5 border-b border-border flex items-center justify-between">
-              <span className="text-xs font-bold text-muted-foreground uppercase tracking-wider">フォルダ</span>
-              <button
-                onClick={() => { setCreatingFolder(true); setNewFolderName(""); }}
-                className="text-muted-foreground hover:text-primary transition-colors"
-                title="フォルダ作成"
-              >
-                <FolderPlus className="size-3.5" />
-              </button>
-            </div>
-
-            {/* New folder input */}
-            {creatingFolder && (
-              <div className="px-3 py-2 border-b border-border">
-                <input
-                  autoFocus
-                  className="w-full px-2 py-1 text-xs border border-primary rounded bg-background"
-                  placeholder="フォルダ名"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleCreateFolder();
-                    if (e.key === "Escape") { setCreatingFolder(false); setNewFolderName(""); }
-                  }}
-                />
-                <div className="flex gap-1 mt-1">
-                  <button onClick={handleCreateFolder} className="text-[10px] text-primary hover:underline">作成</button>
-                  <button onClick={() => { setCreatingFolder(false); setNewFolderName(""); }} className="text-[10px] text-muted-foreground hover:underline">キャンセル</button>
-                </div>
-              </div>
-            )}
-
-            {/* All */}
-            <button
-              className={cn(
-                "w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors",
-                selectedFolderId === "all" ? "bg-primary/10 text-primary font-bold" : "text-foreground hover:bg-muted/20"
-              )}
-              onClick={() => setSelectedFolderId("all")}
-            >
-              <FolderOpen className="size-3.5 shrink-0" />
-              <span className="truncate">すべて</span>
-            </button>
-
-            {/* No folder */}
-            <button
-              className={cn(
-                "w-full text-left px-3 py-2 text-xs flex items-center gap-2 transition-colors",
-                selectedFolderId === null ? "bg-primary/10 text-primary font-bold" : "text-muted-foreground hover:bg-muted/20"
-              )}
-              onClick={() => setSelectedFolderId(null)}
-            >
-              <Folder className="size-3.5 shrink-0" />
-              <span className="truncate">未分類</span>
-            </button>
-
-            {/* Folder list */}
-            {folders.map((folder) => (
-              <div
-                key={folder.id}
-                className={cn(
-                  "group relative flex items-center gap-1 px-3 py-2 text-xs transition-colors cursor-pointer",
-                  selectedFolderId === folder.id ? "bg-primary/10 text-primary font-bold" : "text-foreground hover:bg-muted/20"
-                )}
-                onClick={() => {
-                  setSelectedFolderId(folder.id);
-                  setFolderMenuOpenId(null);
-                }}
-              >
-                <Folder className="size-3.5 shrink-0" />
-                {renamingFolderId === folder.id ? (
-                  <input
-                    autoFocus
-                    className="flex-1 min-w-0 px-1 py-0.5 text-xs border border-primary rounded bg-background"
-                    value={renamingName}
-                    onChange={(e) => setRenamingName(e.target.value)}
-                    onClick={(e) => e.stopPropagation()}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") { e.stopPropagation(); handleRenameFolder(folder.id); }
-                      if (e.key === "Escape") { e.stopPropagation(); setRenamingFolderId(null); }
-                    }}
-                    onBlur={() => { if (renamingName.trim()) handleRenameFolder(folder.id); else setRenamingFolderId(null); }}
-                  />
-                ) : (
-                  <span className="flex-1 min-w-0 truncate">{folder.name}</span>
-                )}
-                <button
-                  className="opacity-0 group-hover:opacity-100 shrink-0 text-muted-foreground hover:text-foreground transition-all"
-                  onClick={(e) => { e.stopPropagation(); setFolderMenuOpenId(folderMenuOpenId === folder.id ? null : folder.id); }}
-                >
-                  <MoreHorizontal className="size-3" />
-                </button>
-
-                {/* Folder context menu */}
-                {folderMenuOpenId === folder.id && (
-                  <div
-                    className="absolute right-0 top-full mt-0.5 w-28 bg-card border border-border rounded-lg shadow-lg z-20 py-1"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <button
-                      className="w-full text-left px-3 py-1.5 text-xs hover:bg-muted/20 transition-colors"
-                      onClick={() => { setRenamingFolderId(folder.id); setRenamingName(folder.name); setFolderMenuOpenId(null); }}
-                    >
-                      名前変更
-                    </button>
-                    <button
-                      className="w-full text-left px-3 py-1.5 text-xs text-destructive hover:bg-destructive/10 transition-colors"
-                      onClick={() => { setFolderMenuOpenId(null); handleDeleteFolder(folder.id); }}
-                    >
-                      削除
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Content area */}
-        <div className="flex-1 min-w-0">
+      <div>
 
       {/* Document Type Filter Tabs */}
       <div className="flex gap-1.5 mb-4 flex-wrap">
@@ -1082,9 +873,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
         </span>
       </div>
 
-        {/* /Content area */}
-        </div>
-      {/* /Main layout */}
       </div>
 
       {/* Detail Panel (slide-over) */}
@@ -1175,21 +963,6 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                     </button>
                   ))}
                 </div>
-              </div>
-
-              {/* フォルダ選択 */}
-              <div>
-                <label className="text-xs text-muted-foreground block mb-1">フォルダ</label>
-                <select
-                  className="w-full px-2 py-1.5 text-sm border border-border rounded bg-background text-foreground"
-                  value={selectedData.folderId ?? ""}
-                  onChange={(e) => handleMoveToFolder(selectedData.id, e.target.value || null)}
-                >
-                  <option value="">フォルダなし（未分類）</option>
-                  {folders.map((f) => (
-                    <option key={f.id} value={f.id}>{f.name}</option>
-                  ))}
-                </select>
               </div>
 
               {/* Details — 表示モード / 編集モード */}
