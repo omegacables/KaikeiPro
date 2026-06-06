@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, HelpCircle, Search, Sun, Moon } from "lucide-react";
+import { Bell, HelpCircle, Sun, Moon } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { getInitials, formatTimeAgo } from "@/lib/utils";
@@ -192,16 +192,6 @@ export function Header() {
         </h2>
       </div>
       <div className="flex items-center gap-6">
-        {/* Search */}
-        <div className="relative w-64">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground size-4" />
-          <input
-            className="w-full bg-muted/30 border border-border rounded-lg pl-10 pr-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
-            placeholder="顧問先やファイルを検索..."
-            type="text"
-          />
-        </div>
-
         {/* Action buttons */}
         <div className="flex gap-2">
           <button
