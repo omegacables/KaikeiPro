@@ -584,6 +584,60 @@ export interface Database {
         };
         Relationships: [];
       };
+      statement_lines: {
+        Row: {
+          id: string;
+          receipt_id: string;
+          client_id: string;
+          line_date: string | null;
+          description: string;
+          amount: number;
+          direction: "deposit" | "withdrawal";
+          balance_after: number | null;
+          counterparty: string | null;
+          journal_entry_id: string | null;
+          status: "pending" | "journalized" | "ignored";
+          suggested_account_id: string | null;
+          sort_order: number;
+          raw_data: Json | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          receipt_id: string;
+          client_id: string;
+          line_date?: string | null;
+          description?: string;
+          amount?: number;
+          direction?: "deposit" | "withdrawal";
+          balance_after?: number | null;
+          counterparty?: string | null;
+          journal_entry_id?: string | null;
+          status?: "pending" | "journalized" | "ignored";
+          suggested_account_id?: string | null;
+          sort_order?: number;
+          raw_data?: Json | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          receipt_id?: string;
+          client_id?: string;
+          line_date?: string | null;
+          description?: string;
+          amount?: number;
+          direction?: "deposit" | "withdrawal";
+          balance_after?: number | null;
+          counterparty?: string | null;
+          journal_entry_id?: string | null;
+          status?: "pending" | "journalized" | "ignored";
+          suggested_account_id?: string | null;
+          sort_order?: number;
+          raw_data?: Json | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
       journal_entries: {
         Row: {
           id: string;

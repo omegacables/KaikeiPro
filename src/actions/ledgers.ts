@@ -260,6 +260,145 @@ export async function getGeneralLedger(
   return rows;
 }
 
+// ダッシュボード用：口座（現金・預金）残高サマリーと補助科目別残高一覧。
+export interface AccountBalance {
+  account_id: string;
+  code: string;
+  name: string;
+  balance: number; // 符号付き（正＝正常残高側／負＝逆側）。表示側で絶対値＋借方残/貸方残タグにする。
+  debitNormal: boolean; // 正常残高が借方側か（資産・費用）。負残時の向き判定に使用。
+}
+export interface SubAccountBalance {
+  sub_account_id: string;
+  sub_name: string;
+  account_name: string;
+  account_code: string;
+  balance: number;
+  debitNormal: boolean;
+}
+export interface BalanceSummary {
+  accountBalances: AccountBalance[]; // 現金・預金の勘定科目
+  cashTotal: number;
+  subAccountBalances: SubAccountBalance[];
+}
+
+export async function getBalanceSummary(clientId: string): Promise<BalanceSummary> {
+  const supabase = createAdminSupabaseClient();
+
+  // 勘定科目（事務所共通＋当該クライアント）を取得し、借方正/貸方正を判定。
+  const { data: accounts, error: accErr } = await supabase
+    .from("accounts")
+    .select("id, code, name, account_categories:category_id ( type )")
+    .or(`client_id.eq.${clientId},is_default.eq.true`)
+    .eq("is_active", true);
+  if (accErr) throw new Error(accErr.message);
+
+  type AcctMeta = { code: string; name: string; type: string; debitNormal: boolean };
+  const acctMap = new Map<string, AcctMeta>();
+  for (const a of accounts ?? []) {
+    const type =
+      (a as unknown as { account_categories: { type: string } | null })
+        .account_categories?.type ?? "";
+    acctMap.set(a.id, {
+      code: a.code,
+      name: a.name,
+      type,
+      debitNormal: type === "assets" || type === "expenses",
+    });
+  }
+  const acctIds = [...acctMap.keys()];
+  if (acctIds.length === 0) {
+    return { accountBalances: [], cashTotal: 0, subAccountBalances: [] };
+  }
+
+  // 補助科目を取得（account_id → 補助科目名）。
+  const { data: subs } = await supabase
+    .from("sub_accounts")
+    .select("id, name, account_id")
+    .in("account_id", acctIds)
+    .eq("is_active", true);
+  const subMap = new Map<string, { name: string; account_id: string }>();
+  for (const s of subs ?? []) {
+    subMap.set(s.id, { name: s.name, account_id: s.account_id });
+  }
+
+  // 確定済み仕訳（needs_review=false、本日以前）の明細を集計。
+  const today = new Date();
+  const p = (n: number) => String(n).padStart(2, "0");
+  const todayStr = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`;
+
+  const { data: lines, error: lineErr } = await supabase
+    .from("journal_entry_lines")
+    .select(
+      `account_id, sub_account_id, debit_amount, credit_amount,
+       journal_entries!inner ( client_id, needs_review, entry_date )`
+    )
+    .eq("journal_entries.client_id", clientId)
+    .eq("journal_entries.needs_review", false)
+    .lte("journal_entries.entry_date", todayStr);
+  if (lineErr) throw new Error(lineErr.message);
+
+  const acctBalance = new Map<string, number>();
+  const subBalance = new Map<string, number>();
+
+  for (const l of lines ?? []) {
+    const meta = acctMap.get(l.account_id);
+    if (!meta) continue;
+    const delta = meta.debitNormal
+      ? l.debit_amount - l.credit_amount
+      : l.credit_amount - l.debit_amount;
+    acctBalance.set(l.account_id, (acctBalance.get(l.account_id) ?? 0) + delta);
+    if (l.sub_account_id) {
+      subBalance.set(
+        l.sub_account_id,
+        (subBalance.get(l.sub_account_id) ?? 0) + delta
+      );
+    }
+  }
+
+  // 口座 = 資産で名称に「現金/預金/貯金」を含む勘定科目。
+  const isCash = (m: AcctMeta) => m.type === "assets" && /現金|預金|貯金/.test(m.name);
+  const accountBalances: AccountBalance[] = [];
+  let cashTotal = 0;
+  for (const [id, m] of acctMap) {
+    if (!isCash(m)) continue;
+    const balance = acctBalance.get(id) ?? 0;
+    accountBalances.push({
+      account_id: id,
+      code: m.code,
+      name: m.name,
+      balance,
+      debitNormal: m.debitNormal,
+    });
+    cashTotal += balance;
+  }
+  accountBalances.sort((a, b) => a.code.localeCompare(b.code));
+
+  // 補助科目別残高（残高が0でないもののみ）。
+  const subAccountBalances: SubAccountBalance[] = [];
+  for (const [id, bal] of subBalance) {
+    if (bal === 0) continue;
+    const sub = subMap.get(id);
+    if (!sub) continue;
+    const parent = acctMap.get(sub.account_id);
+    subAccountBalances.push({
+      sub_account_id: id,
+      sub_name: sub.name,
+      account_name: parent?.name ?? "",
+      account_code: parent?.code ?? "",
+      balance: bal,
+      debitNormal: parent?.debitNormal ?? true,
+    });
+  }
+  subAccountBalances.sort(
+    (a, b) =>
+      a.account_code.localeCompare(b.account_code) ||
+      a.sub_name.localeCompare(b.sub_name)
+  );
+
+  return { accountBalances, cashTotal, subAccountBalances };
+}
+
 export async function getJournalEntryDetail(
   journalEntryId: string
 ): Promise<JournalEntryDetail | null> {

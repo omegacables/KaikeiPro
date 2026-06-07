@@ -400,9 +400,9 @@ export default function JournalsPage() {
           });
         }
 
-        setReceiptItems((prev) =>
-          prev.map((p) => (p.id === item.id ? { ...p, status: "done" } : p))
-        );
+        // アップロード成功 → 欄に残してローディング表示せず即時に消す。
+        // 以降の読取・判定は証憑管理の「処理中」セクションで確認できる。
+        setReceiptItems((prev) => prev.filter((p) => p.id !== item.id));
         doneCount++;
       } catch (err) {
         const msg = err instanceof Error ? err.message : "アップロードに失敗しました";
@@ -415,10 +415,6 @@ export default function JournalsPage() {
 
     setReceiptSummary({ done: doneCount, failed: failedCount });
     setReceiptUploading(false);
-    // 成功したアイテムは1秒後にリストから削除（エラーのみ残す）
-    setTimeout(() => {
-      setReceiptItems((prev) => prev.filter((p) => p.status === "error"));
-    }, 1000);
   };
 
   // Load accounts from DB
@@ -865,7 +861,7 @@ export default function JournalsPage() {
                 <p className="text-sm">
                   {receiptSummary.done} 件アップロード完了
                   {receiptSummary.failed > 0 && ` / ${receiptSummary.failed} 件失敗`}
-                  {receiptSummary.failed === 0 && " — バックグラウンドで読取・仕訳を処理中"}
+                  {receiptSummary.done > 0 && " — 証憑管理の「処理中」で読取・判定中です"}
                 </p>
               </div>
               <Link

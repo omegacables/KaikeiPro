@@ -70,18 +70,26 @@ export async function generateJournalSuggestion(
     ? `\n- 原通貨: ${ocrResult.currency} ${ocrResult.original_amount}\n- 適用レート: 1 ${ocrResult.currency} = ${ocrResult.exchange_rate} JPY\n- ※以下の金額は全て円換算後の値です`
     : "";
 
-  const prompt = `あなたは日本の会計仕訳の専門家です。以下のOCR結果を元に仕訳を提案してください。
+  // 証憑の区分（発行=自社の売上側 / 受領=経費・仕入側）で仕訳の方向を切り替える
+  const direction =
+    ((receipt as { direction?: "issued" | "received" }).direction) ?? "received";
+  const isIssued = direction === "issued";
 
-## OCR結果
+  const ocrSection = `## OCR結果
 - 日付: ${ocrResult.date ?? "不明"}
-- 取引先: ${ocrResult.vendor_name ?? "不明"}
+- ${isIssued ? "宛先（売上先）" : "取引先（支払先）"}: ${ocrResult.vendor_name ?? "不明"}
 - 合計金額（税込・円）: ${jpyTotal ?? "不明"}
 - 税抜金額（円）: ${jpyTaxExcluded ?? "不明"}
 - 消費税額（円）: ${jpyTax ?? "不明"}
 - 税率: ${ocrResult.tax_rate != null ? `${ocrResult.tax_rate * 100}%` : "不明"}
 - 品目: ${ocrResult.items?.join(", ") ?? "不明"}
 - インボイス番号: ${ocrResult.invoice_number ?? "なし"}
-- 支払方法: ${receipt.payment_method ?? "不明"}${forexNote}
+- ${isIssued ? "入金方法" : "支払方法"}: ${receipt.payment_method ?? "不明"}${forexNote}`;
+
+  // 受領（経費・仕入側）の仕訳プロンプト
+  const receivedPrompt = `あなたは日本の会計仕訳の専門家です。これは「取引先から受領した」証憑です。経費・仕入として仕訳を提案してください。
+
+${ocrSection}
 
 ## 利用可能な勘定科目
 ${accountList}
@@ -111,7 +119,7 @@ ${accountList}
    - bank_transfer → （振込）
    - 不明の場合は省略
 6. インボイス番号がない場合はインボイス経過措置の税区分を使用
-6. 外貨建て取引の場合:
+7. 外貨建て取引の場合:
    - 金額は全て円換算後の値を使用すること
    - 摘要に原通貨金額とレートを記載（例: 「$40.98 @150.32」）
    - 海外取引は消費税がかからないため、仮払消費税は計上しない
@@ -135,6 +143,56 @@ ${accountList}
 }
 
 JSONのみ返してください。`;
+
+  // 発行（自社の売上側）の仕訳プロンプト
+  const issuedPrompt = `あなたは日本の会計仕訳の専門家です。これは「自社が発行した」領収書・証憑です。売上（収益）として仕訳を提案してください。
+
+${ocrSection}
+
+## 利用可能な勘定科目
+${accountList}
+
+## ルール
+1. 借方・貸方は必ず均衡させること（合計が一致）
+2. これは売上計上です。貸方に「売上高」、消費税がある場合は貸方に「仮受消費税」を計上すること（借方ではない）
+3. 入金方法（payment_method）に応じた借方科目を選択:
+   - cash → 現金
+   - bank_transfer → 普通預金
+   - card → 売掛金（後日入金のため）
+   - e_money → 現金
+   - 不明 → 売掛金
+4. 摘要(description)には宛先（売上先）+ 内容 + 入金方法を記載:
+   - cash → （現金）
+   - bank_transfer → （振込）
+   - card → （カード）
+   - e_money → （電子マネー）
+   - 不明の場合は省略
+5. 外貨建て取引の場合:
+   - 金額は全て円換算後の値を使用すること
+   - 摘要に原通貨金額とレートを記載（例: 「$40.98 @150.32」）
+   - 海外取引（輸出免税等）は消費税の扱いに注意し、不明な場合は仮受消費税を計上しない
+
+以下のJSON形式で回答してください:
+{
+  "description": "摘要（宛先 + 内容の簡潔な説明 + 入金方法）例: '株式会社A 商品売上（振込）'",
+  "entry_date": "YYYY-MM-DD",
+  "lines": [
+    {
+      "account_name": "勘定科目名",
+      "account_code": "科目コード",
+      "debit_amount": 数値,
+      "credit_amount": 0,
+      "tax_category": "sales_10等",
+      "tax_rate": 0.10
+    }
+  ],
+  "confidence": 0.0-1.0,
+  "reasoning": "この仕訳にした理由の簡潔な説明"
+}
+
+JSONのみ返してください。`;
+
+  const prompt = isIssued ? issuedPrompt : receivedPrompt;
 
   const genAI = getGeminiClient();
   const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });

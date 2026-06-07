@@ -24,18 +24,36 @@ import {
   Save,
   RefreshCw,
   Globe,
+  FileSpreadsheet,
+  Sparkles,
+  Check,
+  Ban,
+  AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
+import {
+  checkInvoiceNumber,
+  getReviewReasons,
+  reviewReasonLabels,
+  type InvoiceCheck,
+} from "@/lib/receipt-review";
 import { getReceipts, updateReceipt, deleteReceipt, deleteReceipts } from "@/actions/receipts";
 import { getClient } from "@/actions/clients";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { processReceiptOcr, updateOcrResult } from "@/actions/ocr";
 import { generateJournalSuggestion, approveJournalSuggestion } from "@/actions/ai-journal";
+import {
+  getStatementLines,
+  extractStatementTransactions,
+  setStatementLineStatus,
+  createJournalsFromStatementLines,
+} from "@/actions/statement-lines";
+import type { StatementLine } from "@/types/index";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -93,6 +111,8 @@ interface ReceiptData {
   taxRate?: number;
   invoiceNumber?: string;
   documentType?: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
+  statementSubtype?: "bank" | "card" | "other";
+  ocrConfidence?: number;
   folderId?: string | null;
 }
 
@@ -124,6 +144,16 @@ const paymentMethodConfig: Record<
 
 const defaultPaymentConfig = { label: "不明", icon: Banknote };
 
+// インボイス検証・「要確認」判定は共通ロジック（src/lib/receipt-review.ts）を利用。
+const invoiceCheckConfig: Record<
+  InvoiceCheck,
+  { label: string; variant: "success" | "warning" | "muted" }
+> = {
+  valid: { label: "適格", variant: "success" },
+  invalid: { label: "番号不正", variant: "warning" },
+  none: { label: "番号なし", variant: "muted" },
+};
+
 type DocumentType = "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
 
 const documentTypeConfig: Record<DocumentType, { label: string; variant: "success" | "accent" | "muted" | "default" | "warning" }> = {
@@ -142,8 +172,34 @@ const documentTypeConfig: Record<DocumentType, { label: string; variant: "succes
 // Component
 // ---------------------------------------------------------------------------
 
-export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { hideHeader?: boolean; lockedDirection?: "received" | "issued" }) {
+export function ReceiptsPageContent({
+  hideHeader = false,
+  lockedDirection,
+  processingOnly = false,
+  hideProcessingSection = false,
+  lockedDocType,
+  excludeDocTypes,
+}: {
+  hideHeader?: boolean;
+  lockedDirection?: "received" | "issued";
+  // 「処理中」タブ用：処理中（OCR待ち）の証憑だけを表示し、他のフィルタ・一覧は隠す
+  processingOnly?: boolean;
+  // 区分タブ用：処理中はタブ側で集約するため、インラインの処理中セクションを隠す
+  hideProcessingSection?: boolean;
+  // 「明細書」タブ用：指定した書類種別だけを表示（区分・書類種別フィルタは隠す）
+  lockedDocType?: DocumentType;
+  // 領収書タブ用：指定した書類種別を一覧から除外（明細書は専用タブに集約）
+  excludeDocTypes?: DocumentType[];
+}) {
   const { id } = useParams<{ id: string }>();
+
+  // 区分に応じた用語・機能の出し分け（発行=自社の売上側 / 受領=経費・仕入側）
+  const isIssued = lockedDirection === "issued";
+  const isReceived = lockedDirection === "received";
+  // インボイス番号の確認は受領（仕入税額控除）側で重要。発行側・明細書では強調しない。
+  const showInvoiceCheck = !isIssued && !lockedDocType;
+  const partnerLabel = isIssued ? "宛先" : isReceived ? "支払先" : "取引先";
+  const payLabel = isIssued ? "入金方法" : "支払方法";
 
   // Fetch real data
   const { data: dbReceipts, refetch } = useData(
@@ -169,6 +225,8 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
             original_amount?: number;
             exchange_rate?: number;
             amount_jpy?: number;
+            confidence?: number;
+            statement_subtype?: "bank" | "card" | "other";
           } | null;
           return {
             id: r.id,
@@ -200,6 +258,8 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
             invoiceNumber: ocr?.invoice_number,
             needsReview: r.needs_review ?? false,
             documentType: (r as { document_type?: string }).document_type as "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other" | undefined,
+            statementSubtype: ocr?.statement_subtype,
+            ocrConfidence: typeof ocr?.confidence === "number" ? ocr.confidence : undefined,
             folderId: (r as { folder_id?: string | null }).folder_id ?? null,
           };
         })
@@ -413,6 +473,8 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
 
   const [documentTypeFilter, setDocumentTypeFilter] = useState<DocumentType | "all">("all");
   const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
+  // インボイス登録番号フィルター（受領側でのみ使用）
+  const [invoiceFilter, setInvoiceFilter] = useState<"all" | "registered" | "unregistered">("all");
   const [receiptFiscalStartMonth, setReceiptFiscalStartMonth] = useState(4);
   useEffect(() => {
     getClient(id)
@@ -442,20 +504,45 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
       .finally(() => setLoadingImage(false));
   }, [selectedData?.id, selectedData?.imagePath]);
 
+  // 処理中（アップロード直後・OCR待ち）の証憑は発行／受領が未確定のため、
+  // 方向タブには振り分けず専用の「処理中」セクションに一時表示する。
+  // OCR完了後に発行／受領が確定すると、自動的に該当タブへ移動する。
+  const processingReceipts = receipts.filter(
+    (r) => r.status === "uploaded" || r.status === "processing"
+  );
+  // 処理中を除いた確定済みの証憑（一覧・件数集計の対象）
+  // 書類種別固定（明細書タブ等）・除外（受領/発行から明細書を除く等）・区分固定（受領/発行タブ）を
+  // ここで先に適用し、「全○件」やステータス集計が区分ごとに正しく分かれるようにする。
+  const classifiedReceipts = receipts.filter(
+    (r) =>
+      r.status !== "uploaded" &&
+      r.status !== "processing" &&
+      (!lockedDirection || r.direction === lockedDirection) &&
+      (!lockedDocType || r.documentType === lockedDocType) &&
+      !(excludeDocTypes && r.documentType && excludeDocTypes.includes(r.documentType))
+  );
+
   // 書類種別ごとの件数（フォルダ・方向フィルター適用前の全件から集計）
-  const docTypeCounts = receipts.reduce<Record<string, number>>((acc, r) => {
+  const docTypeCounts = classifiedReceipts.reduce<Record<string, number>>((acc, r) => {
     const key = r.documentType ?? "unknown";
     acc[key] = (acc[key] ?? 0) + 1;
     return acc;
   }, {});
 
   // Filtered
-  const effectiveDirection = lockedDirection ?? directionFilter;
-  const filtered = receipts.filter((r) => {
+  // 明細書タブなど書類種別固定時は区分（発行/受領）の概念がないため "all" に固定
+  const effectiveDirection = lockedDocType ? "all" : (lockedDirection ?? directionFilter);
+  const filtered = classifiedReceipts.filter((r) => {
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
     // 書類種別フィルター
     if (documentTypeFilter !== "all") {
       if (r.documentType !== documentTypeFilter) return false;
+    }
+    // インボイス登録番号フィルター（受領側）
+    if (showInvoiceCheck && invoiceFilter !== "all") {
+      const ic = checkInvoiceNumber(r.invoiceNumber);
+      if (invoiceFilter === "registered" && ic !== "valid") return false;
+      if (invoiceFilter === "unregistered" && ic === "valid") return false;
     }
     // 日付範囲フィルター
     if (dateFrom && r.date < dateFrom) return false;
@@ -499,7 +586,8 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
 
       <div>
 
-      {/* Document Type Filter Tabs */}
+      {/* Document Type Filter Tabs（明細書など書類種別固定タブでも「全○件」は表示） */}
+      {!processingOnly && (
       <div className="flex gap-1.5 mb-4 flex-wrap">
         {/* すべて */}
         <button
@@ -511,10 +599,10 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
               : "bg-card text-muted-foreground border-border hover:border-primary/40 hover:text-foreground"
           )}
         >
-          全{receipts.length}件
+          全{classifiedReceipts.length}件
         </button>
-        {/* 各書類種別（1件以上ある場合のみ表示） */}
-        {(Object.entries(documentTypeConfig) as [DocumentType, typeof documentTypeConfig[DocumentType]][]).map(([type, cfg]) => {
+        {/* 各書類種別（書類種別固定タブでは不要・1件以上ある場合のみ表示） */}
+        {!lockedDocType && (Object.entries(documentTypeConfig) as [DocumentType, typeof documentTypeConfig[DocumentType]][]).map(([type, cfg]) => {
           const count = docTypeCounts[type] ?? 0;
           if (count === 0) return null;
           const isActive = documentTypeFilter === type;
@@ -540,11 +628,15 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
           );
         })}
       </div>
+      )}
 
       {/* Filter Bar */}
+      {!processingOnly && (
       <div className="flex items-center justify-between mb-4 gap-4">
-        {/* 発行/受領フィルター（区分固定時は非表示） */}
-        {!lockedDirection && (
+        {/* 左側フィルター群（発行/受領・インボイス） */}
+        <div className="flex items-center gap-2 flex-wrap shrink-0">
+        {/* 発行/受領フィルター（区分固定時・書類種別固定時は非表示） */}
+        {!lockedDirection && !lockedDocType && (
         <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
           {([["all", "すべて"], ["received", "受領"], ["issued", "発行"]] as const).map(([key, label]) => (
             <button
@@ -560,6 +652,25 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
           ))}
         </div>
         )}
+
+        {/* インボイス登録番号フィルター（受領＝仕入税額控除の確認用） */}
+        {showInvoiceCheck && (
+        <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
+          {([["all", "インボイス：全て"], ["registered", "適格のみ"], ["unregistered", "未登録のみ"]] as const).map(([key, label]) => (
+            <button
+              key={key}
+              onClick={() => setInvoiceFilter(key)}
+              className={cn(
+                "px-2.5 py-1 rounded-md text-xs font-bold transition-colors whitespace-nowrap",
+                invoiceFilter === key ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        )}
+        </div>
 
         {/* Period filter + search + view toggle */}
         <div className="flex items-center gap-2">
@@ -602,7 +713,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="取引先・支払方法で検索..."
+              placeholder={`${partnerLabel}・${payLabel}で検索...`}
               className="pl-9 pr-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm placeholder:text-muted-foreground w-56"
             />
           </div>
@@ -632,8 +743,10 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
           </div>
         </div>
       </div>
+      )}
 
       {/* Bulk action bar */}
+      {!processingOnly && (
       <div className="flex items-center gap-3 mb-4">
         <input
           type="checkbox"
@@ -654,22 +767,78 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
               className="text-destructive border-destructive/30 hover:bg-destructive/10"
             >
               {bulkDeleting ? <Loader2 className="size-3.5 animate-spin" /> : <Trash2 className="size-3.5" />}
-              まとめて削除
+              削除
             </Button>
           </>
         )}
       </div>
+      )}
+
+      {/* 処理中セクション（発行／受領が未確定の証憑を一時表示）
+          ・通常タブ: インライン表示（区分タブでは hideProcessingSection で抑制）
+          ・処理中タブ(processingOnly): このセクションが主役。0件時は専用の空表示。 */}
+      {(processingOnly || !hideProcessingSection) && processingReceipts.length > 0 && (
+        <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <Loader2 className="size-4 animate-spin text-amber-600" />
+            <h3 className="text-sm font-bold text-amber-700">
+              処理中（{processingReceipts.length}件）
+            </h3>
+            <span className="text-xs text-muted-foreground">
+              AIが内容を読み取り、発行／受領を判定しています。完了すると自動的に各タブへ振り分けられます。
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+            {processingReceipts.map((r) => (
+              <button
+                key={r.id}
+                onClick={() => setSelectedReceipt(r.id)}
+                className="flex items-center gap-2 p-2 rounded-lg bg-card border border-border text-left hover:border-primary/30 transition-colors"
+              >
+                <div className="size-8 rounded bg-muted/30 flex items-center justify-center shrink-0">
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-xs font-medium text-foreground truncate">
+                    {r.vendor && r.vendor !== "不明" ? r.vendor : "読み取り中…"}
+                  </p>
+                  <p className="text-[10px] text-muted-foreground">{formatDate(r.date)}</p>
+                </div>
+                <Badge variant="warning" className="text-[10px] shrink-0">
+                  {statusConfig[r.status].label}
+                </Badge>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* 処理中タブの空状態 */}
+      {processingOnly && (
+        receiptsLoading ? (
+          <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card p-12 text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" />
+            <span className="text-sm">読み込み中...</span>
+          </div>
+        ) : processingReceipts.length === 0 ? (
+          <Card className="p-12 text-center">
+            <p className="text-muted-foreground">処理中の証憑はありません</p>
+          </Card>
+        ) : null
+      )}
 
       {/* Receipt Cards / List */}
-      {receiptsLoading ? (
+      {!processingOnly && (receiptsLoading ? (
         <div className="flex items-center justify-center gap-2 rounded-xl border border-border bg-card p-12 text-muted-foreground">
           <Loader2 className="size-5 animate-spin" />
           <span className="text-sm">読み込み中...</span>
         </div>
       ) : filtered.length === 0 ? (
-        <Card className="p-12 text-center">
-          <p className="text-muted-foreground">条件に一致する領収書がありません</p>
-        </Card>
+        processingReceipts.length > 0 ? null : (
+          <Card className="p-12 text-center">
+            <p className="text-muted-foreground">条件に一致する領収書がありません</p>
+          </Card>
+        )
       ) : viewMode === "grid" ? (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((receipt) => {
@@ -721,9 +890,27 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                 </div>
 
                 <CardContent className="pt-3 pb-4">
-                  <Badge variant={receipt.direction === "issued" ? "accent" : "muted"} className="text-[10px] mb-1">
-                    {receipt.direction === "issued" ? "発行" : "受領"}
-                  </Badge>
+                  <div className="flex items-center gap-1 mb-1 flex-wrap">
+                    <Badge variant={receipt.direction === "issued" ? "accent" : "muted"} className="text-[10px]">
+                      {receipt.direction === "issued" ? "発行" : "受領"}
+                    </Badge>
+                    {showInvoiceCheck && (() => {
+                      const ic = checkInvoiceNumber(receipt.invoiceNumber);
+                      // 形式不正は下の「要確認」バッジに集約するため、ここでは適格／番号なしのみ表示
+                      if (ic === "invalid") return null;
+                      return (
+                        <Badge variant={invoiceCheckConfig[ic].variant} className="text-[10px]">
+                          {invoiceCheckConfig[ic].label}
+                        </Badge>
+                      );
+                    })()}
+                    {getReviewReasons(receipt, showInvoiceCheck).length > 0 && (
+                      <Badge variant="warning" className="text-[10px]">
+                        <AlertTriangle className="size-3 mr-1" />
+                        要確認
+                      </Badge>
+                    )}
+                  </div>
                   <h4 className="text-sm font-bold text-foreground truncate">
                     {receipt.vendor}
                   </h4>
@@ -766,7 +953,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                     ID
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                    取引先
+                    {partnerLabel}
                   </th>
                   <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">
                     日付
@@ -775,8 +962,13 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                     金額
                   </th>
                   <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">
-                    支払方法
+                    {payLabel}
                   </th>
+                  {showInvoiceCheck && (
+                    <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">
+                      インボイス
+                    </th>
+                  )}
                   <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground uppercase tracking-wider">
                     書類種別
                   </th>
@@ -810,7 +1002,15 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                         {receipt.id}
                       </td>
                       <td className="px-4 py-3 font-medium text-foreground">
-                        {receipt.vendor}
+                        <div className="flex items-center gap-1.5">
+                          <span className="truncate">{receipt.vendor}</span>
+                          {getReviewReasons(receipt, showInvoiceCheck).length > 0 && (
+                            <Badge variant="warning" className="text-[10px] shrink-0">
+                              <AlertTriangle className="size-3 mr-1" />
+                              要確認
+                            </Badge>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
                         {formatDate(receipt.date)}
@@ -824,6 +1024,20 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                           {pCfg.label}
                         </Badge>
                       </td>
+                      {showInvoiceCheck && (() => {
+                        const ic = checkInvoiceNumber(receipt.invoiceNumber);
+                        return (
+                          <td className="px-4 py-3 text-center">
+                            {ic === "invalid" ? (
+                              <span className="text-xs text-muted-foreground">-</span>
+                            ) : (
+                              <Badge variant={invoiceCheckConfig[ic].variant} className="text-[10px]">
+                                {invoiceCheckConfig[ic].label}
+                              </Badge>
+                            )}
+                          </td>
+                        );
+                      })()}
                       <td className="px-4 py-3">
                         {receipt.documentType && documentTypeConfig[receipt.documentType] ? (
                           <Badge variant={documentTypeConfig[receipt.documentType].variant} className="text-[10px]">
@@ -861,9 +1075,10 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
             </table>
           </div>
         </Card>
-      )}
+      ))}
 
       {/* Summary */}
+      {!processingOnly && (
       <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
         <span>{filtered.length}件の領収書を表示</span>
         <span>
@@ -873,6 +1088,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
           </span>
         </span>
       </div>
+      )}
 
       </div>
 
@@ -884,11 +1100,16 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
             className="absolute inset-0 bg-black/30"
             onClick={() => setSelectedReceipt(null)}
           />
-          {/* Panel */}
-          <div className="relative w-full max-w-md bg-card border-l border-border shadow-xl overflow-y-auto">
+          {/* Panel（明細書は行テーブルを置くため幅を広げる） */}
+          <div className={cn(
+            "relative w-full bg-card border-l border-border shadow-xl overflow-y-auto",
+            selectedData.documentType === "statement" ? "max-w-3xl" : "max-w-md"
+          )}>
             {/* Header */}
             <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">領収書詳細</h3>
+              <h3 className="text-lg font-bold text-foreground">
+                {selectedData.documentType === "statement" ? "明細書詳細" : "領収書詳細"}
+              </h3>
               <button
                 onClick={() => setSelectedReceipt(null)}
                 className="text-muted-foreground hover:text-foreground"
@@ -946,7 +1167,42 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                 );
               })()}
 
-              {/* 発行/受領 区分（AI判定・手動修正可） */}
+              {/* 要確認: インボイス形式・OCR読取品質などを横断チェック */}
+              {(() => {
+                const reasons = getReviewReasons(selectedData, showInvoiceCheck);
+                if (reasons.length === 0) return null;
+                return (
+                  <div className="rounded-lg border border-destructive bg-destructive/10 p-3">
+                    <div className="flex items-center gap-1.5 mb-1.5">
+                      <AlertTriangle className="size-4 text-destructive" />
+                      <span className="text-sm font-bold text-destructive">要確認</span>
+                    </div>
+                    <ul className="space-y-1">
+                      {reasons.map((rs) => (
+                        <li key={rs} className="text-xs text-destructive flex items-start gap-1.5">
+                          <span className="mt-0.5">・</span>
+                          <span>{reviewReasonLabels[rs]}</span>
+                        </li>
+                      ))}
+                    </ul>
+                    <p className="text-[10px] text-muted-foreground mt-2">
+                      ※ 上部の「編集」から原本を確認して修正してください。仕訳済みの場合は下部の「仕訳済を解除」で編集可能に戻せます。
+                    </p>
+                  </div>
+                );
+              })()}
+
+              {/* 明細書: 取引行の抽出・仕訳化 */}
+              {selectedData.documentType === "statement" && (
+                <StatementLinesSection
+                  receiptId={selectedData.id}
+                  subtype={selectedData.statementSubtype}
+                  onChanged={refetch}
+                />
+              )}
+
+              {/* 発行/受領 区分（AI判定・手動修正可。明細書では非表示） */}
+              {selectedData.documentType !== "statement" && (
               <div>
                 <label className="text-xs text-muted-foreground block mb-1">区分（AI判定・修正可）</label>
                 <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
@@ -965,6 +1221,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                   ))}
                 </div>
               </div>
+              )}
 
               {/* Details — 表示モード / 編集モード */}
               {editingOcr ? (
@@ -1105,7 +1362,7 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                   </div>
                   <p className="font-mono text-sm text-foreground -mt-2">{selectedData.id}</p>
                   <div>
-                    <span className="text-xs text-muted-foreground">取引先</span>
+                    <span className="text-xs text-muted-foreground">{partnerLabel}</span>
                     <p className="text-sm font-medium text-foreground">{selectedData.vendor}</p>
                   </div>
                   <div>
@@ -1144,14 +1401,56 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                       )}
                     </div>
                   )}
-                  {selectedData.invoiceNumber && (
-                    <div>
-                      <span className="text-xs text-muted-foreground">インボイス番号</span>
-                      <p className="text-sm font-mono text-foreground">{selectedData.invoiceNumber}</p>
-                    </div>
+                  {/* インボイス番号：受領側は仕入税額控除の判定に重要なため、番号がなくても確認結果を明示 */}
+                  {showInvoiceCheck ? (
+                    (() => {
+                      const ic = checkInvoiceNumber(selectedData.invoiceNumber);
+                      // 要確認＝赤、番号なし＝アンバー で注意喚起。適格は通常色。
+                      const boxClass =
+                        ic === "invalid"
+                          ? "border-destructive bg-destructive/10"
+                          : ic === "none"
+                          ? "border-amber-500 bg-amber-500/10"
+                          : "border-border bg-muted/10";
+                      const noteClass =
+                        ic === "invalid"
+                          ? "text-destructive font-medium"
+                          : ic === "none"
+                          ? "text-amber-700 dark:text-amber-500 font-medium"
+                          : "text-muted-foreground";
+                      return (
+                        <div className={cn("rounded-lg border p-3", boxClass)}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-xs text-muted-foreground">インボイス登録番号</span>
+                            <Badge variant={invoiceCheckConfig[ic].variant} className="text-[10px]">
+                              {invoiceCheckConfig[ic].label}
+                            </Badge>
+                          </div>
+                          {selectedData.invoiceNumber ? (
+                            <p className="text-sm font-mono text-foreground">{selectedData.invoiceNumber}</p>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">未取得</p>
+                          )}
+                          <p className={cn("text-[10px] mt-1.5", noteClass)}>
+                            {ic === "valid"
+                              ? "適格請求書発行事業者の登録番号です。仕入税額控除の対象になります。"
+                              : ic === "invalid"
+                              ? "番号の形式（T＋13桁）が不正です。原本をご確認ください。"
+                              : "登録番号がありません。仕入税額控除には経過措置の適用可否をご確認ください。"}
+                          </p>
+                        </div>
+                      );
+                    })()
+                  ) : (
+                    selectedData.invoiceNumber && (
+                      <div>
+                        <span className="text-xs text-muted-foreground">インボイス番号</span>
+                        <p className="text-sm font-mono text-foreground">{selectedData.invoiceNumber}</p>
+                      </div>
+                    )
                   )}
                   <div>
-                    <span className="text-xs text-muted-foreground">支払方法</span>
+                    <span className="text-xs text-muted-foreground">{payLabel}</span>
                     <p className="text-sm text-foreground">
                       {(paymentMethodConfig[selectedData.paymentMethod] ?? defaultPaymentConfig).label}
                     </p>
@@ -1272,8 +1571,8 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                 </div>
               )}
 
-              {/* AI Journal Suggestion */}
-              {(selectedData.status === "ocr_done" || selectedData.status === "reviewed" || selectedData.aiSuggestion) && (
+              {/* AI Journal Suggestion（明細書は行ごとに仕訳化するため非表示） */}
+              {selectedData.documentType !== "statement" && (selectedData.status === "ocr_done" || selectedData.status === "reviewed" || selectedData.aiSuggestion) && (
                 <div className="border-t border-border pt-4">
                   <h4 className="text-sm font-bold text-foreground mb-3">AI仕訳提案</h4>
                   {selectedData.aiSuggestion ? (
@@ -1399,9 +1698,20 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
                     </Button>
                   )}
                   {selectedData.status === "journalized" && (
-                    <p className="text-xs text-muted-foreground py-2">
-                      この領収書は仕訳済です。
-                    </p>
+                    <>
+                      <Button
+                        className="w-full justify-start"
+                        variant="ghost"
+                        onClick={() => handleStatusChange(selectedData.id, "reviewed")}
+                        disabled={updatingStatus}
+                      >
+                        {updatingStatus ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Pencil className="size-4 mr-2" />}
+                        仕訳済を解除して編集可能に戻す
+                      </Button>
+                      <p className="text-[10px] text-muted-foreground px-1">
+                        ※ 解除すると上部に「編集」が表示され、インボイス番号などを修正できます。作成済みの仕訳は削除されません。
+                      </p>
+                    </>
                   )}
                 </div>
               </div>
@@ -1423,6 +1733,287 @@ export function ReceiptsPageContent({ hideHeader = false, lockedDirection }: { h
         </div>
       )}
     </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 明細書の取引行セクション（抽出 → レビュー → 一括仕訳化）
+// ---------------------------------------------------------------------------
+
+const subtypeConfig: Record<"bank" | "card" | "other", { label: string; fixed: string }> = {
+  bank: { label: "銀行明細", fixed: "普通預金" },
+  card: { label: "クレジットカード明細", fixed: "未払金" },
+  other: { label: "その他明細", fixed: "現金" },
+};
+
+const lineStatusConfig: Record<
+  StatementLine["status"],
+  { label: string; variant: "muted" | "success" | "warning" }
+> = {
+  pending: { label: "未仕訳", variant: "warning" },
+  journalized: { label: "仕訳済", variant: "success" },
+  ignored: { label: "除外", variant: "muted" },
+};
+
+function StatementLinesSection({
+  receiptId,
+  subtype,
+  onChanged,
+}: {
+  receiptId: string;
+  subtype?: "bank" | "card" | "other";
+  onChanged?: () => void;
+}) {
+  const [lines, setLines] = useState<StatementLine[] | null>(null);
+  const [extracting, setExtracting] = useState(false);
+  const [journalizing, setJournalizing] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [error, setError] = useState<string | null>(null);
+
+  const load = () => {
+    getStatementLines(receiptId)
+      .then((ls) => setLines(ls))
+      .catch(() => setLines([]));
+  };
+
+  useEffect(() => {
+    setLines(null);
+    setSelected(new Set());
+    setError(null);
+    load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [receiptId]);
+
+  const handleExtract = async () => {
+    setExtracting(true);
+    setError(null);
+    try {
+      const ls = await extractStatementTransactions(receiptId);
+      setLines(ls);
+      setSelected(new Set());
+      onChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "明細の抽出に失敗しました");
+    } finally {
+      setExtracting(false);
+    }
+  };
+
+  const pendingLines = (lines ?? []).filter((l) => l.status === "pending");
+
+  const toggle = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  const toggleAll = () => {
+    if (selected.size === pendingLines.length) setSelected(new Set());
+    else setSelected(new Set(pendingLines.map((l) => l.id)));
+  };
+
+  const handleJournalize = async (ids: string[]) => {
+    if (ids.length === 0) return;
+    setJournalizing(true);
+    setError(null);
+    try {
+      const res = await createJournalsFromStatementLines(ids);
+      if (res.failed > 0) {
+        setError(
+          `${res.success}件を仕訳化、${res.failed}件失敗：${res.errors.slice(0, 3).join(" / ")}`
+        );
+      }
+      setSelected(new Set());
+      load();
+      onChanged?.();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "仕訳化に失敗しました");
+    } finally {
+      setJournalizing(false);
+    }
+  };
+
+  const handleIgnore = async (id: string, ignore: boolean) => {
+    try {
+      await setStatementLineStatus(id, ignore ? "ignored" : "pending");
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "更新に失敗しました");
+    }
+  };
+
+  const sc = subtypeConfig[subtype ?? "other"];
+
+  return (
+    <div className="border-t border-border pt-4">
+      <div className="flex items-center justify-between mb-3">
+        <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
+          <FileSpreadsheet className="size-4 text-primary" />
+          明細から取引を抽出・仕訳化
+        </h4>
+        {lines !== null && lines.length > 0 && (
+          <button
+            onClick={handleExtract}
+            disabled={extracting}
+            className="text-xs text-primary hover:underline flex items-center gap-0.5 disabled:opacity-50"
+          >
+            {extracting ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+            再抽出
+          </button>
+        )}
+      </div>
+
+      {/* 種別・固定側の注記 */}
+      <div className="text-[11px] text-muted-foreground mb-3 bg-muted/10 rounded-md px-3 py-2">
+        種別: <span className="font-bold text-foreground">{sc.label}</span> ／ 相手勘定の固定側:{" "}
+        <span className="font-bold text-foreground">{sc.fixed}</span>
+        <span className="block mt-0.5">仕訳は「確認待ち（下書き）」として作成されます。仕訳入力で内容をご確認ください。</span>
+      </div>
+
+      {error && (
+        <div className="text-xs text-destructive bg-destructive/10 rounded-md px-3 py-2 mb-3 whitespace-pre-wrap">
+          {error}
+        </div>
+      )}
+
+      {lines === null ? (
+        <div className="h-16 flex items-center justify-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      ) : lines.length === 0 ? (
+        <div className="text-center py-4">
+          <p className="text-xs text-muted-foreground mb-3">
+            まだ明細を抽出していません。OCRで取引行を読み取ります。
+          </p>
+          <Button onClick={handleExtract} disabled={extracting} className="justify-center">
+            {extracting ? <Loader2 className="size-4 mr-2 animate-spin" /> : <Sparkles className="size-4 mr-2" />}
+            {extracting ? "抽出中..." : "明細を抽出"}
+          </Button>
+        </div>
+      ) : (
+        <>
+          {/* 一括操作バー */}
+          {pendingLines.length > 0 && (
+            <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={selected.size === pendingLines.length && pendingLines.length > 0}
+                  onChange={toggleAll}
+                  className="size-3.5 cursor-pointer"
+                />
+                {selected.size > 0 ? `${selected.size}件選択中` : "未仕訳を全選択"}
+              </label>
+              <div className="flex items-center gap-2">
+                {selected.size > 0 && (
+                  <Button
+                    onClick={() => handleJournalize([...selected])}
+                    disabled={journalizing}
+                    className="h-8 text-xs"
+                  >
+                    {journalizing ? <Loader2 className="size-3.5 mr-1.5 animate-spin" /> : <Check className="size-3.5 mr-1.5" />}
+                    選択を仕訳化
+                  </Button>
+                )}
+                <Button
+                  variant="ghost"
+                  onClick={() => handleJournalize(pendingLines.map((l) => l.id))}
+                  disabled={journalizing}
+                  className="h-8 text-xs"
+                >
+                  全て仕訳化
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* 明細行テーブル */}
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="bg-muted/20 border-b border-border">
+                  <th className="w-8 px-2 py-2"></th>
+                  <th className="text-left px-2 py-2 font-bold text-muted-foreground">日付</th>
+                  <th className="text-left px-2 py-2 font-bold text-muted-foreground">摘要</th>
+                  <th className="text-right px-2 py-2 font-bold text-muted-foreground">入金</th>
+                  <th className="text-right px-2 py-2 font-bold text-muted-foreground">出金</th>
+                  <th className="text-center px-2 py-2 font-bold text-muted-foreground">状態</th>
+                  <th className="w-8 px-2 py-2"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {lines.map((l) => {
+                  const isDeposit = l.direction === "deposit";
+                  const abs = Math.abs(l.amount);
+                  const st = lineStatusConfig[l.status];
+                  return (
+                    <tr
+                      key={l.id}
+                      className={cn(
+                        "border-b border-border last:border-0",
+                        l.status === "ignored" && "opacity-50"
+                      )}
+                    >
+                      <td className="px-2 py-2 text-center">
+                        {l.status === "pending" && (
+                          <input
+                            type="checkbox"
+                            checked={selected.has(l.id)}
+                            onChange={() => toggle(l.id)}
+                            className="size-3.5 cursor-pointer"
+                          />
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-foreground whitespace-nowrap">
+                        {l.line_date ?? "—"}
+                      </td>
+                      <td className="px-2 py-2 text-foreground">
+                        <span className="block">{l.description || "—"}</span>
+                        {l.counterparty && (
+                          <span className="block text-[10px] text-muted-foreground">{l.counterparty}</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-green-600">
+                        {isDeposit ? formatCurrency(abs) : ""}
+                      </td>
+                      <td className="px-2 py-2 text-right font-mono text-foreground">
+                        {!isDeposit ? formatCurrency(abs) : ""}
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        <Badge variant={st.variant} className="text-[10px]">{st.label}</Badge>
+                      </td>
+                      <td className="px-2 py-2 text-center">
+                        {l.status === "pending" && (
+                          <button
+                            onClick={() => handleIgnore(l.id, true)}
+                            title="除外"
+                            className="text-muted-foreground hover:text-destructive"
+                          >
+                            <Ban className="size-3.5" />
+                          </button>
+                        )}
+                        {l.status === "ignored" && (
+                          <button
+                            onClick={() => handleIgnore(l.id, false)}
+                            title="除外を解除"
+                            className="text-muted-foreground hover:text-primary"
+                          >
+                            <RefreshCw className="size-3.5" />
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </>
+      )}
+    </div>
   );
 }
 

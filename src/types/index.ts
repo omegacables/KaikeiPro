@@ -163,6 +163,29 @@ export interface OcrResult {
   amount_jpy?: number; // 円換算額
   // 書類種別
   document_type?: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
+  // 明細書(statement)の種別: 銀行明細 / クレカ明細 / その他。相手勘定（普通預金 or 未払金）の自動推定に使用。
+  statement_subtype?: "bank" | "card" | "other";
+}
+
+// ===== 明細書の行データ =====
+export type StatementLineDirection = "deposit" | "withdrawal";
+export type StatementLineStatus = "pending" | "journalized" | "ignored";
+
+export interface StatementLine {
+  id: string;
+  receipt_id: string;
+  client_id: string;
+  line_date: string | null;
+  description: string;
+  amount: number; // 符号付き（+入金/-出金）
+  direction: StatementLineDirection;
+  balance_after: number | null;
+  counterparty: string | null;
+  journal_entry_id: string | null;
+  status: StatementLineStatus;
+  suggested_account_id: string | null;
+  sort_order: number;
+  created_at: string;
 }
 
 // ===== AI仕訳提案 =====

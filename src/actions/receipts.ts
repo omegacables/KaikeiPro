@@ -2,6 +2,7 @@
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import type { Database } from "@/types/database";
+import { getReviewReasons } from "@/lib/receipt-review";
 
 type ReceiptRow = Database["public"]["Tables"]["receipts"]["Row"];
 type ReceiptInsert = Database["public"]["Tables"]["receipts"]["Insert"];
@@ -37,6 +38,81 @@ export async function getReceipts(clientId: string): Promise<ReceiptWithReview[]
     ...r,
     needs_review: reviewReceiptIds.has(r.id),
   })) as ReceiptWithReview[];
+}
+
+// ダッシュボード用：顧問先ごとに「要確認」の証憑件数を集計する。
+// 判定基準は一覧/詳細と同じ共通ロジック（src/lib/receipt-review.ts）を使用。
+export async function getReviewCountsByClient(): Promise<
+  { client_id: string; client_name: string; count: number }[]
+> {
+  const supabase = await createServerSupabaseClient();
+
+  const { data: clients, error } = await supabase
+    .from("clients")
+    .select("id, name")
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw new Error(error.message);
+  if (!clients) return [];
+
+  const results = await Promise.all(
+    clients.map(async (c) => {
+      const [receiptsRes, reviewRes] = await Promise.all([
+        supabase
+          .from("receipts")
+          .select("*")
+          .eq("client_id", c.id)
+          .not("status", "in", "(uploaded,processing)"),
+        supabase
+          .from("journal_entries")
+          .select("receipt_id")
+          .eq("client_id", c.id)
+          .eq("needs_review", true)
+          .not("receipt_id", "is", null),
+      ]);
+
+      const reviewIds = new Set(
+        (reviewRes.data ?? []).map((e) => e.receipt_id).filter(Boolean)
+      );
+
+      let count = 0;
+      for (const row of receiptsRes.data ?? []) {
+        const r = row as ReceiptRow & {
+          direction?: "issued" | "received";
+          document_type?: string;
+        };
+        const ocr = (r.ocr_result ?? null) as {
+          invoice_number?: string;
+          confidence?: number;
+          amount_total?: number;
+          total_amount?: number;
+          date?: string;
+          issued_date?: string;
+          vendor_name?: string;
+        } | null;
+        const direction = r.direction ?? "received";
+        const reasons = getReviewReasons(
+          {
+            invoiceNumber: ocr?.invoice_number,
+            ocrConfidence:
+              typeof ocr?.confidence === "number" ? ocr.confidence : undefined,
+            amount: ocr?.amount_total ?? ocr?.total_amount ?? 0,
+            date: ocr?.date ?? ocr?.issued_date ?? r.uploaded_at?.split("T")[0] ?? "",
+            vendor: ocr?.vendor_name ?? "不明",
+            needsReview: reviewIds.has(r.id),
+            documentType: r.document_type,
+          },
+          // 受領側のみインボイス形式チェックを要確認に含める（証憑管理の挙動に一致）
+          direction === "received"
+        );
+        if (reasons.length > 0) count++;
+      }
+
+      return { client_id: c.id, client_name: c.name, count };
+    })
+  );
+
+  return results;
 }
 
 export async function getReceipt(id: string) {

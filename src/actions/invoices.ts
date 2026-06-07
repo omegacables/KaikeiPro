@@ -375,6 +375,101 @@ export async function getAgingReport(clientId: string): Promise<AgingReportRow[]
   return [...partnerMap.values()].sort((a, b) => b.total - a.total);
 }
 
+// ── ダッシュボード用: 顧問先別 請求書状況（未入金・期限超過） ──────────────────
+
+export interface InvoiceStatusSummary {
+  client_id: string;
+  client_name: string;
+  unpaidCount: number; // 未入金（消込残あり）の請求書件数
+  unpaidAmount: number; // 未入金の残額合計
+  overdueCount: number; // うち支払期限超過の件数
+  overdueAmount: number; // うち期限超過の残額合計
+  maxDaysOverdue: number; // 最大延滞日数
+}
+
+// 請求書のうち未消込（消込残＞0）を未払/未入金とし、due_date 超過分を期限超過として集計。
+// direction="sales"→売掛（未入金）、direction="purchase"→買掛（未払）。
+async function aggregateInvoiceStatus(
+  direction: "sales" | "purchase"
+): Promise<InvoiceStatusSummary[]> {
+  const supabase = await createServerSupabaseClient();
+  const today = new Date().toISOString().split("T")[0];
+
+  const { data: clients, error } = await supabase
+    .from("clients")
+    .select("id, name")
+    .eq("is_active", true)
+    .order("name");
+  if (error) throw new Error(error.message);
+  if (!clients) return [];
+
+  const results = await Promise.all(
+    clients.map(async (c) => {
+      const { data: invoices } = await supabase
+        .from("invoices")
+        .select(`id, total_amount, due_date, payment_allocations ( allocated_amount )`)
+        .eq("client_id", c.id)
+        .eq("direction", direction)
+        .not("status", "in", '("paid","void")');
+
+      let unpaidCount = 0;
+      let unpaidAmount = 0;
+      let overdueCount = 0;
+      let overdueAmount = 0;
+      let maxDaysOverdue = 0;
+
+      for (const inv of invoices ?? []) {
+        const allocs =
+          (inv.payment_allocations as unknown as { allocated_amount: number }[]) ?? [];
+        const allocated = allocs.reduce((s, a) => s + (a.allocated_amount ?? 0), 0);
+        const remaining = inv.total_amount - allocated;
+        if (remaining <= 0) continue;
+
+        unpaidCount++;
+        unpaidAmount += remaining;
+
+        if (inv.due_date && inv.due_date < today) {
+          overdueCount++;
+          overdueAmount += remaining;
+          const days = Math.floor(
+            (new Date(today).getTime() - new Date(inv.due_date).getTime()) / 86400000
+          );
+          maxDaysOverdue = Math.max(maxDaysOverdue, days);
+        }
+      }
+
+      return {
+        client_id: c.id,
+        client_name: c.name,
+        unpaidCount,
+        unpaidAmount,
+        overdueCount,
+        overdueAmount,
+        maxDaysOverdue,
+      };
+    })
+  );
+
+  // 未消込がある顧問先のみ、期限超過額→残額の降順で返す
+  return results
+    .filter((r) => r.unpaidCount > 0)
+    .sort(
+      (a, b) =>
+        b.overdueAmount - a.overdueAmount ||
+        b.unpaidAmount - a.unpaidAmount
+    );
+}
+
+// 売上請求書の未入金（売掛）状況。
+export async function getInvoiceStatusByClient(): Promise<InvoiceStatusSummary[]> {
+  return aggregateInvoiceStatus("sales");
+}
+
+// 仕入請求書の未払（買掛）状況。
+export async function getPayableStatusByClient(): Promise<InvoiceStatusSummary[]> {
+  return aggregateInvoiceStatus("purchase");
+}
+
 // ── 未払い請求書を取得（消込用） ──────────────────────────────────────────────
 
 /**

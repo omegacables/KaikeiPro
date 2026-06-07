@@ -1,25 +1,31 @@
 "use client";
 
 import { useState } from "react";
-import { FileCheck, Receipt, FileText } from "lucide-react";
+import { useParams } from "next/navigation";
+import { FileCheck, Receipt, FileText, Clock, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReceiptsPageContent } from "../receipts/page";
 import { InvoicesPageContent } from "../invoices/page";
 
 type DocumentTab =
+  | "processing"
   | "receipts_received"
   | "receipts_issued"
+  | "statements"
   | "invoices_purchase"
   | "invoices_sales";
 
 const tabs: { key: DocumentTab; label: string; icon: typeof Receipt }[] = [
   { key: "receipts_received", label: "領収書（受領）", icon: Receipt },
   { key: "receipts_issued", label: "領収書（発行）", icon: Receipt },
+  { key: "statements", label: "明細書", icon: FileSpreadsheet },
   { key: "invoices_purchase", label: "請求書（受領）", icon: FileText },
   { key: "invoices_sales", label: "請求書（発行）", icon: FileText },
+  { key: "processing", label: "処理中", icon: Clock },
 ];
 
 export default function DocumentsPage() {
+  const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<DocumentTab>("receipts_received");
 
   return (
@@ -57,10 +63,12 @@ export default function DocumentsPage() {
       </div>
 
       {/* Content */}
-      {activeTab === "receipts_received" && <ReceiptsPageContent hideHeader lockedDirection="received" />}
-      {activeTab === "receipts_issued" && <ReceiptsPageContent hideHeader lockedDirection="issued" />}
+      {activeTab === "receipts_received" && <ReceiptsPageContent hideHeader lockedDirection="received" hideProcessingSection excludeDocTypes={["statement"]} />}
+      {activeTab === "receipts_issued" && <ReceiptsPageContent hideHeader lockedDirection="issued" hideProcessingSection excludeDocTypes={["statement"]} />}
+      {activeTab === "statements" && <ReceiptsPageContent hideHeader lockedDocType="statement" hideProcessingSection />}
       {activeTab === "invoices_purchase" && <InvoicesPageContent hideHeader lockedDirection="purchase" />}
       {activeTab === "invoices_sales" && <InvoicesPageContent hideHeader lockedDirection="sales" />}
+      {activeTab === "processing" && <ReceiptsPageContent hideHeader processingOnly />}
     </>
   );
 }
