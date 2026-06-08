@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, HelpCircle, Sun, Moon } from "lucide-react";
+import { Bell, HelpCircle, Sun, Moon, Menu } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
+import { useMobileNav } from "@/components/layout/mobile-nav";
 import { getInitials, formatTimeAgo } from "@/lib/utils";
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme";
 import { getClient } from "@/actions/clients";
@@ -61,6 +62,7 @@ export function Header() {
   const pathname = usePathname();
   const router = useRouter();
   const { user } = useAuth();
+  const { openNav } = useMobileNav();
   const [theme, setThemeState] = useState<Theme>("light");
   const [companyName, setCompanyName] = useState<string | null>(null);
 
@@ -185,15 +187,23 @@ export function Header() {
   const pageTitle = getPageTitle(pathname);
 
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between bg-card/80 backdrop-blur-md border-b border-border px-8 py-4">
-      <div className="flex items-center gap-4">
-        <h2 className="text-foreground text-xl font-bold tracking-tight">
+    <header className="sticky top-0 z-10 flex items-center justify-between bg-card/80 backdrop-blur-md border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+        {/* モバイル用ハンバーガー（サイドバードロワーを開く） */}
+        <button
+          onClick={openNav}
+          className="p-2 -ml-2 rounded-lg text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors lg:hidden"
+          aria-label="メニューを開く"
+        >
+          <Menu className="size-5" />
+        </button>
+        <h2 className="text-foreground text-lg sm:text-xl font-bold tracking-tight truncate">
           {pageTitle}
         </h2>
       </div>
-      <div className="flex items-center gap-6">
+      <div className="flex items-center gap-2 sm:gap-6">
         {/* Action buttons */}
-        <div className="flex gap-2">
+        <div className="flex gap-1 sm:gap-2">
           <button
             onClick={handleToggleTheme}
             className="p-2 rounded-lg bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
@@ -291,11 +301,11 @@ export function Header() {
           </button>
         </div>
 
-        <div className="h-8 w-px bg-border mx-1" />
+        <div className="hidden sm:block h-8 w-px bg-border mx-1" />
 
         {/* User profile */}
         <div className="flex items-center gap-3">
-          <div className="flex flex-col items-end">
+          <div className="hidden sm:flex flex-col items-end">
             <span className="text-sm font-bold text-foreground leading-none">
               {displayName}
             </span>

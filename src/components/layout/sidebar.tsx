@@ -27,11 +27,13 @@ import {
   MessageSquare,
   FileCheck,
   Home,
+  X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { getClients } from "@/actions/clients";
+import { useMobileNav } from "@/components/layout/mobile-nav";
 
 type ClientOption = { id: string; name: string };
 
@@ -57,8 +59,14 @@ export function Sidebar() {
   const pathname = usePathname();
   const router = useRouter();
   const { user, signOut } = useAuth();
+  const { open: mobileOpen, closeNav } = useMobileNav();
   const isSuperAdmin = user?.role === "super_admin";
   const isClient = user?.role === "client";
+
+  // モバイルではページ遷移時にドロワーを閉じる
+  useEffect(() => {
+    closeNav();
+  }, [pathname]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const [clients, setClients] = useState<ClientOption[]>([]);
   const [loadingClients, setLoadingClients] = useState(true);
@@ -118,22 +126,48 @@ export function Sidebar() {
   }
 
   return (
-    <aside className="w-64 border-r border-border bg-sidebar-bg flex flex-col shrink-0">
-      <div className="p-6 flex flex-col gap-6 h-full">
-        {/* Logo */}
-        <div className="flex gap-3 items-center">
-          <div className="bg-primary-light/20 rounded-full size-10 flex items-center justify-center text-cream">
-            <Building2 className="size-5" />
+    <>
+      {/* モバイル用バックドロップ（ドロワーが開いている時のみ） */}
+      {mobileOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+          onClick={closeNav}
+          aria-hidden="true"
+        />
+      )}
+
+      <aside
+        className={cn(
+          "w-64 border-r border-border bg-sidebar-bg flex flex-col shrink-0",
+          // モバイル: 画面外に固定配置し、開いた時だけスライドイン
+          "fixed inset-y-0 left-0 z-50 transition-transform duration-200 ease-in-out",
+          mobileOpen ? "translate-x-0" : "-translate-x-full",
+          // デスクトップ: 通常のフロー内に固定表示
+          "lg:static lg:translate-x-0 lg:z-auto"
+        )}
+      >
+        <div className="p-6 flex flex-col gap-6 h-full">
+          {/* Logo + モバイル用閉じるボタン */}
+          <div className="flex gap-3 items-center">
+            <div className="bg-primary-light/20 rounded-full size-10 flex items-center justify-center text-cream">
+              <Building2 className="size-5" />
+            </div>
+            <div className="flex flex-col">
+              <h1 className="text-cream text-base font-bold leading-tight">
+                Raqto会計
+              </h1>
+              <p className="text-sage text-xs font-normal">
+                AIバージョン
+              </p>
+            </div>
+            <button
+              onClick={closeNav}
+              className="ml-auto p-1.5 rounded-lg text-sage hover:bg-slate-purple/50 hover:text-cream transition-colors lg:hidden"
+              aria-label="メニューを閉じる"
+            >
+              <X className="size-5" />
+            </button>
           </div>
-          <div className="flex flex-col">
-            <h1 className="text-cream text-base font-bold leading-tight">
-              Raqto会計
-            </h1>
-            <p className="text-sage text-xs font-normal">
-              AIバージョン
-            </p>
-          </div>
-        </div>
 
         {/* Main Navigation */}
         <nav className="flex flex-col gap-1 grow overflow-y-auto">
@@ -327,5 +361,6 @@ export function Sidebar() {
         </div>
       </div>
     </aside>
+    </>
   );
 }

@@ -7,6 +7,31 @@
 
 Raqto 受発注管理との完全連携により、受発注→仕訳→帳簿→決算までを一気通貫で自動化する。
 
+> 本書は要件定義（あるべき姿）を記述する。データモデルの「想定」は実装と細部が異なる場合がある。
+> **現時点の実装状況は [`docs/features.md`](./docs/features.md) を参照**（最終更新: 2026-06-09）。
+
+---
+
+## 実装状況サマリー（2026-06-09 現在）
+
+| カテゴリ | 状況 |
+|---------|------|
+| 認証・ロール（4ロール）・ルート保護 | 実装済 |
+| 勘定科目・補助科目・取引先管理 | 実装済 |
+| 仕訳（複合仕訳・バランス検証・CSV AI取込） | 実装済 |
+| 領収書アップロード（Storage）＋AI-OCR＋AI仕訳自動生成 | 実装済（Gemini） |
+| 明細書取込（銀行/クレカ明細のAI解析→一括仕訳）・カード取引 | 実装済 |
+| 帳簿閲覧（6帳簿）／試算表・BS・PL・月次推移・棚卸 | 実装済（CSV/印刷出力） |
+| 消費税集計（10%/8%・本則/簡易） | 実装済（申告書PDFは未対応） |
+| 決算処理（決算整理仕訳・減価償却サマリー・年度締め） | 実装済（償却の自動仕訳計上は未対応） |
+| 請求書・入金消込・固定資産（減価償却計算） | 実装済 |
+| 顧問先ポータル（アップロード/領収書/質問/請求書/設定） | 実装済 |
+| ダッシュボード（残高サマリー・請求書/支払状況・要確認証憑・税務カレンダー） | 実装済 |
+| レスポンシブ（スタッフ側もモバイル対応・カメラ撮影） | 実装済 |
+| Raqto連携・アグリゲーション（Moneytree/MF/Zaim）連携設定 | 実装済 |
+| **通知の自動生成（メール/LINE送信、コメント通知INSERT）** | **未実装** |
+| 減価償却の自動仕訳計上 / 消費税申告書フォーム出力 | 未実装 |
+
 ---
 
 ## 技術スタック（Raqto と統一）
@@ -16,9 +41,9 @@ Raqto 受発注管理との完全連携により、受発注→仕訳→帳簿�
 - **Database**: Supabase PostgreSQL
 - **Auth**: Supabase Auth（税理士: staff, 顧問先: client）
 - **Storage**: Supabase Storage（領収書画像、PDFなど）
-- **AI/OCR**: Claude API（Vision + Text）
-- **PDF**: @react-pdf/renderer
-- **通知**: Resend (メール) / LINE Messaging API
+- **AI/OCR**: Google Gemini API（Vision + Text。OCR=Gemini 2.5 Pro / 仕訳推定=Gemini 2.5 Flash）※当初想定の Claude から実装時に変更
+- **PDF**: ブラウザ印刷（`window.print`）ベースで出力。CSV出力も併設
+- **通知**: Resend (メール) / LINE Messaging API（※アプリ内通知は実装済、メール/LINE送信は未実装）
 - **Deploy**: Vercel
 
 ---
@@ -607,17 +632,23 @@ payment_allocations: 消込明細
 /dashboard           - 顧問先ダッシュボード
 /clients             - 顧問先一覧
 /clients/[id]        - 顧問先詳細
-/clients/[id]/receipts    - 領収書一覧
-/clients/[id]/journals    - 仕訳一覧
+/clients/[id]/journals    - 仕訳入力
+/clients/[id]/documents   - 証憑管理
+/clients/[id]/receipts    - 領収書管理
 /clients/[id]/ledgers     - 帳簿閲覧
-/clients/[id]/statements  - 試算表・財務諸表
+/clients/[id]/statements  - 試算表・財務諸表（棚卸表含む）
+/clients/[id]/accounts    - 勘定科目管理
+/clients/[id]/allocations - 家事按分設定
 /clients/[id]/tax         - 消費税計算
 /clients/[id]/closing     - 決算処理
 /clients/[id]/assets      - 固定資産台帳
 /clients/[id]/invoices    - 請求書管理
 /clients/[id]/payments    - 入金消込
 /clients/[id]/partners    - 取引先管理
-/clients/[id]/accounts    - 勘定科目管理
+/clients/[id]/questions   - 質問管理
+/clients/[id]/card-transactions - カード取引
+/clients/[id]/bank-transactions - 口座取引（現在サイドバー非表示）
+/clients/[id]/audit       - 監査ログ
 /settings            - 事務所設定
 ```
 

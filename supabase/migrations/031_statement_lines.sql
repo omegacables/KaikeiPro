@@ -38,6 +38,12 @@ CREATE INDEX IF NOT EXISTS idx_statement_lines_journal ON statement_lines(journa
 -- ============================================================================
 ALTER TABLE statement_lines ENABLE ROW LEVEL SECURITY;
 
+-- 再実行可能にするため既存ポリシーを削除してから作成（CREATE POLICY は IF NOT EXISTS 非対応）
+DROP POLICY IF EXISTS "statement_lines_select" ON statement_lines;
+DROP POLICY IF EXISTS "statement_lines_insert" ON statement_lines;
+DROP POLICY IF EXISTS "statement_lines_update" ON statement_lines;
+DROP POLICY IF EXISTS "statement_lines_delete" ON statement_lines;
+
 CREATE POLICY "statement_lines_select" ON statement_lines FOR SELECT
     USING (client_id IN (SELECT get_user_client_ids()));
 CREATE POLICY "statement_lines_insert" ON statement_lines FOR INSERT

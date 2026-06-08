@@ -86,6 +86,7 @@ export default function JournalsPage() {
   const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number } | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   const addReceiptFiles = (files: FileList | File[]) => {
     const arr = Array.from(files);
@@ -104,6 +105,8 @@ export default function JournalsPage() {
 
   const handleReceiptFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files) addReceiptFiles(e.target.files);
+    // 同じファイル/写真を続けて選択できるよう値をリセット
+    e.target.value = "";
   };
 
   const handleRemoveReceiptItem = (itemId: string) => {
@@ -121,6 +124,7 @@ export default function JournalsPage() {
     setReceiptItems([]);
     setReceiptSummary(null);
     if (receiptInputRef.current) receiptInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
   };
 
   const handleReceiptDragOver = useCallback((e: React.DragEvent) => {
@@ -691,6 +695,15 @@ export default function JournalsPage() {
             onChange={handleReceiptFileSelect}
             className="hidden"
           />
+          {/* モバイルのカメラ撮影用（capture でリアカメラを起動） */}
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            onChange={handleReceiptFileSelect}
+            className="hidden"
+          />
 
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 min-w-0">
@@ -709,7 +722,7 @@ export default function JournalsPage() {
                 onDrop={handleReceiptDrop}
               >
                 <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                  <Camera className="size-5" />
+                  <Upload className="size-5" />
                 </div>
                 <div>
                   <p className="text-sm font-medium text-foreground">
@@ -722,6 +735,16 @@ export default function JournalsPage() {
                   </p>
                 </div>
               </div>
+
+              {/* 写真を撮る（スマホでカメラ起動。PCでもファイル選択にフォールバック） */}
+              <button
+                type="button"
+                onClick={() => cameraInputRef.current?.click()}
+                className="mt-2 w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-primary/40 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/10 transition-colors sm:hidden"
+              >
+                <Camera className="size-4" />
+                写真を撮る
+              </button>
 
               {/* ファイル一覧 */}
               {receiptItems.length > 0 && (
@@ -1400,7 +1423,8 @@ export default function JournalsPage() {
             {(() => {
               const maxRows = Math.max(debitLines.length, creditLines.length);
               return (
-                <table className="w-full text-sm mb-4">
+                <div className="overflow-x-auto -mx-2 px-2 mb-4">
+                <table className="w-full text-sm min-w-[640px]">
                   <thead>
                     <tr className="border-b-2 border-border">
                       <th rowSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground border-r border-border w-[120px]">日付</th>
@@ -1555,6 +1579,7 @@ export default function JournalsPage() {
                     </tr>
                   </tbody>
                 </table>
+                </div>
               );
             })()}
 
