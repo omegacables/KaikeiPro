@@ -221,6 +221,11 @@ export function InvoicesPageContent({
     setIssuingId(invoiceId);
     try {
       await issueInvoiceWithJournal(invoiceId);
+      // 発行（売上）はインボイス対応プレビューを即座に表示
+      if (dir === "sales") {
+        router.push(`/clients/${id}/invoices/print/${invoiceId}`);
+        return;
+      }
       refetch();
     } catch (err) {
       alert(err instanceof Error ? err.message : "計上に失敗しました");
