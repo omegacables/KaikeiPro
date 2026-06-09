@@ -138,7 +138,7 @@ export default function PartnersPage() {
       });
       setShowNewForm(false);
       setNewPartner({ name: "", type: "customer", telephone: "", email: "", address: "", invoice_registration_number: "" });
-      window.location.reload();
+      refetch();
     } catch (err) {
       alert(err instanceof Error ? err.message : "登録に失敗しました");
     } finally {

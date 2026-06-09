@@ -312,7 +312,8 @@ export function InvoicesPageContent({
           tax_amount: Math.floor(item.quantity * item.unit_price * item.tax_rate / 100),
         }))
       );
-      window.location.reload();
+      setShowNewForm(false);
+      refetch();
     } catch (e) {
       alert(e instanceof Error ? e.message : "請求書の作成に失敗しました");
     } finally {
