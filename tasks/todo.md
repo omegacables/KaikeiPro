@@ -295,3 +295,35 @@
 
 ### ⚠️ デプロイ前の手動作業（追加）
 - `035_journal_review_status.sql` を Supabase SQL エディタで適用（③④⑦ は migration 不要）。
+
+---
+
+## 帳票機能の拡充（2026-06-09）
+
+### Part A 帳票管理の3タブ再編＋インボイス対応請求書 ✅ デプロイ済（commit c5c3a06）
+- [x] documents ページを「領収書・請求書（発行）／（受領）／明細書」の3タブに再編（請求書＋領収書を見出し付きで統合）
+- [x] 発行タブから請求書を新規作成→「発行・計上」で売掛金（未回収金）計上（既存 createInvoice / issueInvoiceWithJournal を活用）
+- [x] `getInvoicePrintData` 追加（発行者・取引先・明細・税率別集計を返す）
+- [x] `/clients/[id]/invoices/print/[invoiceId]` インボイス対応A4印刷請求書（発行者登録番号・税率別の対価/消費税額、@media print で印刷、PDF化）
+- [x] 一覧（売上）に「印刷」ボタン追加
+- [x] tsc=0 / build 成功 → main push（Vercel自動デプロイ）
+
+### Part B 表紙付き決算書の出力 ✅（未デプロイ）
+- [x] 決算書の必要書類を整理（表紙・BS・PL・株主資本等変動計算書・個別注記表・販管費明細）
+- [x] `src/actions/settlement-report.ts`（getSettlementReport: 当期＋前期試算表からBS/PL/株主資本等変動/注記/販管費明細を構築。会社情報＝clients、作成者＝firms）
+- [x] `/clients/[id]/statements/report/[year]` 多ページA4決算書（表紙＋BS＋PL＋株主資本等変動計算書＋個別注記表＋販管費明細、page-break、@media print）
+- [x] statements ページ 決算書タブ：画面そのまま印刷（printPage）を廃止し「表紙付き決算書を出力」ボタンで専用帳票へ遷移。決算書タブでは上部の画面印刷ボタンも非表示
+- [x] tsc=0 / build 成功
+- 注: 個別注記表は定型文ベース（会計方針・消費税処理）。株主資本等変動は資本金/利益剰余金/その他の3区分＋当期純利益振替。
+
+---
+
+## メニュー整理・会社書類のプライバシー強化（2026-06-10 / 未デプロイ）
+- [x] 仕訳レビュー(review)・AI仕訳チェック(check)・証憑検索(document-search) のページ＋アクションを削除
+- [x] 顧問先ごとの「設定」ページ `/clients/[id]/settings` を新設。消費税計算・会社書類・監査ログをタブ集約
+      （tax/audit/company-documents の各ページを useParams 化して埋め込み。単独ルートも維持）
+- [x] サイドバー clientNav を整理（21→15項目）。tax/audit/company-documents/questions を撤去し「設定」1項目に集約。未使用アイコンimport削除
+- [x] ヘッダーに「チャット（質問管理）」ボタンを追加（顧問先表示中のみ /questions へ遷移）。質問管理はサイドバーから撤去
+- [x] 会社書類ページに機密案内を追加：AIに送信/学習させない、SHA-256で真実性保護、非公開ストレージ＋RLS＋署名付きURL限定。技術的にもAI処理は一切なし（company-documents.ts はストレージ保存のみ）
+- [x] 給与台帳の「給与を追加」ボタン等を shrink-0 / whitespace-nowrap で改行防止
+- [x] tsc=0 / build 成功（.next 再生成後）

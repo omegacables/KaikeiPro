@@ -13,7 +13,6 @@ import {
   Building2,
   BookOpen,
   BarChart3,
-  Percent,
   Archive,
   CreditCard,
   Wallet,
@@ -21,17 +20,11 @@ import {
   Banknote,
   Landmark,
   Scale,
-  FolderArchive,
-  ClipboardCheck,
-  ShieldAlert,
   ListChecks,
-  FileSearch,
   LogOut,
   ChevronDown,
   Loader2,
   ShieldCheck,
-  Shield,
-  MessageSquare,
   FileCheck,
   Home,
   X,
@@ -46,16 +39,11 @@ type ClientOption = { id: string; name: string };
 
 const clientNav = [
   { href: "/journals", label: "仕訳入力", icon: Calculator },
-  { href: "/review", label: "仕訳レビュー", icon: ClipboardCheck },
-  { href: "/check", label: "AI仕訳チェック", icon: ShieldAlert },
   { href: "/documents", label: "証憑管理", icon: FileCheck },
-  { href: "/document-search", label: "証憑検索（電帳法）", icon: FileSearch },
-  { href: "/company-documents", label: "会社書類", icon: FolderArchive },
   { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
   { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
   { href: "/accounts", label: "勘定科目管理", icon: FileText },
   { href: "/allocations", label: "家事按分設定", icon: Home },
-  { href: "/tax", label: "消費税計算", icon: Percent },
   { href: "/closing", label: "決算処理", icon: Archive },
   { href: "/closing-checklist", label: "決算前チェック", icon: ListChecks },
   { href: "/opening-balances", label: "期首残高設定", icon: Scale },
@@ -66,8 +54,8 @@ const clientNav = [
   // { href: "/bank-transactions", label: "口座取引", icon: Banknote },
   { href: "/card-transactions", label: "カード取引", icon: CreditCard },
   { href: "/partners", label: "取引先管理", icon: Handshake },
-  { href: "/questions", label: "質問管理", icon: MessageSquare },
-  { href: "/audit", label: "監査ログ", icon: Shield },
+  // 消費税計算・会社書類・監査ログ は「設定」ページに集約
+  { href: "/settings", label: "設定", icon: Settings },
 ];
 
 export function Sidebar() {

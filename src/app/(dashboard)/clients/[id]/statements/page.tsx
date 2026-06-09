@@ -987,6 +987,8 @@ function SettlementReport({
   clientId?: string;
 }) {
   const hasData = data.length > 0;
+  const reportRouter = useRouter();
+  const reportYear = Number(fiscalYearStart.slice(0, 4));
 
   function handleCsv() {
     const rows: (string | number)[][] = [];
@@ -1035,9 +1037,16 @@ function SettlementReport({
           <FileSpreadsheet className="size-4" />
           CSV出力
         </Button>
-        <Button variant="outline" size="sm" onClick={() => printPage()}>
+        <Button
+          size="sm"
+          onClick={() =>
+            clientId &&
+            reportRouter.push(`/clients/${clientId}/statements/report/${reportYear}`)
+          }
+          disabled={!clientId}
+        >
           <FileText className="size-4" />
-          PDF出力
+          表紙付き決算書を出力
         </Button>
       </div>
 
@@ -1210,10 +1219,12 @@ export default function StatementsPage() {
             クライアントID: {id}
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={() => printPage()}>
-          <FileText className="size-4" />
-          PDF出力
-        </Button>
+        {activeTab !== "settlement" && (
+          <Button variant="outline" size="sm" onClick={() => printPage()}>
+            <FileText className="size-4" />
+            PDF出力
+          </Button>
+        )}
       </div>
 
       {/* Tabs */}

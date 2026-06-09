@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, HelpCircle, Sun, Moon, Menu } from "lucide-react";
+import { Bell, HelpCircle, Sun, Moon, Menu, MessageSquare } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useMobileNav } from "@/components/layout/mobile-nav";
@@ -25,10 +25,7 @@ const pageTitles: Record<string, string> = {
 
 const clientSubPageTitles: Record<string, string> = {
   journals: "仕訳入力",
-  review: "仕訳レビュー",
-  check: "AI仕訳チェック",
   documents: "証憑管理",
-  "document-search": "証憑検索（電帳法）",
   receipts: "領収書管理",
   ledgers: "帳簿閲覧",
   statements: "試算表・財務諸表",
@@ -45,7 +42,9 @@ const clientSubPageTitles: Record<string, string> = {
   "bank-transactions": "口座取引",
   "card-transactions": "カード取引",
   partners: "取引先管理",
+  questions: "質問管理",
   audit: "監査ログ",
+  settings: "設定",
 };
 
 function getPageTitle(pathname: string): string {
@@ -194,6 +193,10 @@ export function Header() {
 
   const pageTitle = getPageTitle(pathname);
 
+  // 現在の顧問先ID（チャット=質問管理への導線に使用）
+  const clientMatch = pathname.match(/^\/clients\/([^/]+)/);
+  const currentClientId = clientMatch ? clientMatch[1] : null;
+
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between bg-card/80 backdrop-blur-md border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
       <div className="flex items-center gap-2 sm:gap-4 min-w-0">
@@ -212,6 +215,16 @@ export function Header() {
       <div className="flex items-center gap-2 sm:gap-6">
         {/* Action buttons */}
         <div className="flex gap-1 sm:gap-2">
+          {/* チャット（質問管理）: 顧問先を開いているときのみ */}
+          {currentClientId && (
+            <button
+              onClick={() => router.push(`/clients/${currentClientId}/questions`)}
+              className="p-2 rounded-lg bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
+              title="質問・チャット"
+            >
+              <MessageSquare className="size-5" />
+            </button>
+          )}
           <button
             onClick={handleToggleTheme}
             className="p-2 rounded-lg bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"

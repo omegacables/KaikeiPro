@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useCallback, use, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { useParams } from "next/navigation";
 import {
   FolderArchive,
   Plus,
@@ -11,6 +12,7 @@ import {
   Download,
   FileText,
   Upload,
+  ShieldCheck,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -50,12 +52,8 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export default function CompanyDocumentsPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
-  const { id } = use(params);
+export default function CompanyDocumentsPage() {
+  const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [docs, setDocs] = useState<CompanyDocument[]>([]);
   const [loading, setLoading] = useState(true);
@@ -193,6 +191,17 @@ export default function CompanyDocumentsPage({
       <p className="text-sm text-muted-foreground">
         定款・登記簿謄本・税務署等への届出控え・許認可など、取引に紐づかない会社の参照書類を保管します（PDF / JPG / PNG・最大10MB）。
       </p>
+
+      {/* 機密性に関する案内 */}
+      <div className="flex items-start gap-2 p-3 rounded-lg bg-primary/5 border border-primary/20 text-xs text-muted-foreground">
+        <ShieldCheck className="size-4 shrink-0 mt-0.5 text-primary" />
+        <div className="space-y-0.5">
+          <p className="font-medium text-foreground">機密書類の取り扱い</p>
+          <p>
+            会社書類は<strong>AI（OCR・自動仕訳）には一切送信されず、学習にも利用されません</strong>。アップロード時にSHA-256ハッシュで真実性を保護し、ファイルは非公開ストレージに保存、閲覧は顧問先単位のアクセス制御（RLS）と一時的な署名付きURLに限定されます。
+          </p>
+        </div>
+      </div>
 
       {error && (
         <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
