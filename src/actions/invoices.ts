@@ -39,6 +39,126 @@ export async function getInvoice(id: string) {
   return data;
 }
 
+// ---------------------------------------------------------------------------
+// インボイス対応 請求書の印刷用データ
+// ---------------------------------------------------------------------------
+
+export interface InvoicePrintItem {
+  item_name: string;
+  quantity: number;
+  unit_price: number;
+  tax_rate: number;
+  amount: number; // 税抜金額（数量×単価）
+}
+
+export interface InvoiceTaxBreakdownRow {
+  rate: number; // 税率（%）
+  base: number; // 税率ごとの対価合計（税抜）
+  tax: number; // 税率ごとの消費税額
+}
+
+export interface InvoicePrintData {
+  invoiceNumber: string;
+  issuedDate: string;
+  dueDate: string | null;
+  direction: "sales" | "purchase";
+  subtotal: number;
+  taxAmount: number;
+  totalAmount: number;
+  issuer: {
+    name: string;
+    postalCode: string | null;
+    address: string | null;
+    telephone: string | null;
+    registrationNumber: string | null;
+  };
+  partner: {
+    name: string;
+    postalCode: string | null;
+    address: string | null;
+  };
+  items: InvoicePrintItem[];
+  taxBreakdown: InvoiceTaxBreakdownRow[];
+}
+
+export async function getInvoicePrintData(
+  invoiceId: string
+): Promise<InvoicePrintData> {
+  const supabase = await createServerSupabaseClient();
+  const { data: inv, error } = await supabase
+    .from("invoices")
+    .select(
+      `*, business_partners:business_partner_id ( * ), invoice_items ( * )`
+    )
+    .eq("id", invoiceId)
+    .single();
+  if (error) throw new Error(error.message);
+
+  type Row = Record<string, unknown>;
+  const row = inv as Row;
+  const clientId = row.client_id as string;
+
+  // 発行者（顧問先）情報
+  const { data: client } = await supabase
+    .from("clients")
+    .select("name, postal_code, address, telephone, invoice_registration_number")
+    .eq("id", clientId)
+    .single();
+  const c = (client as Row | null) ?? {};
+
+  const partner = (row.business_partners as Row | null) ?? {};
+
+  const rawItems = ((row.invoice_items as Row[]) ?? []).slice().sort(
+    (a, b) => ((a.sort_order as number) ?? 0) - ((b.sort_order as number) ?? 0)
+  );
+  const items: InvoicePrintItem[] = rawItems.map((it) => ({
+    item_name: (it.item_name as string) ?? "",
+    quantity: (it.quantity as number) ?? 0,
+    unit_price: (it.unit_price as number) ?? 0,
+    tax_rate: (it.tax_rate as number) ?? 0,
+    amount: ((it.quantity as number) ?? 0) * ((it.unit_price as number) ?? 0),
+  }));
+
+  // 税率ごとに区分（適格請求書の記載要件）
+  const byRate = new Map<number, { base: number; tax: number }>();
+  for (const it of rawItems) {
+    const rate = (it.tax_rate as number) ?? 0;
+    const base = ((it.quantity as number) ?? 0) * ((it.unit_price as number) ?? 0);
+    const tax = (it.tax_amount as number) ?? Math.floor((base * rate) / 100);
+    const cur = byRate.get(rate) ?? { base: 0, tax: 0 };
+    cur.base += base;
+    cur.tax += tax;
+    byRate.set(rate, cur);
+  }
+  const taxBreakdown: InvoiceTaxBreakdownRow[] = Array.from(byRate.entries())
+    .map(([rate, v]) => ({ rate, base: v.base, tax: v.tax }))
+    .sort((a, b) => b.rate - a.rate);
+
+  return {
+    invoiceNumber: (row.invoice_number as string) ?? "",
+    issuedDate: (row.issued_date as string) ?? "",
+    dueDate: (row.due_date as string) ?? null,
+    direction: ((row.direction as "sales" | "purchase") ?? "sales"),
+    subtotal: (row.subtotal as number) ?? 0,
+    taxAmount: (row.tax_amount as number) ?? 0,
+    totalAmount: (row.total_amount as number) ?? 0,
+    issuer: {
+      name: (c.name as string) ?? "",
+      postalCode: (c.postal_code as string) ?? null,
+      address: (c.address as string) ?? null,
+      telephone: (c.telephone as string) ?? null,
+      registrationNumber: (c.invoice_registration_number as string) ?? null,
+    },
+    partner: {
+      name: (partner.name as string) ?? "",
+      postalCode: (partner.postal_code as string) ?? null,
+      address: (partner.address as string) ?? null,
+    },
+    items,
+    taxBreakdown,
+  };
+}
+
 export async function createInvoice(
   invoice: InvoiceInsert,
   items: Omit<InvoiceItemInsert, "invoice_id">[]

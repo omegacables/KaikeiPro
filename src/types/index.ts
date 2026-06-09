@@ -402,3 +402,112 @@ export interface ClientSummary {
   last_activity?: string;
   fiscal_year_end?: string;
 }
+
+// ---------------------------------------------------------------------------
+// 給与台帳（給与・役員報酬）
+// ---------------------------------------------------------------------------
+export type EmployeeType = "employee" | "officer";
+export type PayrollStatus = "pending" | "journalized";
+
+export interface PayrollRecord {
+  id: string;
+  client_id: string;
+  pay_month: string; // YYYY-MM-01
+  pay_date: string | null;
+  employee_name: string;
+  employee_type: EmployeeType;
+  gross_salary: number;
+  income_tax: number;
+  resident_tax: number;
+  health_insurance: number;
+  pension_insurance: number;
+  employment_insurance: number;
+  other_deduction: number;
+  net_pay: number;
+  salary_account_id: string | null;
+  withholding_account_id: string | null;
+  payment_account_id: string | null;
+  journal_entry_id: string | null;
+  status: PayrollStatus;
+  memo: string | null;
+  created_at: string;
+}
+
+export type PayrollInput = Omit<
+  PayrollRecord,
+  "id" | "net_pay" | "journal_entry_id" | "status" | "created_at"
+>;
+
+// ---------------------------------------------------------------------------
+// 借入金台帳（借入金・役員借入金）
+// ---------------------------------------------------------------------------
+export type LoanType = "borrowing" | "officer";
+export type LoanStatus = "active" | "completed";
+export type LoanRepaymentStatus = "pending" | "journalized";
+
+export interface Loan {
+  id: string;
+  client_id: string;
+  lender_name: string;
+  loan_type: LoanType;
+  principal: number;
+  current_balance: number;
+  interest_rate: number | null;
+  borrowed_date: string | null;
+  liability_account_id: string | null;
+  status: LoanStatus;
+  memo: string | null;
+  created_at: string;
+}
+
+export type LoanInput = Omit<
+  Loan,
+  "id" | "current_balance" | "status" | "created_at"
+> & { current_balance?: number };
+
+export interface LoanRepayment {
+  id: string;
+  loan_id: string;
+  client_id: string;
+  repayment_date: string;
+  principal_amount: number;
+  interest_amount: number;
+  payment_account_id: string | null;
+  interest_account_id: string | null;
+  journal_entry_id: string | null;
+  status: LoanRepaymentStatus;
+  memo: string | null;
+  created_at: string;
+}
+
+export type LoanRepaymentInput = Omit<
+  LoanRepayment,
+  "id" | "journal_entry_id" | "status" | "created_at"
+>;
+
+// ---------------------------------------------------------------------------
+// 会社書類管理（定款・登記簿・届出控え等）
+// ---------------------------------------------------------------------------
+export type CompanyDocType =
+  | "articles" // 定款
+  | "registry" // 登記簿謄本
+  | "tax_filing" // 税務署等への届出控え
+  | "license" // 許認可
+  | "other"; // その他
+
+export interface CompanyDocument {
+  id: string;
+  client_id: string;
+  doc_type: CompanyDocType;
+  title: string;
+  file_path: string;
+  original_filename: string | null;
+  file_size: number | null;
+  mime_type: string | null;
+  file_hash: string | null;
+  hash_algorithm: string | null;
+  issued_date: string | null;
+  memo: string | null;
+  uploaded_by: string | null;
+  created_at: string;
+}

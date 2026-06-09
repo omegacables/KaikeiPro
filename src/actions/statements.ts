@@ -4,6 +4,7 @@ import { createAdminSupabaseClient } from "@/lib/supabase";
 import type { PlClassification } from "@/types/database";
 
 export interface TrialBalanceRow {
+  id: string;
   code: string;
   name: string;
   prevBalance: number;     // 前期繰越残高（借方プラスの符号付き）
@@ -138,6 +139,7 @@ export async function getTrialBalance(
         : null;
 
     rows.push({
+      id: acct.id,
       code: acct.code,
       name: acct.name,
       prevBalance,

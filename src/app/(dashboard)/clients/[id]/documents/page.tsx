@@ -2,31 +2,30 @@
 
 import { useState } from "react";
 import { useParams } from "next/navigation";
-import { FileCheck, Receipt, FileText, Clock, FileSpreadsheet } from "lucide-react";
+import { FileCheck, Receipt, FileText, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { ReceiptsPageContent } from "../receipts/page";
 import { InvoicesPageContent } from "../invoices/page";
 
-type DocumentTab =
-  | "processing"
-  | "receipts_received"
-  | "receipts_issued"
-  | "statements"
-  | "invoices_purchase"
-  | "invoices_sales";
+type DocumentTab = "issued" | "received" | "statements";
 
 const tabs: { key: DocumentTab; label: string; icon: typeof Receipt }[] = [
-  { key: "receipts_received", label: "領収書（受領）", icon: Receipt },
-  { key: "receipts_issued", label: "領収書（発行）", icon: Receipt },
+  { key: "issued", label: "領収書・請求書（発行）", icon: FileText },
+  { key: "received", label: "領収書・請求書（受領）", icon: Receipt },
   { key: "statements", label: "明細書", icon: FileSpreadsheet },
-  { key: "invoices_purchase", label: "請求書（受領）", icon: FileText },
-  { key: "invoices_sales", label: "請求書（発行）", icon: FileText },
-  { key: "processing", label: "処理中", icon: Clock },
 ];
+
+function SectionHeading({ children }: { children: React.ReactNode }) {
+  return (
+    <h2 className="text-base font-bold text-foreground border-l-4 border-primary pl-3 mb-4 mt-2">
+      {children}
+    </h2>
+  );
+}
 
 export default function DocumentsPage() {
   const { id } = useParams<{ id: string }>();
-  const [activeTab, setActiveTab] = useState<DocumentTab>("receipts_received");
+  const [activeTab, setActiveTab] = useState<DocumentTab>("issued");
 
   return (
     <>
@@ -35,10 +34,10 @@ export default function DocumentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <FileCheck className="size-6 text-primary" />
-            証憑管理
+            帳票管理
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            領収書・請求書を「発行（自社）／受領（取引先）」で分けて管理
+            領収書・請求書を「発行（自社）／受領（取引先）」に分けて管理。発行タブから請求書を新規作成・発行できます。
           </p>
         </div>
       </div>
@@ -62,13 +61,47 @@ export default function DocumentsPage() {
         ))}
       </div>
 
-      {/* Content */}
-      {activeTab === "receipts_received" && <ReceiptsPageContent hideHeader lockedDirection="received" hideProcessingSection excludeDocTypes={["statement"]} />}
-      {activeTab === "receipts_issued" && <ReceiptsPageContent hideHeader lockedDirection="issued" hideProcessingSection excludeDocTypes={["statement"]} />}
-      {activeTab === "statements" && <ReceiptsPageContent hideHeader lockedDocType="statement" hideProcessingSection />}
-      {activeTab === "invoices_purchase" && <InvoicesPageContent hideHeader lockedDirection="purchase" />}
-      {activeTab === "invoices_sales" && <InvoicesPageContent hideHeader lockedDirection="sales" />}
-      {activeTab === "processing" && <ReceiptsPageContent hideHeader processingOnly />}
+      {/* ===== 発行（自社）: 請求書 + 領収書 ===== */}
+      {activeTab === "issued" && (
+        <div className="space-y-10">
+          <section>
+            <SectionHeading>請求書（発行）</SectionHeading>
+            <InvoicesPageContent hideHeader lockedDirection="sales" />
+          </section>
+          <section>
+            <SectionHeading>領収書（発行）</SectionHeading>
+            <ReceiptsPageContent
+              hideHeader
+              lockedDirection="issued"
+              hideProcessingSection
+              excludeDocTypes={["statement"]}
+            />
+          </section>
+        </div>
+      )}
+
+      {/* ===== 受領（取引先）: 請求書 + 領収書 ===== */}
+      {activeTab === "received" && (
+        <div className="space-y-10">
+          <section>
+            <SectionHeading>請求書（受領）</SectionHeading>
+            <InvoicesPageContent hideHeader lockedDirection="purchase" />
+          </section>
+          <section>
+            <SectionHeading>領収書（受領）</SectionHeading>
+            <ReceiptsPageContent
+              hideHeader
+              lockedDirection="received"
+              excludeDocTypes={["statement"]}
+            />
+          </section>
+        </div>
+      )}
+
+      {/* ===== 明細書 ===== */}
+      {activeTab === "statements" && (
+        <ReceiptsPageContent hideHeader lockedDocType="statement" hideProcessingSection />
+      )}
     </>
   );
 }

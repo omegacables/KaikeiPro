@@ -1,10 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   FileText,
   Plus,
+  Printer,
   Search,
   AlertCircle,
   Clock,
@@ -121,6 +122,7 @@ export function InvoicesPageContent({
   lockedDirection?: Direction;
 }) {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
 
   const [activeStatus, setActiveStatus]   = useState<InvoiceStatus>("all");
   const [searchQuery, setSearchQuery]     = useState("");
@@ -539,6 +541,12 @@ export function InvoicesPageContent({
               </div>
             </div>
 
+            {newInvoice.direction === "sales" && (
+              <p className="mt-3 text-xs text-muted-foreground">
+                ※ 作成後、一覧の「発行・計上」で売掛金（未回収金）として計上され、「印刷」からインボイス（適格請求書）対応のレイアウトでPDF出力できます。
+              </p>
+            )}
+
             <div className="mt-4 flex gap-2 justify-end">
               <Button variant="ghost" onClick={() => setShowNewForm(false)}>キャンセル</Button>
               <Button onClick={handleCreateInvoice} disabled={saving || !newInvoice.invoice_number || !newInvoice.business_partner_id}>
@@ -774,26 +782,38 @@ export function InvoicesPageContent({
                         return <Badge variant={rs.variant}>{rs.label}</Badge>;
                       })() : <span className="text-muted-foreground text-xs">-</span>}
                     </td>
-                    {/* アクション: 発行ビュー→発行・計上ボタン、受領ビュー→計上ボタン */}
+                    {/* アクション: 発行・計上 / 計上 / 印刷 */}
                     <td className="px-4 py-3 text-center">
-                      {inv.status === "draft" && !isPurchaseInv && (
-                        <Button size="sm" variant="outline" disabled={issuingId === inv.id}
-                          onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id, inv.direction); }}
-                          className="text-xs gap-1"
-                        >
-                          {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-                          発行・計上
-                        </Button>
-                      )}
-                      {(inv.status === "draft" || inv.status === "issued") && isPurchaseInv && (
-                        <Button size="sm" variant="outline" disabled={issuingId === inv.id}
-                          onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id, inv.direction); }}
-                          className="text-xs gap-1 border-accent/50 text-accent hover:bg-accent/10"
-                        >
-                          {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
-                          計上
-                        </Button>
-                      )}
+                      <div className="flex items-center justify-center gap-1">
+                        {inv.status === "draft" && !isPurchaseInv && (
+                          <Button size="sm" variant="outline" disabled={issuingId === inv.id}
+                            onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id, inv.direction); }}
+                            className="text-xs gap-1"
+                          >
+                            {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
+                            発行・計上
+                          </Button>
+                        )}
+                        {(inv.status === "draft" || inv.status === "issued") && isPurchaseInv && (
+                          <Button size="sm" variant="outline" disabled={issuingId === inv.id}
+                            onClick={(e) => { e.stopPropagation(); handleIssueInvoice(inv.id, inv.direction); }}
+                            className="text-xs gap-1 border-accent/50 text-accent hover:bg-accent/10"
+                          >
+                            {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
+                            計上
+                          </Button>
+                        )}
+                        {!isPurchaseInv && (
+                          <Button size="sm" variant="ghost"
+                            onClick={(e) => { e.stopPropagation(); router.push(`/clients/${id}/invoices/print/${inv.id}`); }}
+                            className="text-xs gap-1"
+                            title="インボイス対応の請求書を印刷 / PDF保存"
+                          >
+                            <Printer className="size-3.5" />
+                            印刷
+                          </Button>
+                        )}
+                      </div>
                     </td>
                     {/* 削除 */}
                     <td className="px-4 py-3 text-center">
