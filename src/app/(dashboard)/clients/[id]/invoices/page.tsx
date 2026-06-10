@@ -144,7 +144,7 @@ export function InvoicesPageContent({
     direction: (lockedDirection ?? "sales") as Direction,
   });
   const [newItems, setNewItems] = useState([
-    { description: "", quantity: 1, unit_price: 0, tax_rate: 10 },
+    { description: "", quantity: 1, unit_price: 0, tax_rate: 10, transaction_date: "" },
   ]);
 
   // ---- Derived direction context ----
@@ -282,7 +282,7 @@ export function InvoicesPageContent({
     finally { setImporting(false); }
   };
 
-  const addItem    = () => setNewItems((prev) => [...prev, { description: "", quantity: 1, unit_price: 0, tax_rate: 10 }]);
+  const addItem    = () => setNewItems((prev) => [...prev, { description: "", quantity: 1, unit_price: 0, tax_rate: 10, transaction_date: "" }]);
   const removeItem = (idx: number) => setNewItems((prev) => prev.filter((_, i) => i !== idx));
   const updateItem = (idx: number, field: string, value: string | number) =>
     setNewItems((prev) => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)));
@@ -315,6 +315,8 @@ export function InvoicesPageContent({
           tax_rate: item.tax_rate,
           subtotal: item.quantity * item.unit_price,
           tax_amount: Math.floor(item.quantity * item.unit_price * item.tax_rate / 100),
+          transaction_date:
+            item.transaction_date || newInvoice.issued_date || null,
         }))
       );
       setShowNewForm(false);
@@ -480,6 +482,7 @@ export function InvoicesPageContent({
             <table className="w-full text-sm mb-4">
               <thead>
                 <tr className="border-b border-border">
+                  <th className="text-left py-2 text-xs font-bold text-muted-foreground w-36">取引年月日</th>
                   <th className="text-left py-2 text-xs font-bold text-muted-foreground">品目</th>
                   <th className="text-right py-2 text-xs font-bold text-muted-foreground w-20">数量</th>
                   <th className="text-right py-2 text-xs font-bold text-muted-foreground w-32">単価</th>
@@ -491,6 +494,12 @@ export function InvoicesPageContent({
               <tbody>
                 {newItems.map((item, idx) => (
                   <tr key={idx} className="border-b border-border/50">
+                    <td className="py-2 pr-2">
+                      <input type="date" value={item.transaction_date}
+                        onChange={(e) => updateItem(idx, "transaction_date", e.target.value)}
+                        className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
+                      />
+                    </td>
                     <td className="py-2 pr-2">
                       <input type="text" value={item.description}
                         onChange={(e) => updateItem(idx, "description", e.target.value)}

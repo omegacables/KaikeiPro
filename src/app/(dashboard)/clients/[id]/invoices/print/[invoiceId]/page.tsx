@@ -136,6 +136,7 @@ export default function InvoicePrintPage({
         <table className="w-full text-sm border-collapse mb-6">
           <thead>
             <tr className="bg-gray-100">
+              <th className="border border-gray-400 px-2 py-1.5 text-left w-28">取引年月日</th>
               <th className="border border-gray-400 px-2 py-1.5 text-left">品目</th>
               <th className="border border-gray-400 px-2 py-1.5 text-right w-16">数量</th>
               <th className="border border-gray-400 px-2 py-1.5 text-right w-24">単価</th>
@@ -146,6 +147,7 @@ export default function InvoicePrintPage({
           <tbody>
             {data.items.map((it, i) => (
               <tr key={i}>
+                <td className="border border-gray-400 px-2 py-1.5">{it.transaction_date ?? ""}</td>
                 <td className="border border-gray-400 px-2 py-1.5">{it.item_name}</td>
                 <td className="border border-gray-400 px-2 py-1.5 text-right tabular-nums">{it.quantity}</td>
                 <td className="border border-gray-400 px-2 py-1.5 text-right tabular-nums">{formatCurrency(it.unit_price)}</td>
@@ -158,6 +160,7 @@ export default function InvoicePrintPage({
               Array.from({ length: 5 - data.items.length }).map((_, i) => (
                 <tr key={`empty-${i}`}>
                   <td className="border border-gray-400 px-2 py-1.5">&nbsp;</td>
+                  <td className="border border-gray-400 px-2 py-1.5"></td>
                   <td className="border border-gray-400 px-2 py-1.5"></td>
                   <td className="border border-gray-400 px-2 py-1.5"></td>
                   <td className="border border-gray-400 px-2 py-1.5"></td>

@@ -49,6 +49,7 @@ export interface InvoicePrintItem {
   unit_price: number;
   tax_rate: number;
   amount: number; // 税抜金額（数量×単価）
+  transaction_date: string | null; // 取引年月日
 }
 
 export interface InvoiceTaxBreakdownRow {
@@ -117,6 +118,7 @@ export async function getInvoicePrintData(
     unit_price: (it.unit_price as number) ?? 0,
     tax_rate: (it.tax_rate as number) ?? 0,
     amount: ((it.quantity as number) ?? 0) * ((it.unit_price as number) ?? 0),
+    transaction_date: (it.transaction_date as string) ?? null,
   }));
 
   // 税率ごとに区分（適格請求書の記載要件）

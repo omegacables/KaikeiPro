@@ -1075,6 +1075,7 @@ export interface Database {
           tax_rate: number;
           subtotal: number;
           tax_amount: number;
+          transaction_date: string | null;
         };
         Insert: {
           id?: string;
@@ -1086,6 +1087,7 @@ export interface Database {
           tax_rate?: number;
           subtotal?: number;
           tax_amount?: number;
+          transaction_date?: string | null;
         };
         Update: {
           id?: string;
@@ -1097,6 +1099,7 @@ export interface Database {
           tax_rate?: number;
           subtotal?: number;
           tax_amount?: number;
+          transaction_date?: string | null;
         };
         Relationships: [];
       };
