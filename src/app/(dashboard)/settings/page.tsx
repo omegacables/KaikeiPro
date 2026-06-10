@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Building2,
   Users,
@@ -28,6 +28,7 @@ import {
   EyeOff,
   Package,
   User,
+  Camera,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,6 +47,8 @@ import {
 import { getClients, getClient, updateClient } from "@/actions/clients";
 import { getCurrentFirm, updateFirm, getFirms, getFirmMembers, inviteFirmMember, updateFirmMember, isSelfServiceFirm } from "@/actions/firms";
 import { useAuth } from "@/components/providers/auth-provider";
+import { uploadAvatar, removeAvatar } from "@/actions/profile";
+import { getInitials } from "@/lib/utils";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { runFullRaqtoSync, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { getRaqtoIntegrations, linkRaqtoAccount, unlinkRaqtoAccount, type RaqtoIntegrationWithClient } from "@/actions/raqto-integration";
@@ -245,10 +248,45 @@ function maskApiKey(key: string): string {
 }
 
 export default function SettingsPage() {
-  const { user } = useAuth();
+  const { user, rawUser } = useAuth();
   const isClient = user?.role === "client";
   const tabs = isClient ? clientTabs : firmTabs;
   const [activeTab, setActiveTab] = useState("firm");
+
+  // プロフィールアイコン（アバター）
+  const avatarInputRef = useRef<HTMLInputElement>(null);
+  const [avatarBusy, setAvatarBusy] = useState(false);
+  const avatarUrl =
+    (rawUser?.user_metadata?.avatar_url as string | undefined) || null;
+
+  async function handleAvatarSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setAvatarBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      await uploadAvatar(fd);
+      // user_metadata はサーバー側で更新されるため、再読込でヘッダーにも反映
+      window.location.reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "アップロードに失敗しました");
+      setAvatarBusy(false);
+    }
+  }
+
+  async function handleAvatarRemove() {
+    if (!confirm("アイコン画像を削除して頭文字表示に戻しますか？")) return;
+    setAvatarBusy(true);
+    try {
+      await removeAvatar();
+      window.location.reload();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "削除に失敗しました");
+      setAvatarBusy(false);
+    }
+  }
 
   // Sync default tab when user role loads (fixes reload showing firm tab for client users)
   useEffect(() => {
@@ -827,7 +865,64 @@ export default function SettingsPage() {
 
   return (
     <>
-      <h1 className="text-2xl font-bold text-foreground mb-6">設定</h1>
+      <h1 className="text-2xl font-bold text-foreground mb-6">マイアカウント</h1>
+
+      {/* プロフィール（アイコン設定） */}
+      <Card className="mb-6">
+        <CardContent className="py-4">
+          <div className="flex items-center gap-4">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={avatarUrl}
+                alt={user?.name ?? ""}
+                className="size-16 rounded-full border-2 border-primary/30 object-cover shrink-0"
+              />
+            ) : (
+              <div className="size-16 rounded-full border-2 border-primary/30 bg-primary/20 flex items-center justify-center text-foreground text-lg font-bold shrink-0">
+                {getInitials(user?.name ?? "")}
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <p className="font-bold text-foreground truncate">{user?.name}</p>
+              <p className="text-xs text-muted-foreground truncate">{user?.email}</p>
+            </div>
+            <div className="flex items-center gap-2 shrink-0">
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleAvatarSelect}
+                className="hidden"
+              />
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => avatarInputRef.current?.click()}
+                disabled={avatarBusy}
+                className="whitespace-nowrap"
+              >
+                {avatarBusy ? <Loader2 className="size-4 animate-spin" /> : <Camera className="size-4" />}
+                アイコンを変更
+              </Button>
+              {avatarUrl && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={handleAvatarRemove}
+                  disabled={avatarBusy}
+                  className="text-muted-foreground whitespace-nowrap"
+                >
+                  削除
+                </Button>
+              )}
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground mt-3">
+            ヘッダー右上に表示されるアイコンです（JPG / PNG / WebP・最大2MB）。
+          </p>
+        </CardContent>
+      </Card>
 
       <div className="flex gap-8">
         {/* Sidebar tabs */}

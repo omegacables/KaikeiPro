@@ -658,7 +658,7 @@ export default function JournalsPage() {
             仕訳入力
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            クライアントID: {id}
+            仕訳の手入力・領収書からのAI仕訳・CSV/銀行明細の取込
           </p>
         </div>
       </div>

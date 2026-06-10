@@ -70,10 +70,10 @@ export default function DocumentsPage() {
           </section>
           <section>
             <SectionHeading>領収書（発行）</SectionHeading>
+            {/* 処理中（発行/受領 未確定）の証憑はどちらのタブでも確認できるよう表示する */}
             <ReceiptsPageContent
               hideHeader
               lockedDirection="issued"
-              hideProcessingSection
               excludeDocTypes={["statement"]}
             />
           </section>

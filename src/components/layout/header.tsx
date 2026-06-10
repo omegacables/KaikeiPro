@@ -20,12 +20,12 @@ const pageTitles: Record<string, string> = {
   "/dashboard": "ダッシュボード",
   "/clients": "顧問先管理",
   "/firms": "税理士事務所管理",
-  "/settings": "設定",
+  "/settings": "マイアカウント",
 };
 
 const clientSubPageTitles: Record<string, string> = {
   journals: "仕訳入力",
-  documents: "証憑管理",
+  documents: "帳票管理",
   receipts: "領収書管理",
   ledgers: "帳簿閲覧",
   statements: "試算表・財務諸表",
@@ -68,7 +68,7 @@ function getPageTitle(pathname: string): string {
 export function Header() {
   const pathname = usePathname();
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, rawUser } = useAuth();
   const { openNav } = useMobileNav();
   const [theme, setThemeState] = useState<Theme>("light");
   const [companyName, setCompanyName] = useState<string | null>(null);
@@ -192,6 +192,8 @@ export function Header() {
           : companyName ?? "顧問先";
 
   const pageTitle = getPageTitle(pathname);
+  const avatarUrl =
+    (rawUser?.user_metadata?.avatar_url as string | undefined) || null;
 
   // 現在の顧問先ID（チャット=質問管理への導線に使用）
   const clientMatch = pathname.match(/^\/clients\/([^/]+)/);
@@ -248,7 +250,7 @@ export function Header() {
             </button>
 
             {isOpen && (
-              <div className="absolute right-0 top-full mt-2 w-96 max-h-80 bg-card border border-border rounded-xl shadow-xl z-50 flex flex-col overflow-hidden">
+              <div className="absolute -right-12 sm:right-0 top-full mt-2 w-96 max-w-[calc(100vw-2rem)] max-h-80 bg-card border border-border rounded-xl shadow-xl z-50 flex flex-col overflow-hidden">
                 {/* Panel header */}
                 <div className="flex items-center justify-between px-4 py-3 border-b border-border">
                   <span className="text-sm font-bold text-foreground">
@@ -324,20 +326,33 @@ export function Header() {
 
         <div className="hidden sm:block h-8 w-px bg-border mx-1" />
 
-        {/* User profile */}
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex flex-col items-end">
+        {/* User profile（クリックでマイアカウントへ。左にアイコン、右に名前・会社名） */}
+        <button
+          onClick={() => router.push("/settings")}
+          title="マイアカウント"
+          className="flex items-center gap-3 rounded-lg px-1 py-1 -my-1 hover:bg-muted/40 transition-colors cursor-pointer"
+        >
+          {avatarUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={avatarUrl}
+              alt={displayName}
+              className="size-10 rounded-full border-2 border-primary-light/30 object-cover shrink-0"
+            />
+          ) : (
+            <div className="size-10 rounded-full border-2 border-primary-light/30 bg-primary/20 flex items-center justify-center text-cream text-sm font-bold shrink-0">
+              {getInitials(displayName)}
+            </div>
+          )}
+          <div className="hidden sm:flex flex-col items-start text-left">
             <span className="text-sm font-bold text-foreground leading-none">
               {displayName}
             </span>
-            <span className="text-[10px] text-primary-light font-bold tracking-wider">
+            <span className="text-[10px] text-primary-light font-bold tracking-wider mt-1">
               {roleLabel}
             </span>
           </div>
-          <div className="size-10 rounded-full border-2 border-primary-light/30 bg-primary/20 flex items-center justify-center text-cream text-sm font-bold">
-            {getInitials(displayName)}
-          </div>
-        </div>
+        </button>
       </div>
     </header>
   );

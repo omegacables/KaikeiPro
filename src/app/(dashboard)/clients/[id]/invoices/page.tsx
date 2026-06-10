@@ -248,10 +248,15 @@ export function InvoicesPageContent({
   };
 
   const handleClearAll = async () => {
-    if (!confirm("すべての請求書を一括削除しますか？この操作は元に戻せません。")) return;
+    const scopeLabel = lockedDirection === "sales"
+      ? "発行した請求書"
+      : lockedDirection === "purchase"
+        ? "受領した請求書"
+        : "すべての請求書";
+    if (!confirm(`${scopeLabel}を一括削除しますか？この操作は元に戻せません。`)) return;
     setClearingAll(true);
     try {
-      await deleteAllInvoices(id);
+      await deleteAllInvoices(id, lockedDirection);
       refetch();
     } catch (err) {
       alert(err instanceof Error ? err.message : "一括削除に失敗しました");
@@ -261,7 +266,17 @@ export function InvoicesPageContent({
   };
 
   const openNewForm = async () => {
-    setNewInvoice((prev) => ({ ...prev, direction: lockedDirection ?? "sales" }));
+    const dir = lockedDirection ?? "sales";
+    // 請求書番号の初期値を自動採番（例: INV-20260610-003）。手入力で上書き可能。
+    const today = new Date();
+    const ymd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+    const prefix = dir === "purchase" ? "RCV" : "INV";
+    const seq = invoices.filter((inv) => inv.direction === dir).length + 1;
+    setNewInvoice((prev) => ({
+      ...prev,
+      direction: dir,
+      invoice_number: prev.invoice_number || `${prefix}-${ymd}-${String(seq).padStart(3, "0")}`,
+    }));
     setShowNewForm(true);
     try {
       const partners = await getPartners(id);
@@ -347,7 +362,7 @@ export function InvoicesPageContent({
         ) : <div />}
 
         <div className="flex gap-2">
-          {invoices.length > 0 && (
+          {invoices.some((inv) => !lockedDirection || inv.direction === lockedDirection) && (
             <Button variant="outline" onClick={handleClearAll} disabled={clearingAll} className="text-destructive border-destructive/30 hover:bg-destructive/10">
               {clearingAll ? <Loader2 className="size-4 animate-spin" /> : <AlertTriangle className="size-4" />}
               一括クリア

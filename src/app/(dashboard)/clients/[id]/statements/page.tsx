@@ -1216,7 +1216,7 @@ export default function StatementsPage() {
             試算表・財務諸表
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            クライアントID: {id}
+            合計残高試算表・貸借対照表・損益計算書・月次推移・棚卸表
           </p>
         </div>
         {activeTab !== "settlement" && (

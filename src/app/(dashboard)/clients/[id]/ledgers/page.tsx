@@ -1160,7 +1160,7 @@ export default function LedgersPage() {
             帳簿閲覧
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            クライアントID: {id}
+            仕訳帳・総勘定元帳・補助元帳の閲覧とCSV出力
           </p>
         </div>
         <div className="flex items-center gap-2">

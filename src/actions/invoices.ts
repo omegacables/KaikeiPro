@@ -227,21 +227,28 @@ export async function deleteInvoice(id: string) {
   }
 }
 
-export async function deleteAllInvoices(clientId: string) {
+export async function deleteAllInvoices(
+  clientId: string,
+  direction?: "sales" | "purchase"
+) {
   const supabase = await createServerSupabaseClient();
-  // 紐づく計上仕訳IDを収集
-  const { data: invs } = await supabase
+  // 紐づく計上仕訳IDを収集（direction 指定時はその区分のみ）
+  let collectQuery = supabase
     .from("invoices")
     .select("journal_entry_id")
     .eq("client_id", clientId);
+  if (direction) collectQuery = collectQuery.eq("direction", direction);
+  const { data: invs } = await collectQuery;
   const jeIds = (invs ?? [])
     .map((i) => i.journal_entry_id)
     .filter((x): x is string => !!x);
 
-  const { error } = await supabase
+  let deleteQuery = supabase
     .from("invoices")
     .delete()
     .eq("client_id", clientId);
+  if (direction) deleteQuery = deleteQuery.eq("direction", direction);
+  const { error } = await deleteQuery;
   if (error) throw new Error(error.message);
 
   // 紐づく仕訳も連動削除

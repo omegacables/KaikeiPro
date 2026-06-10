@@ -44,7 +44,7 @@ const emptyTaxSummary: TaxSummary = {
   salesExempt: 0, salesTaxFree: 0, salesOutOfScope: 0,
 };
 
-export default function TaxPage() {
+export default function TaxPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { id } = useParams();
   const clientId = id as string;
   const [selectedPeriodIdx, setSelectedPeriodIdx] = useState(0);
@@ -109,12 +109,14 @@ export default function TaxPage() {
   return (
     <>
       <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">消費税計算</h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            消費税の税率別集計と納付税額の計算
-          </p>
-        </div>
+        {!hideHeader ? (
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">消費税計算</h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              消費税の税率別集計と納付税額の計算
+            </p>
+          </div>
+        ) : <div />}
         <Button variant="outline" onClick={() => printPage()}>
           <Calculator className="size-4" />
           申告書出力

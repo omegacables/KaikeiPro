@@ -87,7 +87,7 @@ export async function getTrialBalance(
   // 科目取得と並列実行してラウンドトリップを削減する。
   const linesQuery = supabase
     .from("journal_entry_lines")
-    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
+    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )`)
     .eq("journal_entries.client_id", clientId)
     .lte("journal_entries.entry_date", endDate);
 
@@ -95,12 +95,15 @@ export async function getTrialBalance(
   if (linesRes.error) throw new Error(linesRes.error.message);
   const lines = linesRes.data ?? [];
 
-  // startDate より前 = 前期繰越、startDate〜endDate = 当期、を1ループで仕分け
+  // startDate より前 = 前期繰越、startDate〜endDate = 当期、を1ループで仕分け。
+  // 期首残高仕訳（期首日付・source='closing'）は当期発生ではなく前期繰越として扱う
+  // （試算表の当期合計や株主資本等変動計算書の期首残高に混入させない）。
   const prevBalanceMap = new Map<string, number>();
   const accountTotals = new Map<string, { debit: number; credit: number }>();
   for (const line of lines) {
-    const entry = line.journal_entries as unknown as { entry_date: string };
-    if (entry.entry_date < startDate) {
+    const entry = line.journal_entries as unknown as { entry_date: string; source?: string };
+    const isOpeningEntry = entry.entry_date === startDate && entry.source === "closing";
+    if (entry.entry_date < startDate || isOpeningEntry) {
       const prev = prevBalanceMap.get(line.account_id) ?? 0;
       prevBalanceMap.set(line.account_id, prev + line.debit_amount - line.credit_amount);
     } else {

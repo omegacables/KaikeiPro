@@ -52,7 +52,7 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export default function CompanyDocumentsPage() {
+export default function CompanyDocumentsPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [docs, setDocs] = useState<CompanyDocument[]>([]);
@@ -178,11 +178,13 @@ export default function CompanyDocumentsPage() {
     <div className="space-y-6">
       {/* ヘッダー */}
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex items-center gap-2">
-          <FolderArchive className="size-6 text-primary" />
-          <h1 className="text-xl font-bold">会社書類</h1>
-        </div>
-        <Button onClick={openCreate}>
+        {!hideHeader ? (
+          <div className="flex items-center gap-2">
+            <FolderArchive className="size-6 text-primary" />
+            <h1 className="text-xl font-bold">会社書類</h1>
+          </div>
+        ) : <div />}
+        <Button onClick={openCreate} className="shrink-0 whitespace-nowrap">
           <Plus className="size-4" />
           書類を追加
         </Button>

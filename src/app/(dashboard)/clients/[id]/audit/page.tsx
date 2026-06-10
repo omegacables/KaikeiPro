@@ -107,7 +107,7 @@ function AuditLogDetail({ log }: { log: AuditLogRow }) {
   );
 }
 
-export default function AuditLogPage() {
+export default function AuditLogPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
   const { id } = useParams<{ id: string }>();
 
   const [logs, setLogs] = useState<AuditLogRow[]>([]);
@@ -145,17 +145,19 @@ export default function AuditLogPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
-            <Shield className="size-6 text-primary" />
-            監査ログ
-          </h1>
-          <p className="text-muted-foreground text-sm mt-1">
-            仕訳・領収書の操作履歴（電子帳簿保存法対応）
-          </p>
+      {!hideHeader && (
+        <div className="flex items-center justify-between mb-6">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+              <Shield className="size-6 text-primary" />
+              監査ログ
+            </h1>
+            <p className="text-muted-foreground text-sm mt-1">
+              仕訳・領収書の操作履歴（電子帳簿保存法対応）
+            </p>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Filters */}
       <Card className="mb-6">

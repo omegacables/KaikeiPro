@@ -578,7 +578,7 @@ export function ReceiptsPageContent({
               領収書管理
             </h1>
             <p className="text-muted-foreground text-sm mt-1">
-              クライアントID: {id}
+              領収書のアップロード・AI読取（OCR）・仕訳化
             </p>
           </div>
         </div>

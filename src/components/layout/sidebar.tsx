@@ -39,7 +39,7 @@ type ClientOption = { id: string; name: string };
 
 const clientNav = [
   { href: "/journals", label: "仕訳入力", icon: Calculator },
-  { href: "/documents", label: "証憑管理", icon: FileCheck },
+  { href: "/documents", label: "帳票管理", icon: FileCheck },
   { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
   { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
   { href: "/accounts", label: "勘定科目管理", icon: FileText },
@@ -345,15 +345,8 @@ export function Sidebar() {
           )}
         </nav>
 
-        {/* Settings & Logout */}
+        {/* Logout（マイアカウントはヘッダー右上のアイコンから） */}
         <div className="pt-4 border-t border-slate-purple/30 flex flex-col gap-1">
-          <Link
-            href="/settings"
-            className="flex items-center gap-3 px-3 py-2 text-sage hover:text-cream transition-colors"
-          >
-            <Settings className="size-5" />
-            <p className="text-sm font-medium">設定</p>
-          </Link>
           <button
             onClick={handleLogout}
             className="flex items-center gap-3 px-3 py-2 text-sage hover:text-destructive transition-colors w-full text-left"

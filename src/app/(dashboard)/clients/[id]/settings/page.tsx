@@ -53,9 +53,9 @@ export default function ClientSettingsPage() {
       </div>
 
       {/* Content */}
-      {activeTab === "tax" && <TaxPage />}
-      {activeTab === "company_documents" && <CompanyDocumentsPage />}
-      {activeTab === "audit" && <AuditLogPage />}
+      {activeTab === "tax" && <TaxPage hideHeader />}
+      {activeTab === "company_documents" && <CompanyDocumentsPage hideHeader />}
+      {activeTab === "audit" && <AuditLogPage hideHeader />}
     </>
   );
 }
