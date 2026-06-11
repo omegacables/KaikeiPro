@@ -69,7 +69,7 @@ const clientTabs = [
   { key: "security", label: "セキュリティ", icon: Shield },
 ];
 
-const defaultMembers: { id: string; name: string; email: string; role: string; active: boolean }[] = [];
+const defaultMembers: { id: string; name: string; email: string; role: string }[] = [];
 
 type ProviderKey = "moneyforward" | "zaim";
 
@@ -373,7 +373,7 @@ export default function SettingsPage() {
   const [inviteData, setInviteData] = useState({ email: "", name: "", role: "staff" as "admin" | "staff" });
   const [inviting, setInviting] = useState(false);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
-  const [editMemberData, setEditMemberData] = useState<{ name: string; role: "admin" | "staff"; active: boolean }>({ name: "", role: "staff", active: true });
+  const [editMemberData, setEditMemberData] = useState<{ name: string; role: "admin" | "staff" }>({ name: "", role: "staff" });
   const [savingMember, setSavingMember] = useState(false);
 
   // Self-service firm state
@@ -431,7 +431,6 @@ export default function SettingsPage() {
           name: m.name,
           email: m.email ?? "",
           role: m.role,
-          active: m.is_active,
         })));
       }
     }
@@ -585,12 +584,11 @@ export default function SettingsPage() {
       await updateFirmMember(editingMemberId, {
         name: editMemberData.name,
         role: editMemberData.role,
-        is_active: editMemberData.active,
       });
       setFirmMembers((prev) =>
         prev.map((m) =>
           m.id === editingMemberId
-            ? { ...m, name: editMemberData.name, role: editMemberData.role, active: editMemberData.active }
+            ? { ...m, name: editMemberData.name, role: editMemberData.role }
             : m
         )
       );
@@ -1160,15 +1158,12 @@ export default function SettingsPage() {
                         <Badge variant={m.role === "admin" ? "default" : "muted"}>
                           {m.role === "admin" ? "管理者" : "スタッフ"}
                         </Badge>
-                        <Badge variant={m.active ? "success" : "destructive"}>
-                          {m.active ? "有効" : "無効"}
-                        </Badge>
                         <Button variant="ghost" size="sm" onClick={() => {
                           if (editingMemberId === m.id) {
                             setEditingMemberId(null);
                           } else {
                             setEditingMemberId(m.id);
-                            setEditMemberData({ name: m.name, role: m.role as "admin" | "staff", active: m.active });
+                            setEditMemberData({ name: m.name, role: m.role as "admin" | "staff" });
                           }
                         }}>
                           {editingMemberId === m.id ? "閉じる" : "編集"}
@@ -1195,17 +1190,6 @@ export default function SettingsPage() {
                               >
                                 <option value="admin">管理者</option>
                                 <option value="staff">スタッフ</option>
-                              </select>
-                            </div>
-                            <div>
-                              <label className="text-xs font-bold text-muted-foreground mb-1 block">ステータス</label>
-                              <select
-                                className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm"
-                                value={editMemberData.active ? "active" : "inactive"}
-                                onChange={(e) => setEditMemberData({ ...editMemberData, active: e.target.value === "active" })}
-                              >
-                                <option value="active">有効</option>
-                                <option value="inactive">無効</option>
                               </select>
                             </div>
                           </div>

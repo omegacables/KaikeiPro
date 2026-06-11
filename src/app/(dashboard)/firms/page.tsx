@@ -13,19 +13,20 @@ import {
   UserPlus,
   Eye,
   EyeOff,
+  Trash2,
 } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useData } from "@/lib/use-data";
-import { getFirms, createFirm, getFirmMembers } from "@/actions/firms";
+import { getFirms, createFirm, getFirmMembers, deleteFirmMember } from "@/actions/firms";
 import { createFirmMemberAccount } from "@/actions/auth";
 
 type FirmMember = {
+  id: string;
   name: string;
   email: string;
   role: string;
-  is_active: boolean;
 };
 
 export default function FirmsPage() {
@@ -46,6 +47,7 @@ export default function FirmsPage() {
   const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "admin" as "admin" | "staff" });
   const [creatingMember, setCreatingMember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
 
   const handleCreateFirm = async () => {
     if (!newFirm.name.trim()) return;
@@ -81,10 +83,10 @@ export default function FirmsPage() {
         setFirmMembers((prev) => ({
           ...prev,
           [firmId]: members.map((m) => ({
+            id: m.id,
             name: m.name,
             email: m.email ?? "",
             role: m.role,
-            is_active: m.is_active,
           })),
         }));
       } catch {
@@ -92,6 +94,27 @@ export default function FirmsPage() {
       } finally {
         setLoadingMembers(null);
       }
+    }
+  };
+
+  const handleDeleteMember = async (firmId: string, member: FirmMember) => {
+    if (
+      !confirm(
+        `「${member.name}」のアカウントを削除しますか？\nログインできなくなり、この操作は元に戻せません。`
+      )
+    )
+      return;
+    setDeletingMemberId(member.id);
+    try {
+      await deleteFirmMember(member.id);
+      setFirmMembers((prev) => ({
+        ...prev,
+        [firmId]: (prev[firmId] ?? []).filter((m) => m.id !== member.id),
+      }));
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "削除に失敗しました");
+    } finally {
+      setDeletingMemberId(null);
     }
   };
 
@@ -111,10 +134,10 @@ export default function FirmsPage() {
       setFirmMembers((prev) => ({
         ...prev,
         [firmId]: members.map((m) => ({
+          id: m.id,
           name: m.name,
           email: m.email ?? "",
           role: m.role,
-          is_active: m.is_active,
         })),
       }));
       setNewMember({ name: "", email: "", password: "", role: "admin" });
@@ -349,7 +372,7 @@ export default function FirmsPage() {
                     ) : (
                       <div className="space-y-2">
                         {members.map((m) => (
-                          <div key={m.email} className="flex items-center gap-3 p-3 rounded-lg border border-border">
+                          <div key={m.id} className="flex items-center gap-3 p-3 rounded-lg border border-border">
                             <div className="size-8 rounded-full bg-primary/10 flex items-center justify-center text-primary font-bold text-xs">
                               {m.name.charAt(0)}
                             </div>
@@ -360,9 +383,18 @@ export default function FirmsPage() {
                             <Badge variant={m.role === "admin" ? "default" : "muted"}>
                               {m.role === "admin" ? "管理者" : "スタッフ"}
                             </Badge>
-                            <Badge variant={m.is_active ? "success" : "destructive"}>
-                              {m.is_active ? "有効" : "無効"}
-                            </Badge>
+                            <button
+                              onClick={() => handleDeleteMember(firm.id, m)}
+                              disabled={deletingMemberId === m.id}
+                              title="アカウントを削除"
+                              className="p-1.5 rounded hover:bg-muted text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                            >
+                              {deletingMemberId === m.id ? (
+                                <Loader2 className="size-4 animate-spin" />
+                              ) : (
+                                <Trash2 className="size-4" />
+                              )}
+                            </button>
                           </div>
                         ))}
                       </div>

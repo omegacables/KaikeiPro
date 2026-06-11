@@ -151,6 +151,74 @@ export async function updateFirmMember(
   return data;
 }
 
+/**
+ * 税理士アカウント（firm_members）を削除する。
+ * super_admin または同一事務所の有効な管理者のみ実行可能。
+ * 削除後、他に所属（別事務所・顧問先ユーザー・super_admin）が無ければ
+ * 認証ユーザー本体も削除し、メールアドレスを再利用可能にする。
+ */
+export async function deleteFirmMember(id: string) {
+  const supabase = await createServerSupabaseClient();
+  const admin = createAdminSupabaseClient();
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("認証されていません");
+
+  const { data: target } = await admin
+    .from("firm_members")
+    .select("firm_id, user_id")
+    .eq("id", id)
+    .single();
+  if (!target) throw new Error("メンバーが見つかりません");
+
+  if (target.user_id === user.id) {
+    throw new Error("自分自身のアカウントは削除できません");
+  }
+
+  // super_admin か、同一事務所の有効な管理者のみ削除可能
+  const { data: superAdmin } = await admin
+    .from("super_admins")
+    .select("user_id")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  if (!superAdmin) {
+    const { data: caller } = await admin
+      .from("firm_members")
+      .select("role, is_active")
+      .eq("firm_id", target.firm_id)
+      .eq("user_id", user.id)
+      .single();
+    if (!caller || caller.role !== "admin" || !caller.is_active) {
+      throw new Error("削除には管理者権限が必要です");
+    }
+  }
+
+  // メンバーシップを削除
+  const { error } = await admin.from("firm_members").delete().eq("id", id);
+  if (error) throw new Error(error.message);
+
+  // 他に所属が無ければ認証ユーザーも削除（メール再利用のため）
+  const uid = target.user_id;
+  const [fm, cu, sa] = await Promise.all([
+    admin.from("firm_members").select("user_id").eq("user_id", uid).limit(1),
+    admin.from("client_users").select("user_id").eq("user_id", uid).limit(1),
+    admin.from("super_admins").select("user_id").eq("user_id", uid).limit(1),
+  ]);
+  const stillUsed =
+    (fm.data?.length ?? 0) > 0 ||
+    (cu.data?.length ?? 0) > 0 ||
+    (sa.data?.length ?? 0) > 0;
+  if (!stillUsed) {
+    await admin.auth.admin.deleteUser(uid).catch(() => {
+      // 認証ユーザーが既に存在しない場合等は無視（メンバーシップ削除は完了済み）
+    });
+  }
+}
+
 export async function isSelfServiceFirm(): Promise<boolean> {
   const supabase = await createServerSupabaseClient();
   const {
