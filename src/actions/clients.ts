@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess, resolveClientIdForRecord, isSuperAdmin } from "@/lib/authz";
 import type { Database } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { getFiscalPeriod } from "@/lib/fiscal";
@@ -85,10 +86,13 @@ export async function createClient(input: Omit<ClientInsert, "firm_id"> & { firm
 }
 
 export async function updateClient(id: string, input: ClientUpdate) {
-  // Verify the caller is authenticated
-  const supabase = await createServerSupabaseClient();
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) throw new Error("認証が必要です");
+  // 呼び出し者が当該クライアントにアクセスできることを検証（IDOR対策）
+  await assertClientAccess(id);
+
+  // 事務所の付け替え（firm_id 変更）は super_admin のみ許可
+  if (input.firm_id !== undefined && !(await isSuperAdmin())) {
+    throw new Error("事務所の変更にはシステム管理者権限が必要です");
+  }
 
   // Use admin client to bypass RLS (client users cannot update clients table via RLS)
   const admin = createAdminSupabaseClient();
@@ -118,6 +122,7 @@ export async function assignClientToFirm(clientId: string, firmId: string | null
 }
 
 export async function getClientUsers(clientId: string) {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
   const { data, error } = await admin
     .from("client_users")
@@ -133,6 +138,7 @@ export async function updateClientUser(
   id: string,
   input: { name?: string; is_active?: boolean }
 ) {
+  await resolveClientIdForRecord("client_users", id);
   const admin = createAdminSupabaseClient();
   const { data, error } = await admin
     .from("client_users")

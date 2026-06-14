@@ -257,7 +257,15 @@ export function ReceiptsPageContent({
             taxRate: ocr?.tax_rate,
             invoiceNumber: ocr?.invoice_number,
             needsReview: r.needs_review ?? false,
-            documentType: (r as { document_type?: string }).document_type as "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other" | undefined,
+            documentType: ((): DocumentType | undefined => {
+              const dt = (r as { document_type?: string }).document_type as DocumentType | undefined;
+              // 既存データ救済: 登録番号(T+13)が無いのに適格請求書になっている書類は
+              // 区分記載請求書として表示する（非インボイス登録事業者対応）。
+              if (dt === "qualified_invoice" && checkInvoiceNumber(ocr?.invoice_number) !== "valid") {
+                return "category_invoice";
+              }
+              return dt;
+            })(),
             statementSubtype: ocr?.statement_subtype,
             ocrConfidence: typeof ocr?.confidence === "number" ? ocr.confidence : undefined,
             folderId: (r as { folder_id?: string | null }).folder_id ?? null,

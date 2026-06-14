@@ -1,329 +1,89 @@
-# 領収書「発行」/「受領」タブの機能差別化
+# 改修タスク：バッジ誤判定・セキュリティ・入金消込・仕訳学習
 
-## 背景
-証憑管理の「発行」「受領」タブは同一機能。会計上は別物（発行＝売上側／受領＝経費・仕入側）なので差別化する。
-ユーザー指定：
-- 発行：証憑管理タブ内での機能差別化（新規PDF作成は不要）
-- 受領：①インボイス番号確認の強化 ②経費計上のAI仕訳 ③支払方法・支払先の管理
+計画書: `/Users/adminpc/.claude/plans/validated-drifting-pnueli.md`
 
-## タスク
-- [x] 1. backend: `ai-journal.ts` `generateJournalSuggestion` を direction 対応に
-      - received → 経費仕訳（借方=費用, 貸方=支払手段）※現状維持
-      - issued → 売上仕訳（借方=入金手段, 貸方=売上高+仮受消費税）
-- [x] 2. frontend: `ReceiptsPageContent` を direction 対応に
-      - 用語: received=支払先/支払方法, issued=宛先/入金方法, all=取引先/支払方法
-      - 受領: インボイス番号の検証バッジ（適格/要確認/番号なし）をカード・一覧・詳細に追加
-      - 受領: インボイスフィルター（全て/適格のみ/未登録のみ）追加 + 仕入税額控除の注記
-      - 発行: インボイス確認UIは出さない（売上側のため）
-- [x] 3. 検証: tsc=0 / dev server ログ エラー0
+## Part B — セキュリティ（最優先・防御境界を先に固める）
+- [x] B-1 共通認可ヘルパー `src/lib/authz.ts`（assertClientAccess / resolveClientIdForRecord / assertRecordsAccess / assertFirmAccess / assertClientManagedByFirm / assert(is)SuperAdmin）
+- [x] B-2 サービスロール経路に認可付与（ledgers, statements, settlement-report, opening-balances, closing-checklist, pending-reviews, payroll, receipts.deleteReceipts, statement-lines, journals.deleteJournalEntries, clients, moneytree, cards, bank）
+- [x] B-3 アカウント作成系の権限昇格修正（auth.ts: createClientPortalAccount / createFirmMemberAccount, firms.ts: inviteFirmMember / createFirm / getFirms）
+- [x] B-4 ストレージIDOR（receipt-storage.ts: getReceiptImageUrl/downloadReceiptImage/uploadReceipt, company-documents.ts）
+- [x] B-5 Moneytree（authorize/callback route, moneytree.ts）
+- [x] B-6 ダッシュボードのロールゲート（(dashboard)/layout.tsx 役割判定リダイレクト, auth-provider フォールバック廃止）※self-service考慮済み
+- [x] B-7 CSVフォーミュラインジェクション中和（lib/export.ts）
+- [x] B-8a open redirect callback / fetchExchangeRate currency検証 / OCRプロンプト注入緩和
+- [x] B-8b ai-journal の低信頼/貸借不一致/OCR不整合時に needs_review＋CSVプロンプト注入緩和
+- [x] B-9 DBポリシー是正（migration 038: firms_insert, moneytree token SELECT廃止）
 
-## レビュー
-### backend (`src/actions/ai-journal.ts`)
-- `generateJournalSuggestion` を区分対応に分岐。`receipt.direction` を読み、
-  - 受領 → 従来どおり経費・仕入の仕訳プロンプト
-  - 発行 → 売上計上プロンプト（貸方=売上高＋仮受消費税、借方=入金手段／現金・普通預金・売掛金、tax_category=sales_*）
-- OCRが `direction` を判定済み（migration 021、ocr.ts L265）なので追加のデータ変更は不要。
+## Part A — (要確認)バッジ誤判定
+- [x] A-1 OCRで登録番号と請求書番号を分離（ocr.ts プロンプト + buildOcrFromParsed, types/index.ts OcrResult.document_number）
+- [x] A-2 判定ロジック堅牢化（receipt-review.ts: checkInvoiceNumber）※既存データも修正される
 
-### frontend (`src/app/(dashboard)/clients/[id]/receipts/page.tsx`)
-- 区分由来の用語: 受領=支払先/支払方法、発行=宛先/入金方法、全体=取引先/支払方法。
-- インボイス検証ヘルパー `checkInvoiceNumber`（T＋13桁）を追加し、受領側のみ
-  カード・一覧列・詳細・フィルターに「適格／要確認／番号なし」を表示。
-- 詳細パネルは受領側で番号が無くても確認結果＋仕入税額控除の注記を常時表示。
-- 発行側ではインボイス確認UIを非表示。
+## Part D — 仕訳学習機能
+- [x] D-1 migration 037（ai_journal_patterns 拡張 + database.ts 型追加）
+- [x] D-2 アクション層 `src/actions/learned-rules.ts`
+- [x] D-3 読込連携（ai-journal / bank-csv-ai にヒント注入、journal-csv-ai は認可のみ）
+- [x] D-4 書込連携（approveJournalSuggestion / createJournalEntry / importBankJournalEntries で学習）
+- [x] D-5 UI（学習ルール管理画面 + サイドバー導線）
+
+## Part C — 入金消込刷新
+- [x] C-1 「銀行入金から自動消込」ボタン削除（payments/page.tsx）
+- [x] C-2 消込コア `reconcileDeposits`（payments.ts, onlyWhenMatchedオプション付き）
+- [x] C-3 入金登録のCSV/PDF対応（lib/parse-tabular.ts, deposit-csv-ai.ts, payments/page.tsx UI）
+- [x] C-4 仕訳ページ銀行CSVから消込連携（journals/page.tsx, オプトイン・既定ON）
+- [x] C-5 created_by 誤り修正（journals/page.tsx）
+
+## 検証
+- [x] tsc --noEmit（型チェック通過）
+- [ ] npm run build
+- [ ] preview で バッジ / 入金消込 / 学習 動作確認
+- [ ] マイグレーション 037/038 適用手順の確認
+
+## Review（実装後）
+
+### 完了したこと
+- **(要確認)バッジ誤判定**: OCRで登録番号(T+13)と請求書番号を `invoice_number`/`document_number` に分離。`checkInvoiceNumber` は非T文字列を `none` 扱いに変更（＝既存データの誤バッジも解消）。`tsx` で14ケース全て検証済み。
+- **セキュリティ（25件）**: 共通認可ヘルパー `src/lib/authz.ts` を新設し、サービスロール経路の全アクション（ledgers/statements/settlement/opening-balances/closing-checklist/pending-reviews/payroll/receipts/statement-lines/journals/clients/moneytree/cards/bank/payments/ocr/receipt-storage/company-documents）に `assertClientAccess`/`resolveClientIdForRecord`/`assertRecordsAccess` を適用。アカウント作成系（auth/firms）の権限昇格を是正。ストレージIDOR・Moneytree・CSVインジェクション・open redirect・通貨検証・AI自動記帳の needs_review ゲート・ダッシュボードのロールゲートを修正。DBポリシー是正（038）。
+- **入金消込刷新**: 自動消込ボタン削除。`reconcileDeposits` 中核を抽出。入金登録に CSV/Excel/PDF 取込（AI解析＋取引先推定＋プレビュー）を追加。仕訳ページ銀行CSVの入金行を強マッチのみ消込連携（既定ON）。
+- **仕訳学習**: 既存 `ai_journal_patterns` を活性化（037拡張）。`learned-rules.ts` で読み書き。承認/手入力/銀行CSV取込時に学習し、AI仕訳提案へヒント注入。管理画面 `/clients/[id]/learned-rules`。
 
 ### 検証
-- `tsc --noEmit` = exit 0
-- dev server ログ エラー0、/documents 各タブ 200。
+- `tsc --noEmit` 通過 / `npm run build` 成功（全ルートコンパイル）。
+- バッジロジックを実モジュールでユニット検証（14/14）。
 
-### 残課題（任意）
-- 既存の発行レシートで誤って経費仕訳が作成済みのものは、再生成（詳細パネルの再OCR/仕訳提案）で売上仕訳に直せる。
-- 発行レシートの自動仕訳は OCR の direction 判定精度に依存。
+### 要対応（ユーザー環境）
+- **マイグレーション適用が必須**: `037_learned_journal_rules.sql`, `038_security_policy_hardening.sql` を本番/開発DBに適用するまで、仕訳学習の新列・ポリシー変更は反映されない（学習の読み書きは未適用でも握りつぶして安全に動作。管理画面 `listLearnedRules` は037適用後に表示）。
+- 認証セッションが必要な画面（消込/学習/各種ダッシュボード）と横断アクセス拒否の動作確認は、ログイン済み環境での手動確認を推奨。
 
----
+### 既知の設計判断
+- ダッシュボードのロールゲートは「事務所管理下の顧問先ユーザー」のみポータルへ誘導。セルフサービス（firm_id=NULL の client_user）は誤って締め出さない。
+- 仕訳ページ銀行CSVの消込は `onlyWhenMatched=true`（請求残額と一致する取引先のみ消込）。現金売上等で宛先不明の入金を量産しない。
 
-# 追加: 証憑管理に「処理中」タブを新設
+## フォローアップ修正（2回目）
 
-## 変更
-- [x] `ReceiptsPageContent` に `processingOnly` / `hideProcessingSection` プロパティを追加
-      - processingOnly: 処理中の証憑のみ表示。書類種別タブ・フィルタ・一覧・サマリーを非表示、0件時は専用空状態。
-      - hideProcessingSection: 区分タブではインラインの処理中セクションを抑制（処理中タブに集約）。
-- [x] `documents/page.tsx` に「処理中」タブを追加（件数バッジ付き、10秒ポーリング）
-      - 受領/発行タブには `hideProcessingSection` を付与。
-      - 処理中タブは `<ReceiptsPageContent hideHeader processingOnly />`。
-- [x] 単体 `/receipts` ページは従来どおりインラインの処理中セクションを表示（プロパティ未指定）。
+### ① 対象期間の表示誤り
+- **statements/page.tsx**: クライアントの決算月(`fiscal_year_start_month`)が非同期ロードされる前に既定4月で計算していたため、4月以外が期首の顧問先で対象期間・集計が誤表示。決算月ロード完了まで計算・データ取得・表示を保留するよう修正（`fiscalStartMonth` を `null` 初期化＋各fetchをガード＋フッターは「読み込み中…」）。
+- **tax/page.tsx**: 期間ラベルが `new Date(ISO文字列)`（UTC解釈→ローカル変換）で月がズレ得たため、文字列を直接パースするタイムゾーン非依存の実装に変更。
 
-## 検証
-- `tsc --noEmit` = exit 0
-- dev server: 編集途中の一時的な構文エラーは解消済み。最終状態で /documents 各タブ 200、件数ポーリング動作。
+### ② 請求書番号が適格請求書として処理される
+- **ocr.ts**: `buildOcrFromParsed` で document_type=qualified_invoice でも登録番号(T+13)が無ければ category_invoice(区分記載請求書) に格下げ。非インボイス登録事業者の請求書を「適格請求書」と誤判定しない。
+- **receipts/page.tsx**: 既存データ救済として、表示時にも同様の格下げを適用（DB再書き込み不要）。
 
----
+### ③ AI処理された仕訳の編集
+- **journals.ts**: `updateJournalEntryWithLines(id, header, lines)` を新設（所有権・ロック年度チェック、貸借一致検証、明細入替、編集時は needs_review 解除）。
+- **ledgers/page.tsx**: 仕訳詳細スライドオーバーに「編集」ボタン＋編集フォーム（日付・摘要・明細の科目/借方/貸方を編集、行追加/削除、貸借バランス表示、保存）。AI・銀行・取込・手動すべての仕訳を編集可能。
 
-# 追加: 証憑管理に「明細書」タブを新設（銀行明細の分離）
+検証: `tsc` 通過 / `npm run build` 成功 / dev server で変更4ページが500なし。
 
-## 背景
-銀行明細（document_type="statement"）が領収書（受領）に混在し「明細書」バッジで表示されていた。
-独立した「明細書」タブに分離する（ユーザー選択: 証憑管理に新設）。
-将来的に「明細から取引を抽出・仕訳化」する機能を載せる土台とする。
+## フォローアップ修正（3回目）
 
-## 変更
-- [x] `ReceiptsPageContent` に `lockedDocType?: DocumentType` / `excludeDocTypes?: DocumentType[]` プロパティ追加
-      - `classifiedReceipts` 段階で固定/除外を先に適用し、件数バッジ・種別タブ・一覧の母集合を一致させる。
-      - `lockedDocType` 時は方向（発行/受領）の概念がないため `effectiveDirection="all"` に固定。
-      - `lockedDocType` 時は書類種別タブ・方向フィルターを非表示。
-      - `showInvoiceCheck = !isIssued && !lockedDocType`（明細書ではインボイス確認UIを出さない）。
-- [x] `documents/page.tsx`
-      - DocumentTab に `"statements"` 追加、タブ配列に「明細書」(FileSpreadsheet) を受領/発行の後に挿入。
-      - 受領/発行タブに `excludeDocTypes={["statement"]}` を付与（明細書を除外）。
-      - 明細書タブは `<ReceiptsPageContent hideHeader lockedDocType="statement" hideProcessingSection />`。
+### ① インボイス番号なしで保存できない
+- **invoices/page.tsx**: 請求書作成(`handleCreateInvoice`)が `invoice_number` 必須で、削除すると保存ボタンが無効化されていた。`invoice_number` 未入力でも保存可能に変更（NOT NULL のため空時のみ自動採番。非インボイス登録事業者の受領請求書等に対応）。保存ボタンの `disabled` からも `invoice_number` 条件を除去。
+- 補足: 領収書OCRの「インボイス番号」削除は元々DB上クリアされる（`{...,invoice_number:undefined}` がJSONから除外される）ことを node で確認済み。問題は請求書フォーム側だった。
 
-## 検証
-- `tsc --noEmit` = exit 0
-- dev server: /documents 200 継続、エラーなし。
+### ② スマホはPC機能を制限し撮影のみ対応
+- **dashboard-shell.tsx**（新規）: ダッシュボードの外枠を分離。PC幅は従来UI、スマホ幅(<768px)は撮影専用画面に切替（サイドバー/ヘッダーのはみ出しを回避）。
+- **mobile-capture-screen.tsx**（新規）: スマホ用の最小機能画面。クライアント選択＋区分(受領/発行)＋カメラ撮影/ファイル選択で `uploadReceipt`+`processReceiptOcr` を実行。読み取り・仕訳確認はPCで行う旨を明記。
+- **(dashboard)/layout.tsx**: 役割ゲート（前回追加）はサーバー側に残し、描画を `DashboardShell` に委譲。
+- 顧問先ポータル(`/portal/[firm]`)は別レイアウトのため影響なし（クライアントのスマホ撮影は従来どおり）。
 
-## 次フェーズ（ユーザー希望: 明細から取引を抽出・仕訳化）
-- 大型機能のため別途設計・提案する。
-  OCRで明細を複数行パース → 取引抽出 → 仕訳/口座取引化 → レビューUI。
-
----
-
-# 機能: 明細書から取引を抽出して仕訳化
-
-## ユーザー確定方針
-- 相手勘定（固定側）: **明細種別から自動推定**（銀行明細→普通預金 / クレカ明細→未払金）
-- 抽出行の保存: **専用テーブル新設**（おまかせ）
-
-## 設計判断（再利用と回避）
-- 既存 `autoCreateJournalFromBankTransaction`（ai-journal.ts）のAI仕訳プロンプト・科目解決を踏襲。
-- 既存銀行フロー同様、生成仕訳には `receipt_id` を**付けない**（`source:"bank"`）。
-  → `journal_entries.receipt_id` 経由の削除カスケード罠（明細書削除で全仕訳連動削除、
-    1仕訳削除で他仕訳まで巻き込み）を回避。リンクは `statement_lines.journal_entry_id` で持つ。
-- `bank_transactions` は使わない（bank_account 紐付けが必須でクレカ明細に不向き）。
-
-## タスク
-- [x] 1. DB migration `031_statement_lines.sql`
-      - `statement_lines`: id, receipt_id(FK→receipts ON DELETE CASCADE), client_id,
-        line_date(date), description(text), amount(int 符号付: +入金/-出金),
-        direction('deposit'|'withdrawal'), balance_after(int null), counterparty(text null),
-        journal_entry_id(FK→journal_entries ON DELETE SET NULL null),
-        status('pending'|'journalized'|'ignored' default 'pending'),
-        suggested_account_id(uuid null), sort_order(int), raw_data(jsonb), created_at.
-      - index: receipt_id, status。RLS: client メンバーシップ準拠（既存receiptsのRLSパターン踏襲）。
-      - `receipts.ocr_result` に `statement_subtype:'bank'|'card'|'other'` を格納（型拡張のみ、列追加不要）。
-- [x] 2. action `src/actions/statement-lines.ts`
-      - `extractStatementTransactions(receiptId)`: Gemini Pro で明細画像/PDFを複数行パース
-        ＋ statement_subtype 判定。既存行を消して statement_lines を再生成（冪等）。
-        receipt.status を 'reviewed' 等へ。
-      - `getStatementLines(receiptId)` / `updateStatementLine(id, patch)` /
-        `setStatementLineStatus(id, 'ignored'|'pending')`。
-      - `createJournalsFromStatementLines(lineIds)`: 各 pending 行について
-        固定側＝subtypeから(bank→普通預金, card→未払金) 科目を name 解決し、
-        AIで相手科目を推定 → admin insert で journal_entries(source:"bank", needs_review:true)
-        ＋ lines 作成 → statement_lines.journal_entry_id/status='journalized' 更新。
-        科目未存在時は科目名を添えてエラー（勘定科目管理で追加を促す）。
-        返り値 { success, failed, errors[] }（既存一括APIに倣う）。
-- [x] 3. UI: 明細書タブ（receipts/page.tsx の詳細パネル）
-      - 明細書選択時、詳細パネルを max-w-3xl に拡張・見出しを「明細書詳細」に。
-      - `StatementLinesSection` を新設: 「明細を抽出」ボタン / 行テーブル
-        （選択・状態バッジ・除外/解除・再抽出）/「選択を仕訳化」「全て仕訳化」。
-      - 種別・固定側科目を上部に注記。明細書では区分(発行/受領)・AI仕訳提案ブロックを非表示。
-- [x] 4. 検証: `tsc --noEmit`=0、dev server エラー0（/documents 200 継続）。
-      ※ ランタイム動作には migration 031 の適用が必要（下記）。
-
-## 適用手順（ユーザー作業）
-- Supabase ダッシュボードの SQL エディタで `supabase/migrations/031_statement_lines.sql` を実行。
-  （本リポジトリに supabase CLI / DB接続文字列がないため手動適用）
-
-## 検証
-- `tsc --noEmit` = exit 0
-- dev server: エラー0、/documents 各タブ 200。
-- 明細書タブ→明細書を開く→「明細を抽出」→行レビュー→「仕訳化」の通し確認は
-  migration 031 適用後に実機で確認。
-
-## スコープ外（今回はやらない）
-- 残高整合チェック（balance_after の自動検算）。
-- 入金消込/照合フローとの連携（独立した仕訳生成に留める）。
-- クレカ明細の支払（引落）仕訳の相殺（未払金の消し込みは別途）。
-
----
-
-# 機能: 「要確認」をインボイス専用から横断レビューバッジへ拡張
-
-## ユーザー確定方針
-- 「要確認」の発火条件: ①インボイス番号の形式不正 ②OCR信頼度が低い ③必須項目が空 ④needs_reviewフラグ（4条件いずれか）
-- インボイス用「適格／番号なし」は別バッジとして残し、両方表示する
-
-## 変更（receipts/page.tsx）
-- [x] OCR `confidence` を `ReceiptData.ocrConfidence` にマッピング（ocr_result 型に confidence 追加）。
-- [x] `invoiceCheckConfig.invalid` のラベルを「要確認」→「番号不正」に改名（一般「要確認」と区別）。
-- [x] `getReviewReasons(r, showInvoiceCheck)` を新設。OCR_CONFIDENCE_THRESHOLD=0.6。
-      明細書(documentType==="statement")は対象外。理由は複数同時に付き得る。
-- [x] カード/一覧（取引先セル）/詳細パネルに横断「要確認」バッジ（AlertTriangle）を追加。
-      発行側でも OCR品質・必須項目・needs_review で発火（インボイス理由は受領側のみ）。
-- [x] 一覧のインボイス列・カードのインボイスバッジは invalid 時は非表示（要確認に集約）。
-- [x] 詳細パネル上部に理由リスト付きの赤い「要確認」ボックスを追加（編集/仕訳済解除への導線注記）。
-
-## 検証
-- `tsc --noEmit` = exit 0
-
----
-
-# 機能: ダッシュボード再構築（要確認件数・税務カレンダー・残高サマリー）
-
-## ユーザー確定方針
-- ① 要確認バッジ付き証憑の件数を顧問先別に表示、クリックで証憑ページへ
-- ② 決算2ヶ月前からアラートする税務カレンダー（定例税務期限も統合、土日祝/年末年始は翌営業日へ繰延）
-- ③ 口座残高サマリー＋補助科目別残高一覧（クライアント選択式 / 口座=現金・預金の勘定科目）
-- 帳簿のメモリ準拠: マイナス表記は使わず絶対値＋「逆残」タグで表示
-
-## 変更
-- [x] `src/lib/receipt-review.ts` 新設: 要確認判定の共通ロジック（UI/集計で再利用）。
-- [x] `src/actions/receipts.ts` `getReviewCountsByClient()`: 顧問先別の要確認件数を集計。
-- [x] `src/lib/japanese-holidays.ts` 新設: 祝日・営業日判定（春分/秋分は1980年基準, 振替休日, 国民の休日, 12/29〜1/3 税務署閉庁）。`deferToBusinessDay`。
-- [x] `src/actions/clients.ts` `getTaxCalendar()`: 顧問先の決算/申告期限＋事務所共通の定例税務期限を統合、翌営業日繰延、期日順。
-- [x] `src/actions/ledgers.ts` `getBalanceSummary(clientId)`: 現金・預金の勘定科目残高＋補助科目別残高（確定仕訳 needs_review=false・本日以前）。借方正/貸方正で符号算出。
-- [x] `src/app/(dashboard)/dashboard/page.tsx`: 要確認カード / 税務カレンダーカード / クライアント選択式の口座残高・補助科目別残高カードを実装。残高は絶対値＋逆残タグ。
-
-## 検証
-- `tsc --noEmit` = exit 0
-- dev server: /dashboard コンパイル成功、各サーバーアクション 200。
-- ※ 残高は account_categories（資産/負債/純資産/収益/費用）の type で借方正/貸方正を判定。
-
----
-
-# スマホ対応（レスポンシブ）＋ 仕訳入力のカメラ撮影
-
-## タスク
-- [x] 1. `layout.tsx` を `MobileNavProvider` でラップ、余白を `p-4 sm:p-6 lg:p-8` に
-- [x] 2. `sidebar.tsx` をモバイルでオフキャンバス・ドロワー化（バックドロップ＋スライドイン、`lg:` 以上は常時表示）。ページ遷移で自動クローズ、閉じる(X)ボタン追加
-- [x] 3. `header.tsx` にハンバーガー(`lg:hidden`)を追加、余白をレスポンシブ化、プロフィール名は `sm` 以上のみ表示
-- [x] 4. `mobile-nav.tsx`（Provider/useMobileNav）でヘッダーとサイドバーの開閉状態を共有
-- [x] 5. 仕訳入力: カメラ用 `<input accept="image/*" capture="environment">` と「写真を撮る」ボタン（`sm:hidden`）を追加
-- [x] 6. 仕訳入力: 新規仕訳テーブルを `overflow-x-auto` + `min-w-[640px]` で横スクロール対応
-- [x] 7. 検証: tsc=0 / `npm run build` 成功
-
-## 検証
-- `npx tsc --noEmit` = exit 0
-- `npm run build` = ✓ Compiled successfully
-
----
-
-# 未対応機能の実装（⑥→⑦→⑨→⑩）
-
-着手順: ⑥給与 → ⑦借入金 → ⑨期首残高 → ⑩会社書類
-給与スコープ: 記帳向け（支給・控除データ入力＋給与仕訳生成。社保・源泉は手入力）
-
-## ⑥ 給与台帳・役員報酬 ✅ 完了（要: migration 032 をSupabaseに適用）
-- [x] 1. migration `032_payroll_records.sql`（payroll_records + RLS）
-- [x] 2. `src/types/index.ts` に Payroll 型 + `src/types/database.ts` に payroll_records 型
-- [x] 3. `src/actions/payroll.ts`（CRUD + journalizePayroll/unjournalize、科目自動解決）
-- [x] 4. `src/app/(dashboard)/clients/[id]/payroll/page.tsx`（月選択・一覧・入力・仕訳化）
-- [x] 5. サイドバーに「給与台帳」を追加、ヘッダータイトル登録
-- [x] 6. 検証: tsc=0 / build 成功
-
-## ⑦ 借入金・役員借入金の明細 ✅ 完了（要: migration 033 をSupabaseに適用）
-- [x] 1. migration `033_loans.sql`（loans + loan_repayments + RLS）
-- [x] 2. `src/types/index.ts` に Loan/LoanRepayment 型 + `src/types/database.ts` に loans/loan_repayments 型
-- [x] 3. `src/actions/loans.ts`（借入・返済CRUD + journalizeRepayment/unjournalize、残高自動更新、科目自動解決）
-- [x] 4. `src/app/(dashboard)/clients/[id]/loans/page.tsx`（借入一覧＋残高・展開して返済記録・仕訳化）
-- [x] 5. サイドバーに「借入金台帳」を追加、ヘッダータイトル登録
-- [x] 6. 検証: tsc=0 / build 成功
-
-## ⑨ 前期申告書・期首残高 ✅ 完了（migration 不要：journal_entries を再利用）
-- [x] 1. `src/actions/opening-balances.ts`（BS科目取得 + 期首残高仕訳の生成/置換、貸借バランス検証）
-- [x] 2. `src/app/(dashboard)/clients/[id]/opening-balances/page.tsx`（年度選択・資産/負債/純資産入力・貸借差額表示）
-- [x] 3. サイドバーに「期首残高設定」を追加、ヘッダータイトル登録
-- [x] 4. 検証: tsc=0 / build 成功
-- 方式: source='closing'・期首日付・description='期首残高（前期繰越）'・metadata.kind='opening_balance' の1仕訳を作成。試算表の前期繰越ロジック（getTrialBalance の startDate 前/後 仕分け）に自動反映。決算仕訳（期末日）とは日付が異なるため衝突しない。
-- [x] 追加: 前期繰越の自動化 — `carryForwardOpeningBalances()` で前年度末のBS残高を getTrialBalance から取得し、前期P/L純損益を繰越利益剰余金へ自動振替して期首残高仕訳を生成（貸借自動一致）。`TrialBalanceRow` に `id` を追加（非破壊）。ページに「前期から自動繰越」ボタンを追加。tsc=0 / build 成功。
-
-## ⑩ 会社書類（定款・登記等）管理 ✅ 完了（要: migration 034 をSupabaseに適用）
-- [x] 1. migration `034_company_documents.sql`（company_documents + RLS）
-- [x] 2. `src/types/index.ts` に CompanyDocument 型 + `src/types/database.ts` に company_documents 型
-- [x] 3. `src/actions/company-documents.ts`（Storage "company-docs" バケット自動作成・アップロード/一覧/更新/署名URL/削除、SHA-256ハッシュ）
-- [x] 4. `src/app/(dashboard)/clients/[id]/company-documents/page.tsx`（種類別一覧・アップロード/編集/表示/削除）
-- [x] 5. サイドバーに「会社書類」を追加、ヘッダータイトル登録
-- [x] 6. 検証: tsc=0 / build 成功
-
----
-
-## レビュー（⑥〜⑩ 実装完了 2026-06-09）
-4機能すべて実装・検証完了（tsc=0 / build 成功、全ルート登録確認）。
-- ⑥ 給与台帳・役員報酬: 入力＋給与仕訳生成（Dr 給与手当/役員報酬 ／ Cr 預り金・普通預金）
-- ⑦ 借入金・役員借入金: 借入登録＋返済記録→返済仕訳生成（Dr 借入金・支払利息 ／ Cr 普通預金）、残高自動増減
-- ⑨ 前期申告書・期首残高: BS科目の期首残高入力→source='closing'の期首残高仕訳を生成（試算表の前期繰越に反映）
-- ⑩ 会社書類: 定款・登記簿・届出控え等のファイル保管（Storage company-docs バケット）
-
-### ⚠️ デプロイ前の手動作業（Supabase ダッシュボードのSQLエディタで実行）
-未適用のマイグレーション:
-- `032_payroll_records.sql`（給与）
-- `033_loans.sql`（借入金）
-- `034_company_documents.sql`（会社書類）
-※ ⑨ 期首残高は migration 不要（journal_entries を再利用）。
-※ ⑩ の Storage バケット "company-docs" はコード側で初回アップロード時に自動作成。
-
-### 未コミット
-⑥〜⑩ のコード・マイグレーション・docsはローカル変更のまま（最新コミット a91ce61 はレスポンシブ/カメラ/docsのみ）。
-（その後 032/033/034 は Supabase に手動適用済み。動作確認済み。）
-
----
-
-## 税理士レビューSaaS強化（① → ③ → ④ → ⑦ 2026-06-09）
-おすすめ順で実装。各機能 tsc=0 / build 成功・全ルート登録確認。
-
-### ① 税理士レビュー特化 ✅（要: migration 035 を適用）
-- [x] migration `035_journal_review_status.sql`（journal_entries に review_status 4値[unreviewed/confirmed/needs_fix/question] + review_note 追加）
-- [x] `src/types/database.ts` journal_entries に review_status/review_note 追加
-- [x] `src/actions/review.ts`（getReviewEntries/getReviewSummary/setReviewStatus。質問中・要修正でメモ→comments連携、確認済みで質問resolve）
-- [x] `/clients/[id]/review` 仕訳レビュー画面（サマリー・状態フィルタ・確認済み/要修正/質問中ボタン・メモモーダル）
-- [x] サイドバー「仕訳レビュー」+ ヘッダー登録
-
-### ③ AI仕訳チェック（異常検知）✅（migration 不要）
-- [x] `src/actions/journal-check.ts`（ルールベース異常検知: 役員貸付金/交際費[1件高額+年800万限度]/消耗品費[10万・30万]/税区分ミス[不課税科目に課税仕入・課税科目に区分なし・売仕取り違え]）
-- [x] `/clients/[id]/check` AI仕訳チェック画面（年度選択・重大度サマリー・ルールフィルタ・指摘一覧）
-- [x] サイドバー「AI仕訳チェック」+ ヘッダー登録
-
-### ④ 決算前チェックリスト ✅（migration 不要）
-- [x] `src/actions/closing-checklist.ts`（未払費用/減価償却[getDepreciationSummaryと計上額比較]/棚卸/役員借入金/期首残高 を自動判定 ok/warning/todo/info）
-- [x] `/clients/[id]/closing-checklist` 決算前チェック画面（年度選択・状態サマリー・項目別判定）
-- [x] サイドバー「決算前チェック」+ ヘッダー登録
-
-### ⑦ 電子帳簿保存法 検索要件の補強 ✅（migration 不要）
-- [x] `src/actions/document-search.ts`（取引年月日[範囲]・取引金額[範囲]・取引先 の AND 検索。receipts.ocr_result から取引情報抽出）
-- [x] `/clients/[id]/document-search` 証憑検索画面（検索フォーム・結果一覧・改ざん検証[verifyReceiptIntegrity]その場実行・証憑表示[署名URL]）
-- [x] サイドバー「証憑検索（電帳法）」+ ヘッダー登録
-- 改ざん防止（SHA-256ハッシュ）は既存実装を活用。検索要件（範囲＋組合せ）を新規追加。
-
-### ⚠️ デプロイ前の手動作業（追加）
-- `035_journal_review_status.sql` を Supabase SQL エディタで適用（③④⑦ は migration 不要）。
-
----
-
-## 帳票機能の拡充（2026-06-09）
-
-### Part A 帳票管理の3タブ再編＋インボイス対応請求書 ✅ デプロイ済（commit c5c3a06）
-- [x] documents ページを「領収書・請求書（発行）／（受領）／明細書」の3タブに再編（請求書＋領収書を見出し付きで統合）
-- [x] 発行タブから請求書を新規作成→「発行・計上」で売掛金（未回収金）計上（既存 createInvoice / issueInvoiceWithJournal を活用）
-- [x] `getInvoicePrintData` 追加（発行者・取引先・明細・税率別集計を返す）
-- [x] `/clients/[id]/invoices/print/[invoiceId]` インボイス対応A4印刷請求書（発行者登録番号・税率別の対価/消費税額、@media print で印刷、PDF化）
-- [x] 一覧（売上）に「印刷」ボタン追加
-- [x] tsc=0 / build 成功 → main push（Vercel自動デプロイ）
-
-### Part B 表紙付き決算書の出力 ✅（未デプロイ）
-- [x] 決算書の必要書類を整理（表紙・BS・PL・株主資本等変動計算書・個別注記表・販管費明細）
-- [x] `src/actions/settlement-report.ts`（getSettlementReport: 当期＋前期試算表からBS/PL/株主資本等変動/注記/販管費明細を構築。会社情報＝clients、作成者＝firms）
-- [x] `/clients/[id]/statements/report/[year]` 多ページA4決算書（表紙＋BS＋PL＋株主資本等変動計算書＋個別注記表＋販管費明細、page-break、@media print）
-- [x] statements ページ 決算書タブ：画面そのまま印刷（printPage）を廃止し「表紙付き決算書を出力」ボタンで専用帳票へ遷移。決算書タブでは上部の画面印刷ボタンも非表示
-- [x] tsc=0 / build 成功
-- 注: 個別注記表は定型文ベース（会計方針・消費税処理）。株主資本等変動は資本金/利益剰余金/その他の3区分＋当期純利益振替。
-
----
-
-## メニュー整理・会社書類のプライバシー強化（2026-06-10 / 未デプロイ）
-- [x] 仕訳レビュー(review)・AI仕訳チェック(check)・証憑検索(document-search) のページ＋アクションを削除
-- [x] 顧問先ごとの「設定」ページ `/clients/[id]/settings` を新設。消費税計算・会社書類・監査ログをタブ集約
-      （tax/audit/company-documents の各ページを useParams 化して埋め込み。単独ルートも維持）
-- [x] サイドバー clientNav を整理（21→15項目）。tax/audit/company-documents/questions を撤去し「設定」1項目に集約。未使用アイコンimport削除
-- [x] ヘッダーに「チャット（質問管理）」ボタンを追加（顧問先表示中のみ /questions へ遷移）。質問管理はサイドバーから撤去
-- [x] 会社書類ページに機密案内を追加：AIに送信/学習させない、SHA-256で真実性保護、非公開ストレージ＋RLS＋署名付きURL限定。技術的にもAI処理は一切なし（company-documents.ts はストレージ保存のみ）
-- [x] 給与台帳の「給与を追加」ボタン等を shrink-0 / whitespace-nowrap で改行防止
-- [x] tsc=0 / build 成功（.next 再生成後）
+検証: `tsc` 通過 / `npm run build` 成功 / dev server 起動・/dashboard等は認証リダイレクト（500なし）・ログイン画面はスマホ幅で崩れなし（スクショ確認）。撮影画面は認証必須のため実機（ログイン済み・スマホ）での確認推奨。

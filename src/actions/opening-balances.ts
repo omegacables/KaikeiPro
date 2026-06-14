@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
 import { getTrialBalance } from "@/actions/statements";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 
@@ -34,6 +35,7 @@ export async function getOpeningBalances(
   clientId: string,
   fiscalYearStart: string
 ): Promise<OpeningBalanceRow[]> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   // BS科目を取得（顧問先固有 + デフォルト）
@@ -110,6 +112,7 @@ export async function saveOpeningBalances(
   fiscalYearStart: string,
   items: OpeningBalanceInput[]
 ): Promise<{ entryId: string | null }> {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
 
   type LineInsert = {
@@ -213,6 +216,7 @@ export async function carryForwardOpeningBalances(
   clientId: string,
   fiscalYearStart: string
 ): Promise<CarryForwardResult> {
+  await assertClientAccess(clientId);
   // 前年度の期間を算出（当期首=fiscalYearStart の前年度）
   const [y, m] = fiscalYearStart.split("-").map(Number);
   const { startDate: priorStart, endDate: priorEnd } = fiscalRangeFromStartYear(

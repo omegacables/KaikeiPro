@@ -4,6 +4,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,6 +31,7 @@ export interface PendingReviewEntry {
 export async function getPendingReviews(
   clientId: string
 ): Promise<PendingReviewEntry[]> {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
 
   // needs_review = true の仕訳を取得
@@ -101,6 +103,7 @@ export async function getPendingReviews(
 export async function approveReviewEntry(
   journalEntryId: string
 ): Promise<void> {
+  await resolveClientIdForRecord("journal_entries", journalEntryId);
   const supabase = await createServerSupabaseClient();
 
   const {
@@ -137,6 +140,7 @@ export async function approveReviewEntry(
 export async function rejectReviewEntry(
   journalEntryId: string
 ): Promise<void> {
+  await resolveClientIdForRecord("journal_entries", journalEntryId);
   const admin = createAdminSupabaseClient();
 
   // needs_review = true のみ操作可能

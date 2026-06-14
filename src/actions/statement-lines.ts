@@ -5,6 +5,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { resolveClientIdForRecord, assertRecordsAccess } from "@/lib/authz";
 import { downloadReceiptImage } from "./receipt-storage";
 import type { OcrResult, StatementLine } from "@/types/index";
 
@@ -60,6 +61,7 @@ export async function getStatementLines(
 export async function extractStatementTransactions(
   receiptId: string
 ): Promise<StatementLine[]> {
+  await resolveClientIdForRecord("receipts", receiptId);
   const admin = createAdminSupabaseClient();
 
   // 1. 明細書(receipt)取得
@@ -258,6 +260,7 @@ export async function createJournalsFromStatementLines(
   lineIds: string[]
 ): Promise<{ success: number; failed: number; errors: string[] }> {
   if (lineIds.length === 0) return { success: 0, failed: 0, errors: [] };
+  await assertRecordsAccess("statement_lines", lineIds);
   const admin = createAdminSupabaseClient();
 
   // 1. 対象行（pending のみ）取得

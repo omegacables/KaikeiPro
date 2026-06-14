@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { resolveClientIdForRecord } from "@/lib/authz";
 import type { Database } from "@/types/database";
 
 type BankAccountRow = Database["public"]["Tables"]["bank_accounts"]["Row"];
@@ -172,6 +173,7 @@ export async function createBankTransactions(
   }[]
 ): Promise<BankTransactionRow[]> {
   if (transactions.length === 0) return [];
+  await resolveClientIdForRecord("bank_accounts", bankAccountId);
   const admin = createAdminSupabaseClient();
 
   const rows: BankTransactionInsert[] = transactions.map((t) => ({

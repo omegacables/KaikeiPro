@@ -4,6 +4,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { resolveClientIdForRecord } from "@/lib/authz";
 import type { PayrollRecord, PayrollInput } from "@/types/index";
 
 type DbRow = Record<string, unknown>;
@@ -146,6 +147,7 @@ export async function updatePayrollRecord(
 }
 
 export async function deletePayrollRecord(id: string): Promise<void> {
+  await resolveClientIdForRecord("payroll_records", id);
   const supabase = await createServerSupabaseClient();
   // 仕訳化済みなら生成済み仕訳も削除
   const { data: rec } = await supabase
@@ -184,6 +186,7 @@ function findAccount(accounts: AccountLite[], keywords: string[]): string | null
  *   貸方 普通預金/現金/未払金 … 差引支給額
  */
 export async function journalizePayroll(id: string): Promise<string> {
+  await resolveClientIdForRecord("payroll_records", id);
   const admin = createAdminSupabaseClient();
 
   const { data: recRaw, error: recErr } = await admin
@@ -318,6 +321,7 @@ export async function journalizePayroll(id: string): Promise<string> {
 
 /** 仕訳化を取り消す（生成済み仕訳を削除し pending に戻す） */
 export async function unjournalizePayroll(id: string): Promise<void> {
+  await resolveClientIdForRecord("payroll_records", id);
   const admin = createAdminSupabaseClient();
   const { data: rec } = await admin
     .from("payroll_records")

@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertSuperAdmin, assertFirmAccess } from "@/lib/authz";
 import type { Database } from "@/types/database";
 
 type FirmRow = Database["public"]["Tables"]["firms"]["Row"];
@@ -8,9 +9,23 @@ type FirmInsert = Database["public"]["Tables"]["firms"]["Insert"];
 type FirmUpdate = Database["public"]["Tables"]["firms"]["Update"];
 
 export async function getFirms() {
-  // Use admin client to bypass RLS (super_admin needs to see all firms)
-  const supabase = createAdminSupabaseClient();
-  const { data, error } = await supabase
+  // super_admin は全事務所、それ以外は RLS（firms_select = id IN get_user_firm_ids()）で
+  // 自分の所属事務所のみ。これにより全事務所名の横断漏えいを防ぐ。
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("認証が必要です");
+
+  const { data: superAdmin } = await supabase
+    .from("super_admins")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("is_active", true)
+    .maybeSingle();
+
+  const client = superAdmin ? createAdminSupabaseClient() : supabase;
+  const { data, error } = await client
     .from("firms")
     .select("*")
     .order("name");
@@ -32,6 +47,8 @@ export async function getFirm(id: string) {
 }
 
 export async function createFirm(input: Omit<FirmInsert, "id">) {
+  // 事務所の新規作成は super_admin のみ（自由なテナント乱立を防止）
+  await assertSuperAdmin();
   const supabase = createAdminSupabaseClient();
   const { data, error } = await supabase
     .from("firms")
@@ -270,6 +287,8 @@ export async function inviteFirmMember(input: {
   name: string;
   role: "admin" | "staff";
 }) {
+  // 呼び出し者が当該事務所の管理者（または super_admin）であることを検証
+  await assertFirmAccess(input.firm_id, { requireAdmin: true });
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("firm_members")

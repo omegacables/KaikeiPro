@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertFirmAccess, assertClientManagedByFirm } from "@/lib/authz";
 
 export async function setupSelfServiceAccount(name: string, companyName: string) {
   const supabase = await createServerSupabaseClient();
@@ -59,6 +60,10 @@ export async function createClientPortalAccount(input: {
   } = await supabase.auth.getUser();
   if (!user) throw new Error("認証が必要です");
 
+  // 呼び出し者が当該クライアントを管理する事務所メンバー（または super_admin）か検証。
+  // これがないと、任意の認証ユーザーが他テナントのクライアントにログインを作成できてしまう。
+  await assertClientManagedByFirm(input.clientId);
+
   // 重複チェック
   const { data: existingUser } = await supabase
     .from("client_users")
@@ -107,6 +112,10 @@ export async function createFirmMemberAccount(input: {
   password: string;
   role: "admin" | "staff";
 }) {
+  // 呼び出し者が当該事務所の管理者（または super_admin）であることを検証。
+  // これがないと、誰でも任意の事務所に自分を staff/admin として追加できてしまう。
+  await assertFirmAccess(input.firmId, { requireAdmin: true });
+
   const admin = createAdminSupabaseClient();
 
   // 重複チェック

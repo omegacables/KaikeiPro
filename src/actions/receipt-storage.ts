@@ -4,6 +4,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 
 import { createHash } from "crypto";
 
@@ -56,7 +57,6 @@ async function ensureBucket() {
 export async function uploadReceipt(formData: FormData) {
   const file = formData.get("file") as File;
   const clientId = formData.get("client_id") as string;
-  const uploadedBy = formData.get("uploaded_by") as string;
   const paymentMethod = formData.get("payment_method") as string | null;
   const memo = (formData.get("memo") as string | null)?.trim() || null;
   const directionRaw = (formData.get("direction") as string | null) || "received";
@@ -79,8 +79,24 @@ export async function uploadReceipt(formData: FormData) {
     throw new Error("クライアントIDが指定されていません");
   }
 
-  // ストレージパス生成: {client_id}/{receipt_id}.{ext}
-  const ext = file.name.split(".").pop()?.toLowerCase() || "jpg";
+  // 認証 & 所有権チェック（IDOR対策）:
+  // uploaded_by はセッションから導出し、client_id は呼び出し者がアクセスできる
+  // クライアントに限定する（formData の値は信用しない）。
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("認証が必要です");
+  await assertClientAccess(clientId);
+
+  // 拡張子は MIME から導出（ファイル名由来のパストラバーサルを防止）。
+  // ALLOWED_TYPES で file.type は3種に制限済み。
+  const extByMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "application/pdf": "pdf",
+  };
+  const ext = extByMime[file.type] ?? "bin";
   const receiptId = crypto.randomUUID();
   const storagePath = `${clientId}/${receiptId}.${ext}`;
 
@@ -103,14 +119,13 @@ export async function uploadReceipt(formData: FormData) {
     throw new Error(`アップロードエラー: ${uploadError.message}`);
   }
 
-  // receiptsレコード作成
-  const supabase = await createServerSupabaseClient();
+  // receiptsレコード作成（RLS バウンドのクライアントで作成 → 所有権を二重に担保）
   const { data, error } = await supabase
     .from("receipts")
     .insert({
       id: receiptId,
       client_id: clientId,
-      uploaded_by: uploadedBy,
+      uploaded_by: user.id,
       image_path: storagePath,
       payment_method: (paymentMethod || null) as "cash" | "card" | "e_money" | "bank_transfer" | null,
       status: "uploaded",
@@ -144,6 +159,15 @@ export async function getReceiptImageUrl(
     return null;
   }
 
+  // 所有権チェック（IDOR対策）: パス先頭セグメント = client_id。
+  // アクセスできないクライアントの画像 URL は発行しない。
+  const pathClientId = imagePath.split("/")[0];
+  try {
+    await assertClientAccess(pathClientId);
+  } catch {
+    return null;
+  }
+
   const adminSupabase = createAdminSupabaseClient();
   const { data, error } = await adminSupabase.storage
     .from(BUCKET_NAME)
@@ -162,6 +186,12 @@ export async function getReceiptImageUrl(
 export async function downloadReceiptImage(
   imagePath: string
 ): Promise<{ data: Uint8Array; mimeType: string }> {
+  // 所有権チェック（IDOR対策）: パス先頭セグメント = client_id。
+  // raqto:// などの非通常パスは clientId を持たないため、その場合はスキップ。
+  if (imagePath && !imagePath.startsWith("raqto://") && !imagePath.startsWith("receipts/")) {
+    await assertClientAccess(imagePath.split("/")[0]);
+  }
+
   const adminSupabase = createAdminSupabaseClient();
   const { data, error } = await adminSupabase.storage
     .from(BUCKET_NAME)
@@ -187,6 +217,7 @@ export async function verifyReceiptIntegrity(receiptId: string): Promise<{
   computedHash: string;
   verifiedAt: string;
 }> {
+  await resolveClientIdForRecord("receipts", receiptId);
   const adminSupabase = createAdminSupabaseClient();
 
   // レコード取得
@@ -239,6 +270,9 @@ export async function deleteReceiptImage(imagePath: string): Promise<void> {
   if (!imagePath || imagePath.startsWith("raqto://") || imagePath.startsWith("receipts/")) {
     return;
   }
+
+  // 所有権チェック（IDOR対策）: パス先頭セグメント = client_id
+  await assertClientAccess(imagePath.split("/")[0]);
 
   const adminSupabase = createAdminSupabaseClient();
   const { error } = await adminSupabase.storage

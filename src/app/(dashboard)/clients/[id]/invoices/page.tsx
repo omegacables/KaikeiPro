@@ -307,13 +307,21 @@ export function InvoicesPageContent({
   const itemsTotal    = itemsSubtotal + itemsTax;
 
   const handleCreateInvoice = async () => {
-    if (!newInvoice.invoice_number || !newInvoice.business_partner_id) return;
+    if (!newInvoice.business_partner_id) return;
     setSaving(true);
     try {
+      // 請求書番号が未入力でも保存可能にする。invoice_number は NOT NULL のため、
+      // 空の場合のみ自動採番する（非インボイス登録事業者など番号が無い請求書に対応）。
+      const today = new Date();
+      const ymd = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, "0")}${String(today.getDate()).padStart(2, "0")}`;
+      const prefix = newInvoice.direction === "purchase" ? "RCV" : "INV";
+      const seq = invoices.filter((inv) => inv.direction === newInvoice.direction).length + 1;
+      const invoiceNumber =
+        newInvoice.invoice_number.trim() || `${prefix}-${ymd}-${String(seq).padStart(3, "0")}`;
       await createInvoice(
         {
           client_id: id,
-          invoice_number: newInvoice.invoice_number,
+          invoice_number: invoiceNumber,
           business_partner_id: newInvoice.business_partner_id,
           issued_date: newInvoice.issued_date || new Date().toISOString().split("T")[0],
           due_date: newInvoice.due_date || null,
@@ -579,7 +587,7 @@ export function InvoicesPageContent({
 
             <div className="mt-4 flex gap-2 justify-end">
               <Button variant="ghost" onClick={() => setShowNewForm(false)}>キャンセル</Button>
-              <Button onClick={handleCreateInvoice} disabled={saving || !newInvoice.invoice_number || !newInvoice.business_partner_id}>
+              <Button onClick={handleCreateInvoice} disabled={saving || !newInvoice.business_partner_id}>
                 {saving && <Loader2 className="size-4 animate-spin" />}
                 {newInvoice.direction === "purchase" ? "受領登録" : "請求書を作成"}
               </Button>

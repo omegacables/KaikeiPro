@@ -27,6 +27,7 @@ import {
   ShieldCheck,
   FileCheck,
   Home,
+  Sparkles,
   X,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -43,6 +44,7 @@ const clientNav = [
   { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
   { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
   { href: "/accounts", label: "勘定科目管理", icon: FileText },
+  { href: "/learned-rules", label: "仕訳学習", icon: Sparkles },
   { href: "/allocations", label: "家事按分設定", icon: Home },
   { href: "/closing", label: "決算処理", icon: Archive },
   { href: "/closing-checklist", label: "決算前チェック", icon: ListChecks },

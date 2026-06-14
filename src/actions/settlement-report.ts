@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
 import { getTrialBalance, type TrialBalanceRow } from "@/actions/statements";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 
@@ -77,6 +78,7 @@ export async function getSettlementReport(
   clientId: string,
   fiscalStartYear: number
 ): Promise<SettlementReport> {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
 
   // 会社情報

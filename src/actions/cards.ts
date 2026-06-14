@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { resolveClientIdForRecord } from "@/lib/authz";
 import type { Database } from "@/types/database";
 
 type CardAccountRow = Database["public"]["Tables"]["card_accounts"]["Row"];
@@ -159,6 +160,7 @@ export async function createCardTransactions(
   }[]
 ): Promise<CardTransactionRow[]> {
   if (transactions.length === 0) return [];
+  await resolveClientIdForRecord("card_accounts", cardAccountId);
   const admin = createAdminSupabaseClient();
 
   // カード情報を取得（締日）
@@ -231,6 +233,7 @@ export async function recordCardPayment(
   statementMonth: string,
   paymentDate: string
 ): Promise<string> {
+  await resolveClientIdForRecord("card_accounts", cardAccountId);
   const admin = createAdminSupabaseClient();
 
   // カード情報取得

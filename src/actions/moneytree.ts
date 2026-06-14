@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient, createServerSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
 import {
   fetchAccounts,
   fetchTransactions,
@@ -47,6 +48,7 @@ async function getValidToken(clientId: string): Promise<string> {
 // ── Connection status ─────────────────────────────────────────────────────────
 
 export async function getMoneytreeConnection(clientId: string) {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
   const { data } = await admin
     .from("moneytree_connections")
@@ -58,6 +60,7 @@ export async function getMoneytreeConnection(clientId: string) {
 }
 
 export async function disconnectMoneytree(clientId: string) {
+  await assertClientAccess(clientId);
   const supabase = await createServerSupabaseClient();
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("Unauthorized");
@@ -93,6 +96,7 @@ export async function syncMoneytreeAccounts(clientId: string): Promise<{
   synced: number;
   accounts: { id: string; bank_name: string }[];
 }> {
+  await assertClientAccess(clientId);
   const accessToken = await getValidToken(clientId);
   const mtAccounts = await fetchAccounts(accessToken);
 
@@ -144,6 +148,7 @@ export async function syncMoneytreeTransactions(
   bankAccountId: string,
   options?: { from?: string; to?: string }
 ): Promise<{ inserted: number }> {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
 
   const { data: bankAccount } = await admin
@@ -211,6 +216,7 @@ export async function syncAllMoneytreeTransactions(
   clientId: string,
   options?: { from?: string; to?: string }
 ): Promise<{ totalInserted: number; accounts: number }> {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
 
   const { data: bankAccounts } = await admin

@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { cookies } from "next/headers";
 import { exchangeCodeForToken, expiresAt } from "@/lib/moneytree";
-import { createAdminSupabaseClient } from "@/lib/supabase";
+import { createAdminSupabaseClient, createServerSupabaseClient } from "@/lib/supabase";
 
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
@@ -38,6 +38,23 @@ export async function GET(request: Request) {
   }
 
   const { clientId, codeVerifier } = parsed;
+
+  // 所有権の再検証（多層防御）: ログイン中ユーザーが当該クライアントにアクセスできること。
+  const rls = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await rls.auth.getUser();
+  if (!user) {
+    return NextResponse.redirect(`${origin}/auth/login?error=auth_failed`);
+  }
+  const { data: ownedClient } = await rls
+    .from("clients")
+    .select("id")
+    .eq("id", clientId)
+    .maybeSingle();
+  if (!ownedClient) {
+    return NextResponse.redirect(`${origin}/dashboard?moneytree_error=forbidden`);
+  }
 
   try {
     const token = await exchangeCodeForToken({ code, codeVerifier });

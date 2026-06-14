@@ -8,7 +8,12 @@ export type InvoiceCheck = "valid" | "invalid" | "none";
 export function checkInvoiceNumber(num?: string): InvoiceCheck {
   if (!num || !num.trim()) return "none";
   const normalized = num.replace(/[\s-]/g, "").toUpperCase();
-  return /^T\d{13}$/.test(normalized) ? "valid" : "invalid";
+  if (/^T\d{13}$/.test(normalized)) return "valid";
+  // "T" で始まる＝登録番号を意図した入力だが桁数等が不正 → invalid（要確認）。
+  if (/^T/.test(normalized)) return "invalid";
+  // "T" で始まらない＝そもそも登録番号ではない（請求書番号・領収書No等）→ none 扱い。
+  // 一般の書類番号を「形式不正の登録番号」と誤判定して(要確認)を付けないため。
+  return "none";
 }
 
 // 「要確認」: インボイス番号だけでなく、OCR読取品質など複数の観点で

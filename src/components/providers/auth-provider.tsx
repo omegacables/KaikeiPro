@@ -113,15 +113,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      // Fallback: user exists in auth but not assigned anywhere yet
-      setUser({
-        id: authUser.id,
-        email: authUser.email ?? "",
-        name: authUser.user_metadata?.name ?? authUser.email ?? "",
-        role: "client",
-        firmId: null,
-        clientId: null,
-      });
+      // 認証済みだが、どのテーブル（super_admins / firm_members / client_users）にも
+      // 未割当のユーザーには、アプリ上のロールを一切付与しない（client への暗黙昇格を廃止）。
+      // 以前は role:"client" を割り当てており、未割当ユーザーが顧問先扱いになる穴があった。
+      setUser(null);
       setLoading(false);
     }
 

@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertRecordsAccess } from "@/lib/authz";
 import type { Database } from "@/types/database";
 import { getReviewReasons } from "@/lib/receipt-review";
 
@@ -162,6 +163,7 @@ export async function deleteReceipt(id: string) {
  */
 export async function deleteReceipts(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
+  await assertRecordsAccess("receipts", ids);
   const admin = createAdminSupabaseClient();
 
   // 紐づく仕訳を取得

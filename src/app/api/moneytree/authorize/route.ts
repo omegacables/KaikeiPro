@@ -22,6 +22,17 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // 所有権チェック（IDOR対策）: RLS で当該クライアントが可視＝アクセス可。
+  // これがないと他テナントのクライアントに自分の銀行接続を紐付けられてしまう。
+  const { data: client } = await supabase
+    .from("clients")
+    .select("id")
+    .eq("id", clientId)
+    .maybeSingle();
+  if (!client) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const codeVerifier = generateCodeVerifier();
   const codeChallenge = generateCodeChallenge(codeVerifier);
   const state = generateState();

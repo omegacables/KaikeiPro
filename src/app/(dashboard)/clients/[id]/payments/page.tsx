@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams } from "next/navigation";
 import {
   CreditCard,
@@ -12,13 +12,19 @@ import {
   Link2,
   AlertCircle,
   Loader2,
+  Upload,
+  FileSpreadsheet,
+  Sparkles,
+  X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
-import { getPayments, createPayment, allocatePayment, autoMatchBankDeposits } from "@/actions/payments";
+import { getPayments, createPayment, allocatePayment, reconcileDeposits } from "@/actions/payments";
+import { analyzeDepositsRows, analyzeDepositsPdf, type DepositSuggestion } from "@/actions/deposit-csv-ai";
+import { parseTabularFile } from "@/lib/parse-tabular";
 import { getPartners } from "@/actions/partners";
 import { getUnpaidInvoices } from "@/actions/invoices";
 
@@ -49,13 +55,23 @@ type AllocationRecord = {
   allocatedAt: string;
 };
 
+// 大きなファイルでもスタックを溢れさせずに ArrayBuffer を base64 化する。
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf);
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export default function PaymentsPage() {
   const { id } = useParams<{ id: string }>();
   const [selectedPayment, setSelectedPayment] = useState<string | null>(null);
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [autoMatching, setAutoMatching] = useState(false);
   const [partnerList, setPartnerList] = useState<{ id: string; name: string }[]>([]);
   const [newPayment, setNewPayment] = useState({
     payment_date: "",
@@ -65,6 +81,17 @@ export default function PaymentsPage() {
     memo: "",
   });
 
+  // 入金登録: ファイル取込（CSV/Excel/PDF）の状態
+  type EditableDeposit = DepositSuggestion & { selected: boolean; business_partner_id: string };
+  const [showImport, setShowImport] = useState(false);
+  const [importAnalyzing, setImportAnalyzing] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [deposits, setDeposits] = useState<EditableDeposit[]>([]);
+  const [importWarnings, setImportWarnings] = useState<string[]>([]);
+  const [importError, setImportError] = useState<string | null>(null);
+  const [importFileName, setImportFileName] = useState<string | null>(null);
+  const importInputRef = useRef<HTMLInputElement>(null);
+
   async function loadPartners() {
     try {
       const ps = await getPartners(id);
@@ -72,22 +99,85 @@ export default function PaymentsPage() {
     } catch { /* ignore */ }
   }
 
-  async function handleAutoMatch() {
-    if (!confirm("銀行入金データから自動消込を実行しますか？")) return;
-    setAutoMatching(true);
+  function clearImport() {
+    setDeposits([]);
+    setImportWarnings([]);
+    setImportError(null);
+    setImportFileName(null);
+    if (importInputRef.current) importInputRef.current.value = "";
+  }
+
+  async function handleDepositFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImportFileName(file.name);
+    setImportError(null);
+    setImportWarnings([]);
+    setDeposits([]);
+    setImportAnalyzing(true);
     try {
-      const result = await autoMatchBankDeposits(id);
-      if (result.matched > 0) {
-        alert(`${result.matched}件を自動消込しました。${result.skipped > 0 ? `（${result.skipped}件はマッチなし）` : ""}`);
+      const ext = file.name.split(".").pop()?.toLowerCase();
+      let analysis;
+      if (ext === "pdf" || file.type.startsWith("image/")) {
+        const base64 = arrayBufferToBase64(await file.arrayBuffer());
+        const mime: "application/pdf" | "image/jpeg" | "image/png" =
+          ext === "pdf" ? "application/pdf" : file.type === "image/png" ? "image/png" : "image/jpeg";
+        analysis = await analyzeDepositsPdf(id, base64, mime);
       } else {
-        alert("自動消込できる入金データが見つかりませんでした。");
+        const { header, rows } = await parseTabularFile(file);
+        if (rows.length === 0) throw new Error("有効なデータ行が見つかりません");
+        analysis = await analyzeDepositsRows(id, header, rows);
       }
+      setDeposits(
+        analysis.suggestions.map((s) => ({
+          ...s,
+          selected: s.amount > 0,
+          business_partner_id: s.suggestedPartnerId ?? "",
+        }))
+      );
+      setImportWarnings(analysis.warnings);
+      if (analysis.suggestions.length === 0) {
+        setImportError("入金明細を抽出できませんでした。フォーマットをご確認ください。");
+      }
+    } catch (err) {
+      setImportError(err instanceof Error ? err.message : "取込に失敗しました");
+    } finally {
+      setImportAnalyzing(false);
+      e.target.value = "";
+    }
+  }
+
+  async function handleRunReconcile() {
+    const selected = deposits.filter((d) => d.selected);
+    if (selected.length === 0) return;
+    const missing = selected.filter((d) => !d.business_partner_id);
+    if (missing.length > 0) {
+      alert(`取引先が未選択の行が ${missing.length} 件あります。取引先を選択してください。`);
+      return;
+    }
+    setImporting(true);
+    try {
+      const result = await reconcileDeposits(
+        id,
+        selected.map((d) => ({
+          payment_date: d.date,
+          amount: d.amount,
+          business_partner_id: d.business_partner_id,
+          memo: d.memo || d.payer || null,
+        }))
+      );
+      alert(
+        `${result.created}件を入金登録し、うち${result.matched}件を自動消込しました。` +
+          (result.errors.length ? `（${result.errors.length}件エラー）` : "")
+      );
+      clearImport();
+      setShowImport(false);
       refetch();
       refetchInvoices();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "自動消込に失敗しました");
+      setImportError(err instanceof Error ? err.message : "登録に失敗しました");
     } finally {
-      setAutoMatching(false);
+      setImporting(false);
     }
   }
 
@@ -227,9 +317,9 @@ export default function PaymentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={handleAutoMatch} disabled={autoMatching}>
-            {autoMatching ? <Loader2 className="size-4 animate-spin" /> : <Zap className="size-4" />}
-            銀行入金から自動消込
+          <Button variant="outline" onClick={() => { setShowImport(!showImport); if (!showImport) loadPartners(); }}>
+            <Upload className="size-4" />
+            ファイルから取込
           </Button>
           <Button onClick={() => { setShowNewForm(!showNewForm); if (!showNewForm) loadPartners(); }}>
             <Plus className="size-4" />
@@ -279,6 +369,162 @@ export default function PaymentsPage() {
               </Button>
             </div>
           </form>
+        </Card>
+      )}
+
+      {/* ファイルから入金登録（CSV / Excel / PDF） */}
+      {showImport && (
+        <Card className="mb-6 p-6 border-dashed border-primary/40">
+          <div className="flex items-center justify-between mb-4">
+            <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
+              <FileSpreadsheet className="size-4 text-primary" />
+              ファイルから入金登録
+              <span className="inline-flex items-center gap-1 text-xs font-normal text-primary bg-primary/10 rounded px-1.5 py-0.5">
+                <Sparkles className="size-3" />
+                AI解析
+              </span>
+            </h3>
+            <button
+              onClick={() => { setShowImport(false); clearImport(); }}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              <X className="size-4" />
+            </button>
+          </div>
+
+          <input
+            ref={importInputRef}
+            type="file"
+            accept=".csv,.xlsx,.xlsm,application/pdf,image/jpeg,image/png"
+            onChange={handleDepositFileSelect}
+            className="hidden"
+          />
+
+          {!importFileName ? (
+            <div
+              onClick={() => importInputRef.current?.click()}
+              className="flex items-center justify-center gap-3 p-6 cursor-pointer rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
+            >
+              <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
+                <Upload className="size-5" />
+              </div>
+              <div>
+                <p className="text-sm font-medium text-foreground">クリックして CSV / Excel / PDF を選択</p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  銀行入金明細・通帳・振込リスト等。AIが入金行を抽出し取引先を推定します。
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-3 p-3 rounded-lg border border-border bg-muted/30">
+              <FileSpreadsheet className="size-6 text-primary shrink-0" />
+              <p className="text-sm flex-1 truncate">
+                {importFileName}
+                {importAnalyzing && " / AI解析中..."}
+                {!importAnalyzing && deposits.length > 0 && ` / ${deposits.length}件の入金候補`}
+              </p>
+              {!importAnalyzing && !importing && (
+                <button onClick={clearImport} className="text-muted-foreground hover:text-foreground">
+                  <X className="size-4" />
+                </button>
+              )}
+            </div>
+          )}
+
+          {importAnalyzing && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <Loader2 className="size-4 animate-spin" />
+              AIが入金明細を解析中... (10〜30秒)
+            </div>
+          )}
+
+          {deposits.length > 0 && (
+            <>
+              <div className="mt-4 overflow-x-auto rounded-lg border border-border">
+                <table className="w-full text-xs">
+                  <thead className="bg-muted/30">
+                    <tr>
+                      <th className="px-2 py-1.5 w-8">
+                        <input
+                          type="checkbox"
+                          checked={deposits.every((d) => d.selected)}
+                          onChange={(e) => setDeposits((prev) => prev.map((d) => ({ ...d, selected: e.target.checked })))}
+                        />
+                      </th>
+                      <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">入金日</th>
+                      <th className="text-right px-2 py-1.5 font-bold text-muted-foreground">金額</th>
+                      <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">振込人</th>
+                      <th className="text-left px-2 py-1.5 font-bold text-muted-foreground">取引先（消込先）</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {deposits.map((d) => (
+                      <tr key={d.rowIdx} className={cn("border-t border-border/50", !d.selected && "opacity-50")}>
+                        <td className="px-2 py-1 text-center">
+                          <input
+                            type="checkbox"
+                            checked={d.selected}
+                            onChange={(e) => setDeposits((prev) => prev.map((x) => (x.rowIdx === d.rowIdx ? { ...x, selected: e.target.checked } : x)))}
+                          />
+                        </td>
+                        <td className="px-2 py-1">
+                          <input
+                            type="date"
+                            value={d.date}
+                            onChange={(e) => setDeposits((prev) => prev.map((x) => (x.rowIdx === d.rowIdx ? { ...x, date: e.target.value } : x)))}
+                            className="bg-transparent border-0 text-xs w-28"
+                          />
+                        </td>
+                        <td className="px-2 py-1 text-right font-mono">{formatCurrency(d.amount)}</td>
+                        <td className="px-2 py-1">{d.payer || "—"}</td>
+                        <td className="px-2 py-1">
+                          <select
+                            value={d.business_partner_id}
+                            onChange={(e) => setDeposits((prev) => prev.map((x) => (x.rowIdx === d.rowIdx ? { ...x, business_partner_id: e.target.value } : x)))}
+                            className={cn(
+                              "bg-card border rounded px-1.5 py-1 text-xs w-full",
+                              d.business_partner_id ? "border-border" : "border-destructive/50"
+                            )}
+                          >
+                            <option value="">選択してください</option>
+                            {partnerList.map((p) => (
+                              <option key={p.id} value={p.id}>{p.name}</option>
+                            ))}
+                          </select>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div className="mt-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  金額が請求残額と一致する取引先の入金は自動で消込されます。一致しないものは未消込で登録され、下の一覧から手動消込できます。
+                </p>
+                <Button size="sm" onClick={handleRunReconcile} disabled={importing || deposits.filter((d) => d.selected).length === 0}>
+                  {importing ? (
+                    <><Loader2 className="size-4 animate-spin" />登録中...</>
+                  ) : (
+                    <><Plus className="size-4" />選択行を入金登録（{deposits.filter((d) => d.selected).length}件）</>
+                  )}
+                </Button>
+              </div>
+            </>
+          )}
+
+          {importWarnings.length > 0 && (
+            <div className="mt-3 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 max-h-40 overflow-y-auto">
+              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">注意:</p>
+              <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+                {importWarnings.map((w, i) => (<li key={i}>・{w}</li>))}
+              </ul>
+            </div>
+          )}
+          {importError && (
+            <div className="mt-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
+              <p className="text-sm text-destructive">{importError}</p>
+            </div>
+          )}
         </Card>
       )}
 

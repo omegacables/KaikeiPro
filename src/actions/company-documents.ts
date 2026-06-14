@@ -4,6 +4,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
 import { createHash } from "crypto";
 import type { CompanyDocument, CompanyDocType } from "@/types/index";
 
@@ -84,7 +85,6 @@ export async function uploadCompanyDocument(
 ): Promise<CompanyDocument> {
   const file = formData.get("file") as File;
   const clientId = formData.get("client_id") as string;
-  const uploadedBy = (formData.get("uploaded_by") as string | null) || null;
   const docTypeRaw = (formData.get("doc_type") as string | null) || "other";
   const docType: CompanyDocType = DOC_TYPES.includes(docTypeRaw as CompanyDocType)
     ? (docTypeRaw as CompanyDocType)
@@ -104,7 +104,22 @@ export async function uploadCompanyDocument(
     throw new Error("対応ファイル形式: JPG, PNG, PDF");
   if (!clientId) throw new Error("クライアントIDが指定されていません");
 
-  const ext = file.name.split(".").pop()?.toLowerCase() || "pdf";
+  // 認証 & 所有権チェック（IDOR対策）: uploaded_by はセッション由来、
+  // client_id は呼び出し者がアクセスできるクライアントに限定。
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) throw new Error("認証が必要です");
+  await assertClientAccess(clientId);
+
+  // 拡張子は MIME から導出（パストラバーサル防止）
+  const extByMime: Record<string, string> = {
+    "image/jpeg": "jpg",
+    "image/png": "png",
+    "application/pdf": "pdf",
+  };
+  const ext = extByMime[file.type] ?? "bin";
   const docId = crypto.randomUUID();
   const storagePath = `${clientId}/${docId}.${ext}`;
 
@@ -120,7 +135,6 @@ export async function uploadCompanyDocument(
     });
   if (uploadError) throw new Error(`アップロードエラー: ${uploadError.message}`);
 
-  const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("company_documents")
     .insert({
@@ -136,7 +150,7 @@ export async function uploadCompanyDocument(
       hash_algorithm: "SHA-256",
       issued_date: issuedDate,
       memo,
-      uploaded_by: uploadedBy,
+      uploaded_by: user.id,
     })
     .select()
     .single();
@@ -175,6 +189,12 @@ export async function getCompanyDocumentUrl(
   filePath: string
 ): Promise<string | null> {
   if (!filePath) return null;
+  // 所有権チェック（IDOR対策）: パス先頭セグメント = client_id。
+  try {
+    await assertClientAccess(filePath.split("/")[0]);
+  } catch {
+    return null;
+  }
   const admin = createAdminSupabaseClient();
   const { data, error } = await admin.storage
     .from(BUCKET_NAME)

@@ -17,6 +17,8 @@ import {
   Package,
   ImageIcon,
   Trash2,
+  Plus,
+  Check,
   AlertTriangle,
   Landmark,
   Building2,
@@ -47,7 +49,7 @@ import { getClient } from "@/actions/clients";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
-import { deleteJournalEntries, getDescriptionSuggestions } from "@/actions/journals";
+import { deleteJournalEntries, getDescriptionSuggestions, getJournalEntry, updateJournalEntryWithLines } from "@/actions/journals";
 import { getReceipt } from "@/actions/receipts";
 import { getAssets } from "@/actions/assets";
 import type { Database } from "@/types/database";
@@ -868,6 +870,69 @@ export default function LedgersPage() {
   const [detailData, setDetailData] = useState<JournalEntryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
 
+  // 仕訳編集（AI生成・取込仕訳の修正）
+  const [editing, setEditing] = useState(false);
+  const [editDate, setEditDate] = useState("");
+  const [editDesc, setEditDesc] = useState("");
+  const [editLines, setEditLines] = useState<{ account_id: string; debit: string; credit: string }[]>([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+
+  const handleStartEdit = async () => {
+    if (!selectedRow) return;
+    try {
+      const entry = await getJournalEntry(selectedRow.journalEntryId);
+      const rawLines = ((entry as { journal_entry_lines?: Array<{ account_id: string; debit_amount: number; credit_amount: number; sort_order?: number }> }).journal_entry_lines ?? [])
+        .slice()
+        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+      setEditDate((entry as { entry_date?: string }).entry_date ?? selectedRow.date);
+      setEditDesc((entry as { description?: string | null }).description ?? "");
+      setEditLines(
+        rawLines.length
+          ? rawLines.map((l) => ({
+              account_id: l.account_id,
+              debit: l.debit_amount ? String(l.debit_amount) : "",
+              credit: l.credit_amount ? String(l.credit_amount) : "",
+            }))
+          : [{ account_id: "", debit: "", credit: "" }]
+      );
+      setEditing(true);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "編集データの取得に失敗しました");
+    }
+  };
+
+  const updateEditLine = (i: number, field: "account_id" | "debit" | "credit", val: string) =>
+    setEditLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, [field]: val } : l)));
+  const addEditLine = () => setEditLines((prev) => [...prev, { account_id: "", debit: "", credit: "" }]);
+  const removeEditLine = (i: number) => setEditLines((prev) => prev.filter((_, idx) => idx !== i));
+
+  const editTotalD = editLines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
+  const editTotalC = editLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
+  const editBalanced = editTotalD > 0 && editTotalD === editTotalC;
+
+  const handleSaveEdit = async () => {
+    if (!selectedRow) return;
+    setSavingEdit(true);
+    try {
+      await updateJournalEntryWithLines(
+        selectedRow.journalEntryId,
+        { entry_date: editDate, description: editDesc },
+        editLines.map((l) => ({
+          account_id: l.account_id,
+          debit_amount: Number(l.debit) || 0,
+          credit_amount: Number(l.credit) || 0,
+        }))
+      );
+      setEditing(false);
+      setSelectedRow(null);
+      await fetchJournal();
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "保存に失敗しました");
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
 
   // Journal deletion state
   const [selectedJournalIds, setSelectedJournalIds] = useState<Set<string>>(new Set());
@@ -950,6 +1015,7 @@ export default function LedgersPage() {
 
   const handleRowClick = async (row: JournalLedgerRow) => {
     setSelectedRow(row);
+    setEditing(false);
     setDetailData(null);
     setDetailLoading(true);
     try {
@@ -1571,12 +1637,23 @@ export default function LedgersPage() {
           <div className="relative w-full max-w-md bg-card border-l border-border shadow-xl overflow-y-auto">
             <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
               <h3 className="text-lg font-bold text-foreground">仕訳詳細</h3>
-              <button
-                onClick={() => setSelectedRow(null)}
-                className="text-muted-foreground hover:text-foreground"
-              >
-                <X className="size-5" />
-              </button>
+              <div className="flex items-center gap-3">
+                {!editing && (
+                  <button
+                    onClick={handleStartEdit}
+                    className="text-xs font-bold text-primary inline-flex items-center gap-1 hover:underline"
+                  >
+                    <Pen className="size-3.5" />
+                    編集
+                  </button>
+                )}
+                <button
+                  onClick={() => setSelectedRow(null)}
+                  className="text-muted-foreground hover:text-foreground"
+                >
+                  <X className="size-5" />
+                </button>
+              </div>
             </div>
 
             <div className="px-6 py-6 space-y-6">
@@ -1587,6 +1664,101 @@ export default function LedgersPage() {
                 </Badge>
               </div>
 
+              {editing ? (
+                <div className="space-y-4">
+                  <div>
+                    <label className="text-xs text-muted-foreground font-bold">日付</label>
+                    <input
+                      type="date"
+                      value={editDate}
+                      onChange={(e) => setEditDate(e.target.value)}
+                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground font-bold">摘要</label>
+                    <input
+                      type="text"
+                      value={editDesc}
+                      onChange={(e) => setEditDesc(e.target.value)}
+                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <label className="text-xs text-muted-foreground font-bold">仕訳明細</label>
+                      <button
+                        onClick={addEditLine}
+                        className="text-xs text-primary inline-flex items-center gap-1 hover:underline"
+                      >
+                        <Plus className="size-3" />
+                        行追加
+                      </button>
+                    </div>
+                    {editLines.map((l, i) => (
+                      <div key={i} className="flex items-start gap-2">
+                        <div className="flex-1 space-y-1">
+                          <AccountLookup
+                            accounts={accountOptions}
+                            value={l.account_id}
+                            onChange={(v) => updateEditLine(i, "account_id", v)}
+                          />
+                          <div className="grid grid-cols-2 gap-1">
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="借方"
+                              value={l.debit}
+                              onChange={(e) => updateEditLine(i, "debit", e.target.value)}
+                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              placeholder="貸方"
+                              value={l.credit}
+                              onChange={(e) => updateEditLine(i, "credit", e.target.value)}
+                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                            />
+                          </div>
+                        </div>
+                        {editLines.length > 1 && (
+                          <button
+                            onClick={() => removeEditLine(i)}
+                            className="text-destructive hover:text-destructive/80 mt-2 shrink-0"
+                          >
+                            <Trash2 className="size-4" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <div
+                    className={cn(
+                      "text-xs font-mono flex justify-between px-1",
+                      editBalanced ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                    )}
+                  >
+                    <span>借方 {formatCurrency(editTotalD)}</span>
+                    <span>貸方 {formatCurrency(editTotalC)}</span>
+                  </div>
+                  {!editBalanced && (
+                    <p className="text-[11px] text-destructive">
+                      貸借が一致していません。借方と貸方の合計を一致させてください。
+                    </p>
+                  )}
+                  <div className="flex gap-2 justify-end pt-1">
+                    <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
+                      キャンセル
+                    </Button>
+                    <Button size="sm" onClick={handleSaveEdit} disabled={savingEdit || !editBalanced}>
+                      {savingEdit ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
+                      保存
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+              <>
               {/* Basic info */}
               <div className="space-y-3">
                 <div>
@@ -1667,6 +1839,8 @@ export default function LedgersPage() {
                   </p>
                 )}
               </div>
+              </>
+              )}
             </div>
           </div>
         </div>

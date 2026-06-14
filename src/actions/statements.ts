@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
 import type { PlClassification } from "@/types/database";
 
 export interface TrialBalanceRow {
@@ -53,6 +54,7 @@ export async function getTrialBalance(
   startDate: string,
   endDate: string
 ): Promise<TrialBalanceRow[]> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   // Get all accounts with their categories
@@ -176,6 +178,7 @@ export async function getInventorySchedule(
   fiscalYearStart: string,
   endDate: string
 ): Promise<InventoryScheduleRow[]> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   // Get inventory-related accounts
@@ -278,6 +281,7 @@ export async function getMonthlyTrend(
   fiscalYearEnd: string,
   mode: MonthlyTrendMode = "pl"
 ): Promise<{ rows: MonthlyTrendRow[]; monthLabels: string[] }> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   // 当期と前期の月キー（前期は1年前の同月）

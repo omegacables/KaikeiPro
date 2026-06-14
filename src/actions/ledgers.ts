@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 
 export interface JournalLedgerLine {
   debitAccount: string;
@@ -67,6 +68,7 @@ export async function getJournalLedger(
   dateFrom: string,
   dateTo: string
 ): Promise<JournalLedgerRow[]> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   const { data: entries, error } = await supabase
@@ -142,6 +144,7 @@ export async function getJournalLedger(
 }
 
 export async function getAccountList(clientId: string): Promise<string[]> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   const { data, error } = await supabase
@@ -161,6 +164,7 @@ export async function getGeneralLedger(
   dateFrom: string,
   dateTo: string
 ): Promise<GeneralLedgerRow[]> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   // Find account id by name
@@ -283,6 +287,7 @@ export interface BalanceSummary {
 }
 
 export async function getBalanceSummary(clientId: string): Promise<BalanceSummary> {
+  await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
   // 勘定科目（事務所共通＋当該クライアント）を取得し、借方正/貸方正を判定。
@@ -402,6 +407,7 @@ export async function getBalanceSummary(clientId: string): Promise<BalanceSummar
 export async function getJournalEntryDetail(
   journalEntryId: string
 ): Promise<JournalEntryDetail | null> {
+  await resolveClientIdForRecord("journal_entries", journalEntryId);
   const supabase = createAdminSupabaseClient();
 
   const { data: entry, error } = await supabase

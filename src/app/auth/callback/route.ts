@@ -4,7 +4,12 @@ import { createServerSupabaseClient } from "@/lib/supabase";
 export async function GET(request: Request) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/dashboard";
+  // オープンリダイレクト対策: 同一オリジンの相対パスのみ許可（//evil や /\evil を弾く）
+  const nextRaw = searchParams.get("next") ?? "/dashboard";
+  const next =
+    nextRaw.startsWith("/") && !nextRaw.startsWith("//") && !nextRaw.startsWith("/\\")
+      ? nextRaw
+      : "/dashboard";
 
   if (code) {
     const supabase = await createServerSupabaseClient();

@@ -1002,6 +1002,54 @@ export interface Database {
         };
         Relationships: [];
       };
+      ai_journal_patterns: {
+        Row: {
+          id: string;
+          client_id: string;
+          vendor_name: string | null;
+          keyword: string | null;
+          account_id: string;
+          sub_account_id: string | null;
+          tax_category: string | null;
+          confidence: number;
+          usage_count: number;
+          last_used_at: string | null;
+          direction: string | null;
+          counter_account_id: string | null;
+          tax_rate: number | null;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          vendor_name?: string | null;
+          keyword?: string | null;
+          account_id: string;
+          sub_account_id?: string | null;
+          tax_category?: string | null;
+          confidence?: number;
+          usage_count?: number;
+          last_used_at?: string | null;
+          direction?: string | null;
+          counter_account_id?: string | null;
+          tax_rate?: number | null;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          vendor_name?: string | null;
+          keyword?: string | null;
+          account_id?: string;
+          sub_account_id?: string | null;
+          tax_category?: string | null;
+          confidence?: number;
+          usage_count?: number;
+          last_used_at?: string | null;
+          direction?: string | null;
+          counter_account_id?: string | null;
+          tax_rate?: number | null;
+        };
+        Relationships: [];
+      };
       invoices: {
         Row: {
           id: string;

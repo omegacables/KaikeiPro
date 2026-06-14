@@ -59,11 +59,15 @@ export default function TaxPage({ hideHeader = false }: { hideHeader?: boolean }
   // Build period options from fiscal years
   const periods = useMemo(() => {
     if (fiscalYears.length === 0) return [];
+    // ISO日付文字列を直接パース（new Date はUTC解釈→ローカル変換で月がズレるため避ける）
+    const ym = (iso: string) => {
+      const [y, m] = iso.split("-").map(Number);
+      return { y, m };
+    };
     return fiscalYears.map((fy) => {
-      const start = new Date(fy.start_date);
-      const end = new Date(fy.end_date);
-      const startY = start.getFullYear();
-      const label = `${startY}年度 通期 (${start.getMonth() + 1}月〜${end.getMonth() + 1}月)`;
+      const s = ym(fy.start_date);
+      const e = ym(fy.end_date);
+      const label = `${s.y}年度 通期 (${s.m}月〜${e.m}月)`;
       return {
         value: fy.id,
         label,

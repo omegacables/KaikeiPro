@@ -5,6 +5,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { lookupLearnedRules, recordLearnedRule } from "./learned-rules";
 import type { OcrResult, AiJournalSuggestion } from "@/types/index";
 
 function getGeminiClient() {
@@ -53,6 +54,10 @@ export async function generateJournalSuggestion(
     )
     .join("\n");
 
+  const accountNameById = new Map(
+    (accounts ?? []).map((a: Record<string, unknown>) => [a.id as string, a.name as string])
+  );
+
   // 3. 仕訳用金額（円ベース）を決定
   const isForex = ocrResult.currency && ocrResult.currency !== "JPY";
   const jpyTotal = isForex
@@ -75,6 +80,22 @@ export async function generateJournalSuggestion(
     ((receipt as { direction?: "issued" | "received" }).direction) ?? "received";
   const isIssued = direction === "issued";
 
+  // 学習ルール（取引先→科目）をヒントとしてプロンプトに注入
+  const learnedRules = await lookupLearnedRules(receipt.client_id, {
+    vendor: ocrResult.vendor_name,
+    direction,
+  });
+  const learnedHint = learnedRules.length
+    ? `\n\n## 過去の仕訳学習（参考。取引先が一致する場合は優先的に採用）\n` +
+      learnedRules
+        .map((r) => {
+          const acc = accountNameById.get(r.accountId) ?? "";
+          const cnt = r.counterAccountId ? accountNameById.get(r.counterAccountId) ?? "" : "";
+          return `- 「${r.vendorName ?? r.keyword ?? ""}」→ 主科目: ${acc}${cnt ? ` / 相手科目: ${cnt}` : ""}${r.taxCategory ? ` (税区分: ${r.taxCategory})` : ""}（過去${r.usageCount}回確定）`;
+        })
+        .join("\n")
+    : "";
+
   const ocrSection = `## OCR結果
 - 日付: ${ocrResult.date ?? "不明"}
 - ${isIssued ? "宛先（売上先）" : "取引先（支払先）"}: ${ocrResult.vendor_name ?? "不明"}
@@ -84,7 +105,7 @@ export async function generateJournalSuggestion(
 - 税率: ${ocrResult.tax_rate != null ? `${ocrResult.tax_rate * 100}%` : "不明"}
 - 品目: ${ocrResult.items?.join(", ") ?? "不明"}
 - インボイス番号: ${ocrResult.invoice_number ?? "なし"}
-- ${isIssued ? "入金方法" : "支払方法"}: ${receipt.payment_method ?? "不明"}${forexNote}`;
+- ${isIssued ? "入金方法" : "支払方法"}: ${receipt.payment_method ?? "不明"}${forexNote}${learnedHint}`;
 
   // 受領（経費・仕入側）の仕訳プロンプト
   const receivedPrompt = `あなたは日本の会計仕訳の専門家です。これは「取引先から受領した」証憑です。経費・仕入として仕訳を提案してください。
@@ -224,7 +245,7 @@ JSONのみ返してください。`;
  */
 async function autoCreateJournalFromSuggestion(
   receiptId: string,
-  receipt: { client_id: string; uploaded_by: string },
+  receipt: { client_id: string; uploaded_by: string; ocr_result?: unknown },
   suggestion: AiJournalSuggestion,
   accounts: { id: string; name: string; code: string }[],
   memo?: string | null
@@ -248,6 +269,17 @@ async function autoCreateJournalFromSuggestion(
     throw new Error(msg);
   }
 
+  // 自動記帳の信頼性チェック: 信頼度が低い／貸借不一致／OCR合計と金額が不整合な場合は
+  // 「要確認(needs_review)」を立て、人手レビューへ回す（プロンプトインジェクション等で
+  // 不正な仕訳がノーチェックで計上されるのを防ぐ）。
+  const ocr = (receipt.ocr_result ?? null) as OcrResult | null;
+  const totalDebit = suggestion.lines.reduce((s, l) => s + (l.debit_amount || 0), 0);
+  const totalCredit = suggestion.lines.reduce((s, l) => s + (l.credit_amount || 0), 0);
+  const balanced = totalDebit > 0 && Math.abs(totalDebit - totalCredit) < 1;
+  const ocrTotal = ocr?.amount_jpy ?? ocr?.amount_total ?? null;
+  const amountsReconcile = ocrTotal == null ? true : Math.abs(totalDebit - ocrTotal) < 1;
+  const needsReview = suggestion.confidence < 0.7 || !balanced || !amountsReconcile;
+
   // 仕訳エントリー作成
   const { data: entry, error: entryError } = await admin
     .from("journal_entries")
@@ -259,7 +291,7 @@ async function autoCreateJournalFromSuggestion(
       source: "ai",
       receipt_id: receiptId,
       created_by: receipt.uploaded_by,
-      needs_review: false,
+      needs_review: needsReview,
     })
     .select()
     .single();
@@ -392,6 +424,43 @@ export async function approveJournalSuggestion(
       reviewed_by: authUser.id,
     })
     .eq("id", receiptId);
+
+  // 7. 学習: 取引先 → 主科目 を記録（人手で承認された確定情報＝ground truth）
+  try {
+    const ocr = receipt.ocr_result as OcrResult | null;
+    const vendor = ocr?.vendor_name ?? null;
+    const dir = (receipt as { direction?: string }).direction ?? "received";
+    const isIssued = dir === "issued";
+    const TAX_NAMES = ["仮払消費税", "仮受消費税"];
+    // 主科目: received=費用(借方)/issued=収益(貸方) のうち税科目を除いた最大金額の行
+    const mainCandidates = suggestion.lines.filter((l) =>
+      !TAX_NAMES.includes(l.account_name) &&
+      (isIssued ? l.credit_amount > 0 : l.debit_amount > 0)
+    );
+    const primary = mainCandidates.sort((a, b) =>
+      isIssued ? b.credit_amount - a.credit_amount : b.debit_amount - a.debit_amount
+    )[0];
+    // 相手科目: 反対側の最大金額の行（支払/入金手段）
+    const counterCandidates = suggestion.lines.filter((l) =>
+      isIssued ? l.debit_amount > 0 : l.credit_amount > 0
+    );
+    const counter = counterCandidates.sort((a, b) =>
+      isIssued ? b.debit_amount - a.debit_amount : b.credit_amount - a.credit_amount
+    )[0];
+
+    if (vendor && primary && accountMap.get(primary.account_name)) {
+      await recordLearnedRule(receipt.client_id, {
+        vendor,
+        direction: dir,
+        accountId: accountMap.get(primary.account_name)!,
+        counterAccountId: counter ? accountMap.get(counter.account_name) ?? null : null,
+        taxCategory: primary.tax_category ?? null,
+        taxRate: primary.tax_rate ?? null,
+      });
+    }
+  } catch {
+    // 学習失敗は承認処理に影響させない
+  }
 
   return entry.id;
 }

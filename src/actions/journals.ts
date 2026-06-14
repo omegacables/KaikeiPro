@@ -1,6 +1,8 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertRecordsAccess, assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
+import { recordLearnedRule } from "./learned-rules";
 import type { Database } from "@/types/database";
 
 type JournalEntryRow = Database["public"]["Tables"]["journal_entries"]["Row"];
@@ -82,6 +84,7 @@ export async function createJournalEntry(
   entry: JournalEntryInsert,
   lines: Omit<JournalLineInsert, "journal_entry_id">[]
 ) {
+  await assertClientAccess(entry.client_id);
   const supabase = await createServerSupabaseClient();
 
   const { data: journalEntry, error: entryError } = await supabase
@@ -106,6 +109,22 @@ export async function createJournalEntry(
     if (linesError) throw new Error(linesError.message);
   }
 
+  // 学習（簡易）: 摘要のある単純な1借1貸の手入力仕訳を ground truth として記録
+  try {
+    const desc = entry.description ?? null;
+    const debits = lines.filter((l) => (l.debit_amount ?? 0) > 0);
+    const credits = lines.filter((l) => (l.credit_amount ?? 0) > 0);
+    if (desc && debits.length === 1 && credits.length === 1 && debits[0].account_id && credits[0].account_id) {
+      await recordLearnedRule(entry.client_id, {
+        keyword: desc,
+        accountId: debits[0].account_id,
+        counterAccountId: credits[0].account_id,
+      });
+    }
+  } catch {
+    // 学習失敗は本処理に影響させない
+  }
+
   return journalEntry as JournalEntryRow;
 }
 
@@ -125,6 +144,69 @@ export async function updateJournalEntry(
   return data as JournalEntryRow;
 }
 
+/**
+ * 既存仕訳の見出し（日付・摘要）と明細（科目・借方・貸方）を丸ごと更新する。
+ * AI生成や取込で作られた draft 仕訳を後から編集するために使う。
+ * - 所有権チェック（resolveClientIdForRecord）とロック会計年度チェックを行う。
+ * - 編集＝人手で確認したとみなし、needs_review は既定で解除する。
+ */
+export async function updateJournalEntryWithLines(
+  id: string,
+  header: { entry_date: string; description: string | null; needs_review?: boolean },
+  lines: { account_id: string; debit_amount: number; credit_amount: number }[]
+): Promise<void> {
+  await resolveClientIdForRecord("journal_entries", id);
+  const admin = createAdminSupabaseClient();
+  await assertNotInLockedFiscalYear(admin, [id]);
+
+  const cleaned = lines
+    .map((l) => ({
+      account_id: l.account_id,
+      debit_amount: Math.round(Number(l.debit_amount) || 0),
+      credit_amount: Math.round(Number(l.credit_amount) || 0),
+    }))
+    .filter((l) => l.account_id && (l.debit_amount > 0 || l.credit_amount > 0));
+
+  if (cleaned.length === 0) throw new Error("仕訳明細を入力してください");
+  const totalD = cleaned.reduce((s, l) => s + l.debit_amount, 0);
+  const totalC = cleaned.reduce((s, l) => s + l.credit_amount, 0);
+  if (totalD <= 0 || totalD !== totalC) {
+    throw new Error(`貸借が一致していません（借方 ${totalD} / 貸方 ${totalC}）`);
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(header.entry_date)) {
+    throw new Error("日付の形式が不正です");
+  }
+
+  const { error: hErr } = await admin
+    .from("journal_entries")
+    .update({
+      entry_date: header.entry_date,
+      description: header.description?.trim() || null,
+      needs_review: header.needs_review ?? false,
+    })
+    .eq("id", id);
+  if (hErr) throw new Error(hErr.message);
+
+  // 明細を入れ替え（削除→再作成）
+  const { error: delErr } = await admin
+    .from("journal_entry_lines")
+    .delete()
+    .eq("journal_entry_id", id);
+  if (delErr) throw new Error(delErr.message);
+
+  const { error: insErr } = await admin.from("journal_entry_lines").insert(
+    cleaned.map((l, i) => ({
+      journal_entry_id: id,
+      account_id: l.account_id,
+      debit_amount: l.debit_amount,
+      credit_amount: l.credit_amount,
+      sort_order: i,
+    }))
+  );
+  if (insErr) throw new Error(insErr.message);
+}
+
 export async function deleteJournalEntry(id: string) {
   // 紐づく証憑も連動削除＋会計年度ロックチェックのため、まとめ削除に委譲
   await deleteJournalEntries([id]);
@@ -135,6 +217,7 @@ export async function deleteJournalEntry(id: string) {
  */
 export async function deleteJournalEntries(ids: string[]): Promise<void> {
   if (ids.length === 0) return;
+  await assertRecordsAccess("journal_entries", ids);
   const admin = createAdminSupabaseClient();
 
   // 会計年度ロックチェック（admin clientはRLSバイパスするため）
@@ -224,6 +307,7 @@ export async function importJournalEntries(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) throw new Error("認証が必要です");
+  await assertClientAccess(clientId);
 
   // 勘定科目マスタ取得（コード→IDの解決用）
   const { data: accounts, error: accErr } = await supabase

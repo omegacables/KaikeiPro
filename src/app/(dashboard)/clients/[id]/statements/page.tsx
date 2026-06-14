@@ -1095,8 +1095,10 @@ export default function StatementsPage() {
   const [inventoryData, setInventoryData] = useState<InventoryScheduleRow[]>([]);
   const [inventoryMode, setInventoryMode] = useState<"physical" | "journal">("physical");
 
-  // クライアントの決算月（期首月）・名称を取得（既定4月）
-  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  // クライアントの決算月（期首月）・名称を取得。
+  // null = 未ロード。ロード前に既定4月で計算すると、4月以外が決算期首の顧問先で
+  // 対象期間が誤表示・誤集計されるため、ロード完了まで計算・取得を保留する。
+  const [fiscalStartMonth, setFiscalStartMonth] = useState<number | null>(null);
   const [clientName, setClientName] = useState("");
   useEffect(() => {
     getClient(id)
@@ -1111,8 +1113,9 @@ export default function StatementsPage() {
   const [settlementData, setSettlementData] = useState<TrialBalanceRow[]>([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
 
-  // 会計年度の期間（クライアントの決算月基準）
+  // 会計年度の期間（クライアントの決算月基準）。決算月ロード前は空文字で保留。
   const fiscalYearStart = useMemo(() => {
+    if (fiscalStartMonth === null) return "";
     const [y, m] = period.split("-").map(Number);
     return getFiscalPeriod(fiscalStartMonth, y, m).startDate;
   }, [period, fiscalStartMonth]);
@@ -1120,13 +1123,15 @@ export default function StatementsPage() {
   // 試算表/BS/PL: 会計年度開始〜選択月末の累計
   const startDate = useMemo(() => fiscalYearStart, [fiscalYearStart]);
   const endDate = useMemo(() => {
+    if (fiscalStartMonth === null) return "";
     const [y, m] = period.split("-").map(Number);
     const lastDay = new Date(y, m, 0).getDate();
     return `${period}-${String(lastDay).padStart(2, "0")}`;
-  }, [period]);
+  }, [period, fiscalStartMonth]);
 
-  // 月次推移: 会計年度（決算月基準の12ヶ月）
+  // 月次推移: 会計年度（決算月基準の12ヶ月）。決算月ロード前は空文字で保留。
   const fiscalYearEnd = useMemo(() => {
+    if (fiscalStartMonth === null) return "";
     const [y, m] = period.split("-").map(Number);
     return getFiscalPeriod(fiscalStartMonth, y, m).endDate;
   }, [period, fiscalStartMonth]);
@@ -1157,8 +1162,8 @@ export default function StatementsPage() {
   }, [id, fiscalYearStart, fiscalYearEnd]);
 
   useEffect(() => {
-    if (activeTab === "settlement") fetchSettlement();
-  }, [activeTab, fetchSettlement]);
+    if (activeTab === "settlement" && fiscalYearStart) fetchSettlement();
+  }, [activeTab, fetchSettlement, fiscalYearStart]);
 
   const fetchMonthlyTrend = useCallback(async () => {
     beginLoad();
@@ -1176,16 +1181,16 @@ export default function StatementsPage() {
   }, [id, fiscalYearStart, fiscalYearEnd, trendMode]);
 
   useEffect(() => {
-    if (activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") {
+    if ((activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") && startDate && endDate) {
       fetchTrialBalance();
     }
-  }, [activeTab, fetchTrialBalance]);
+  }, [activeTab, fetchTrialBalance, startDate, endDate]);
 
   useEffect(() => {
-    if (activeTab === "monthly_trend") {
+    if (activeTab === "monthly_trend" && fiscalYearStart) {
       fetchMonthlyTrend();
     }
-  }, [activeTab, fetchMonthlyTrend]);
+  }, [activeTab, fetchMonthlyTrend, fiscalYearStart]);
 
   const fetchInventory = useCallback(async () => {
     beginLoad();
@@ -1201,10 +1206,10 @@ export default function StatementsPage() {
   }, [id, fiscalYearStart, endDate]);
 
   useEffect(() => {
-    if (activeTab === "inventory") {
+    if (activeTab === "inventory" && fiscalYearStart && endDate) {
       fetchInventory();
     }
-  }, [activeTab, fetchInventory]);
+  }, [activeTab, fetchInventory, fiscalYearStart, endDate]);
 
   return (
     <>
@@ -1333,7 +1338,9 @@ export default function StatementsPage() {
       {/* Footer */}
       <div className="mt-4 flex justify-between items-center text-xs text-muted-foreground">
         <span>
-          対象期間: {startDate} 〜 {endDate}（会計年度: {fiscalYearStart} 〜 {fiscalYearEnd}）
+          {startDate && endDate
+            ? `対象期間: ${startDate} 〜 ${endDate}（会計年度: ${fiscalYearStart} 〜 ${fiscalYearEnd}）`
+            : "対象期間: 読み込み中…"}
         </span>
       </div>
     </>

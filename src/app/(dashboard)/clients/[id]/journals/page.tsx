@@ -36,6 +36,7 @@ import {
   type BankCsvSuggestion,
   type BankImportResult,
 } from "@/actions/bank-csv-ai";
+import { reconcileBankDeposits } from "@/actions/deposit-csv-ai";
 import {
   analyzeJournalCsv,
   type JournalCsvSuggestion,
@@ -265,6 +266,9 @@ export default function JournalsPage() {
   const [bankParseError, setBankParseError] = useState<string | null>(null);
   const [bankImporting, setBankImporting] = useState(false);
   const [bankResult, setBankResult] = useState<BankImportResult | null>(null);
+  // 入金(in)行を入金消込にも登録するか（オプトイン・既定ON）
+  const [reconcileOnImport, setReconcileOnImport] = useState(true);
+  const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
   const bankInputRef = useRef<HTMLInputElement>(null);
 
   const parseBankFile = async (file: File): Promise<{ header: string[]; rows: string[][] }> => {
@@ -349,6 +353,7 @@ export default function JournalsPage() {
     const selected = bankSuggestions.filter((s) => s.selected);
     if (selected.length === 0) return;
     setBankImporting(true);
+    setReconcileMsg(null);
     try {
       const result = await importBankJournalEntries(
         id,
@@ -361,8 +366,27 @@ export default function JournalsPage() {
         }))
       );
       setBankResult(result);
+
+      // 入金消込連携（オプトイン）: 入金(in)行を対象に、取引先を推定して
+      // 強マッチの未払い請求書がある場合のみ payments/allocation を作成。
+      if (reconcileOnImport) {
+        const deposits = selected
+          .filter((s) => s.direction === "in")
+          .map((s) => ({ date: s.date, amount: s.amount, description: s.memo || s.description }));
+        if (deposits.length > 0) {
+          try {
+            const rc = await reconcileBankDeposits(id, deposits);
+            if (rc.created > 0) {
+              setReconcileMsg(`入金消込: ${rc.created}件を入金登録（うち${rc.matched}件を自動消込）`);
+            }
+          } catch {
+            // 消込の失敗は仕訳作成に影響させない
+          }
+        }
+      }
+
       if (result.errors.length === 0) {
-        // 全件成功時はクリア
+        // 全件成功時はクリア（消込メッセージは残す）
         handleClearBank();
       }
     } catch (err) {
@@ -571,6 +595,11 @@ export default function JournalsPage() {
   };
 
   const handleCreateJournal = async () => {
+    const uid = user?.id;
+    if (!uid) {
+      alert("ログインが必要です");
+      return;
+    }
     const desc = buildDescription();
 
     // 科目未選択チェック（金額入力済みの行）
@@ -630,7 +659,7 @@ export default function JournalsPage() {
           description: desc,
           status: "draft",
           source: "manual",
-          created_by: id,
+          created_by: uid,
         },
         lines
       );
@@ -1231,7 +1260,15 @@ export default function JournalsPage() {
               )}
             </div>
 
-            <div className="flex items-end shrink-0">
+            <div className="flex flex-col items-stretch justify-end shrink-0 gap-2">
+              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={reconcileOnImport}
+                  onChange={(e) => setReconcileOnImport(e.target.checked)}
+                />
+                入金行を入金消込にも登録
+              </label>
               <Button
                 size="sm"
                 onClick={handleBankImport}
@@ -1376,6 +1413,13 @@ export default function JournalsPage() {
           {bankParseError && (
             <div className="mt-3 p-2.5 rounded-lg bg-destructive/10 border border-destructive/20">
               <p className="text-sm text-destructive">{bankParseError}</p>
+            </div>
+          )}
+
+          {/* 入金消込連携の結果 */}
+          {reconcileMsg && (
+            <div className="mt-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+              <p className="text-sm text-emerald-700 dark:text-emerald-400">{reconcileMsg}</p>
             </div>
           )}
 

@@ -152,7 +152,10 @@ export interface OcrResult {
   vendor_name?: string;
   items?: string[];
   tax_rate?: number;
+  // 適格請求書発行事業者の登録番号（T+13桁）のみ。一般の請求書番号は document_number に入れる。
   invoice_number?: string;
+  // 請求書番号・領収書No等の一般書類番号（登録番号ではない）。
+  document_number?: string;
   confidence: number;
   // 支払い方法の自動判別
   payment_method?: "cash" | "card" | "e_money" | "bank_transfer" | null;

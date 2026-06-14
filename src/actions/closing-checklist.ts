@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
 import { getDepreciationSummary } from "@/actions/closing";
 
 type DbRow = Record<string, unknown>;
@@ -41,6 +42,7 @@ export async function getClosingChecklist(
   periodStart: string,
   periodEnd: string
 ): Promise<ClosingChecklist> {
+  await assertClientAccess(clientId);
   const admin = createAdminSupabaseClient();
 
   // 当期の仕訳明細をまとめて取得
