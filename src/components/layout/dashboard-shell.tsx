@@ -1,10 +1,13 @@
 "use client";
 
 // ダッシュボード(税理士アプリ)の外枠。
-// PCでは従来どおりサイドバー/ヘッダー付きで表示。
-// 実機スマホ（タッチ操作=primary pointer が coarse、かつ狭い画面）でのみ、
-// レイアウト崩れを避けるため撮影専用の最小画面に切り替える。
-// ※ マウス操作のPCは、ウィンドウ幅や表示倍率に関わらず常に通常画面（pointer:fine のため）。
+// PCでは従来どおりサイドバー/ヘッダー付きで表示する。
+// 「実機スマホ」だけ撮影専用の最小画面に切り替える。
+//
+// スマホ判定はユーザーエージェント（Android/iPhone等のモバイル端末）を主とする。
+// 画面幅や表示倍率だけで判定すると、ウィンドウが狭いPCやタッチ対応PCまで
+// 撮影画面になってしまうため、UAベースに変更（PCは常に通常画面）。
+// 万一誤判定しても「PC版を表示」で通常画面に切り替えられる。
 
 import { useEffect, useState } from "react";
 import { Sidebar } from "@/components/layout/sidebar";
@@ -13,27 +16,46 @@ import { GlobalLoading } from "@/components/ui/global-loading";
 import { MobileNavProvider } from "@/components/layout/mobile-nav";
 import { MobileCaptureScreen } from "@/components/capture/mobile-capture-screen";
 
+const FORCE_DESKTOP_KEY = "kaikei_force_desktop";
+
 export function DashboardShell({ children }: { children: React.ReactNode }) {
   const [isPhone, setIsPhone] = useState(false);
+  const [forceDesktop, setForceDesktop] = useState(false);
   const [mounted, setMounted] = useState(false);
 
   useEffect(() => {
     setMounted(true);
-    // タッチが主入力(coarse)かつ狭い画面のときだけスマホ扱い。
-    // PC（マウス/トラックパッド = fine）は幅に関係なく通常画面のまま。
-    const mq = window.matchMedia("(max-width: 820px) and (pointer: coarse)");
-    const update = () => setIsPhone(mq.matches);
+
+    // ユーザーが「PC版を表示」を選んでいれば常に通常画面
+    try {
+      if (localStorage.getItem(FORCE_DESKTOP_KEY) === "1") setForceDesktop(true);
+    } catch { /* ignore */ }
+
+    // モバイル端末の判定はUAを主に使う（PCは常にデスクトップUA → 通常画面）。
+    const ua = navigator.userAgent || "";
+    const isMobileUA = /Android|webOS|iPhone|iPod|BlackBerry|IEMobile|Opera Mini|Mobile/i.test(ua);
+    // iPad含むタブレットはPC扱い（画面が広く通常画面で問題ないため）。
+
+    const mq = window.matchMedia("(max-width: 820px)");
+    const update = () => setIsPhone(isMobileUA && mq.matches);
     update();
     mq.addEventListener("change", update);
     return () => mq.removeEventListener("change", update);
   }, []);
 
-  // 実機スマホ: 撮影専用画面（最低限の機能のみ）
-  if (mounted && isPhone) {
-    return <MobileCaptureScreen />;
+  const useDesktop = () => {
+    try {
+      localStorage.setItem(FORCE_DESKTOP_KEY, "1");
+    } catch { /* ignore */ }
+    setForceDesktop(true);
+  };
+
+  // 実機スマホ（かつPC版が選ばれていない）: 撮影専用画面
+  if (mounted && isPhone && !forceDesktop) {
+    return <MobileCaptureScreen onUseDesktop={useDesktop} />;
   }
 
-  // PC幅: 通常のダッシュボード
+  // PC（および「PC版を表示」選択時）: 通常のダッシュボード
   return (
     <MobileNavProvider>
       <div className="flex h-screen overflow-hidden">

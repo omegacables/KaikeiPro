@@ -26,7 +26,7 @@ type UploadItem = {
   error?: string;
 };
 
-export function MobileCaptureScreen() {
+export function MobileCaptureScreen({ onUseDesktop }: { onUseDesktop?: () => void }) {
   const [clients, setClients] = useState<{ id: string; name: string }[]>([]);
   const [clientId, setClientId] = useState("");
   const [direction, setDirection] = useState<"received" | "issued">("received");
@@ -216,6 +216,18 @@ export function MobileCaptureScreen() {
           <p className="text-xs text-muted-foreground text-center pt-1">
             アップロード済みです。読み取り・仕訳の確認はPCの「証憑管理」で行えます。
           </p>
+        )}
+
+        {/* 誤判定時のエスケープ: 通常画面（PC版）へ切替 */}
+        {onUseDesktop && (
+          <div className="pt-4 text-center">
+            <button
+              onClick={onUseDesktop}
+              className="text-xs text-muted-foreground underline underline-offset-2"
+            >
+              PC版（通常画面）を表示する
+            </button>
+          </div>
         )}
       </main>
     </div>
