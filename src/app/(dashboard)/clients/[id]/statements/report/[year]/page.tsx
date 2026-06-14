@@ -220,7 +220,8 @@ export default function SettlementReportPage({
         <Sheet>
           <h2 className="text-center text-xl font-bold tracking-widest mb-1">株主資本等変動計算書</h2>
           <p className="text-center text-xs text-gray-500 mb-4">{periodLabel}</p>
-          <table className="w-full text-sm border-collapse">
+          <div className="overflow-x-auto print:overflow-visible">
+          <table className="w-full text-sm border-collapse min-w-[520px]">
             <thead>
               <tr className="bg-gray-100">
                 <th className="border border-gray-400 px-2 py-1.5 text-left">区分</th>
@@ -246,6 +247,7 @@ export default function SettlementReportPage({
               </tr>
             </tbody>
           </table>
+          </div>
         </Sheet>
 
         {/* ===== 5. 個別注記表 ===== */}

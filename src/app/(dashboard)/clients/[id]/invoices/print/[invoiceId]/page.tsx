@@ -133,7 +133,8 @@ export default function InvoicePrintPage({
         </div>
 
         {/* 明細 */}
-        <table className="w-full text-sm border-collapse mb-6">
+        <div className="overflow-x-auto print:overflow-visible mb-6">
+        <table className="w-full text-sm border-collapse min-w-[480px]">
           <thead>
             <tr className="bg-gray-100">
               <th className="border border-gray-400 px-2 py-1.5 text-left w-28">取引年月日</th>
@@ -169,6 +170,7 @@ export default function InvoicePrintPage({
               ))}
           </tbody>
         </table>
+        </div>
 
         {/* 税率別集計（適格請求書の記載要件）＋合計 */}
         <div className="flex justify-end">

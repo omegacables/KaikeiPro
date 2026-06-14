@@ -369,11 +369,11 @@ export default function AssetsPage() {
                   {expandedAsset === asset.id && (
                     <tr key={`${asset.id}-schedule`}>
                       <td colSpan={9} className="p-0">
-                        <div className="bg-muted/10 p-4 border-b border-border">
+                        <div className="bg-muted/10 p-4 border-b border-border overflow-x-auto">
                           <h4 className="text-sm font-bold text-foreground mb-3">
                             償却スケジュール
                           </h4>
-                          <table className="w-full text-xs">
+                          <table className="w-full text-xs min-w-[360px]">
                             <thead>
                               <tr className="border-b border-border">
                                 <th className="text-left px-3 py-2 text-muted-foreground font-bold">
