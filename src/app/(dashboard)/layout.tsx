@@ -1,5 +1,8 @@
 import { redirect } from "next/navigation";
-import { DashboardShell } from "@/components/layout/dashboard-shell";
+import { Sidebar } from "@/components/layout/sidebar";
+import { Header } from "@/components/layout/header";
+import { GlobalLoading } from "@/components/ui/global-loading";
+import { MobileNavProvider } from "@/components/layout/mobile-nav";
 import { createServerSupabaseClient } from "@/lib/supabase";
 
 export default async function DashboardLayout({
@@ -56,5 +59,18 @@ export default async function DashboardLayout({
     // 未割当 / セルフサービスはそのまま表示（データは RLS でスコープされる）。
   }
 
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <MobileNavProvider>
+      <div className="flex h-screen overflow-hidden">
+        <GlobalLoading />
+        <Sidebar />
+        <main className="flex-1 flex flex-col overflow-y-auto">
+          <Header />
+          <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full">
+            {children}
+          </div>
+        </main>
+      </div>
+    </MobileNavProvider>
+  );
 }
