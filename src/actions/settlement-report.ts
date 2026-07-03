@@ -13,6 +13,14 @@ export interface ReportLine {
   prior: number;
 }
 
+// 貸借対照表の表示区分（流動資産／固定資産（有形・無形・投資その他）／繰延資産、流動負債／固定負債 など）
+export interface BsGroup {
+  title: string;
+  lines: ReportLine[];
+  total: number;
+  subgroups?: BsGroup[];
+}
+
 export interface SettlementReport {
   company: {
     name: string;
@@ -24,11 +32,11 @@ export interface SettlementReport {
   preparer: { name: string; address: string | null } | null;
   period: { start: string; end: string };
   priorPeriod: { start: string; end: string };
-  // 貸借対照表
+  // 貸借対照表（勘定式・区分表示）
   bs: {
-    assets: ReportLine[];
-    liabilities: ReportLine[];
-    equity: ReportLine[];
+    assetGroups: BsGroup[];      // 流動資産・固定資産（有形/無形/投資その他）・繰延資産
+    liabilityGroups: BsGroup[];  // 流動負債・固定負債
+    equityGroups: BsGroup[];     // 株主資本（繰越利益剰余金は当期純利益込み）
     netIncome: number;
     totalAssets: number;
     totalLiabilities: number;
@@ -72,6 +80,23 @@ function plAmount(r: TrialBalanceRow): number {
   return r.category === "revenue"
     ? r.creditBalance - r.debitBalance
     : r.debitBalance - r.creditBalance;
+}
+
+// 資産科目の表示区分を科目名から推定する
+type AssetSub = "current" | "tangible" | "intangible" | "investment" | "deferred";
+function classifyAsset(name: string): AssetSub {
+  if (/創立費|開業費|開発費|株式交付費|社債発行費/.test(name)) return "deferred";
+  if (/減価償却累計|建物|構築物|機械|装置|車両|運搬具|工具|器具|備品|土地|一括償却|建設仮勘定|附属設備/.test(name))
+    return "tangible";
+  if (/ソフトウェア|のれん|特許|商標|意匠|借地権|電話加入権/.test(name)) return "intangible";
+  if (/投資有価証券|出資金|敷金|保証金|差入保証金|保険積立|長期前払|長期貸付|関係会社/.test(name))
+    return "investment";
+  return "current";
+}
+
+// 負債科目が固定負債かどうかを科目名から推定する
+function isFixedLiability(name: string): boolean {
+  return /長期|社債|退職給付|退職給与/.test(name);
 }
 
 export async function getSettlementReport(
@@ -134,26 +159,97 @@ export async function getSettlementReport(
     amount: asset ? r.debitBalance - r.creditBalance : r.creditBalance - r.debitBalance,
     prior: priorBsMap.get(r.code) ?? 0,
   });
-  const assets = curTrial.filter((r) => r.category === "asset").map((r) => bsLine(r, true));
-  const liabilities = curTrial
-    .filter((r) => r.category === "liability")
-    .map((r) => bsLine(r, false));
-  const equity = curTrial.filter((r) => r.category === "equity").map((r) => bsLine(r, false));
+  const assetRows = curTrial.filter((r) => r.category === "asset");
+  const liabilityRows = curTrial.filter((r) => r.category === "liability");
+  const equityRows = curTrial.filter((r) => r.category === "equity");
 
-  const totalAssets = assets.reduce((s, i) => s + i.amount, 0);
-  const totalLiabilities = liabilities.reduce((s, i) => s + i.amount, 0);
-  const equityBase = equity.reduce((s, i) => s + i.amount, 0);
+  const mkGroup = (title: string, lines: ReportLine[]): BsGroup => ({
+    title,
+    lines,
+    total: lines.reduce((s, i) => s + i.amount, 0),
+  });
 
-  // 当期純利益
-  const revenueT = curTrial
-    .filter((r) => r.category === "revenue")
-    .reduce((s, r) => s + (r.creditBalance - r.debitBalance), 0);
-  const expenseT = curTrial
-    .filter((r) => r.category === "expense")
-    .reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
-  const netIncome = revenueT - expenseT;
+  // 資産の部（流動／固定（有形・無形・投資その他）／繰延）
+  const assetsBySub = new Map<AssetSub, ReportLine[]>();
+  for (const r of assetRows) {
+    const sub = classifyAsset(r.name);
+    const arr = assetsBySub.get(sub) ?? [];
+    arr.push(bsLine(r, true));
+    assetsBySub.set(sub, arr);
+  }
+  const currentAssets = mkGroup("流動資産", assetsBySub.get("current") ?? []);
+  const fixedSubs = (
+    [
+      ["有形固定資産", "tangible"],
+      ["無形固定資産", "intangible"],
+      ["投資その他の資産", "investment"],
+    ] as const
+  )
+    .map(([title, key]) => mkGroup(title, assetsBySub.get(key) ?? []))
+    .filter((g) => g.lines.length > 0);
+  const fixedAssets: BsGroup = {
+    title: "固定資産",
+    lines: [],
+    total: fixedSubs.reduce((s, g) => s + g.total, 0),
+    subgroups: fixedSubs,
+  };
+  const deferredAssets = mkGroup("繰延資産", assetsBySub.get("deferred") ?? []);
+  const assetGroups: BsGroup[] = [
+    currentAssets,
+    ...(fixedSubs.length > 0 ? [fixedAssets] : []),
+    ...(deferredAssets.lines.length > 0 ? [deferredAssets] : []),
+  ];
+
+  // 負債の部（流動／固定）
+  const currentLiabilities = mkGroup(
+    "流動負債",
+    liabilityRows.filter((r) => !isFixedLiability(r.name)).map((r) => bsLine(r, false))
+  );
+  const fixedLiabilities = mkGroup(
+    "固定負債",
+    liabilityRows.filter((r) => isFixedLiability(r.name)).map((r) => bsLine(r, false))
+  );
+  const liabilityGroups: BsGroup[] = [
+    currentLiabilities,
+    ...(fixedLiabilities.lines.length > 0 ? [fixedLiabilities] : []),
+  ];
+
+  const totalAssets = assetRows.reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
+  const totalLiabilities = liabilityRows.reduce(
+    (s, r) => s + (r.creditBalance - r.debitBalance),
+    0
+  );
+  const equityBase = equityRows.reduce((s, r) => s + (r.creditBalance - r.debitBalance), 0);
+
+  // 当期純利益（当期・前期）
+  const sumNetIncome = (trial: TrialBalanceRow[]): number => {
+    const rev = trial
+      .filter((r) => r.category === "revenue")
+      .reduce((s, r) => s + (r.creditBalance - r.debitBalance), 0);
+    const exp = trial
+      .filter((r) => r.category === "expense")
+      .reduce((s, r) => s + (r.debitBalance - r.creditBalance), 0);
+    return rev - exp;
+  };
+  const netIncome = sumNetIncome(curTrial);
+  const prevNetIncome = sumNetIncome(prevTrial);
   const totalEquity = equityBase + netIncome;
   const totalLE = totalLiabilities + totalEquity;
+
+  // 純資産の部（株主資本）— 当期純利益は繰越利益剰余金に算入して表示する
+  const equityLines = equityRows.map((r) => bsLine(r, false));
+  const retainedLine =
+    equityLines.find((l) => l.name.includes("繰越利益")) ??
+    equityLines.find((l) => l.name.includes("利益剰余金"));
+  if (retainedLine) {
+    retainedLine.amount += netIncome;
+    retainedLine.prior += prevNetIncome;
+  } else {
+    equityLines.push({ name: "繰越利益剰余金", amount: netIncome, prior: prevNetIncome });
+  }
+  const equityGroups: BsGroup[] = [
+    { title: "株主資本", lines: equityLines, total: totalEquity },
+  ];
 
   // --- PL ---
   const itemsOf = (cls: string): ReportLine[] =>
@@ -256,9 +352,9 @@ export async function getSettlementReport(
     period: { start: cur.startDate, end: cur.endDate },
     priorPeriod: { start: prev.startDate, end: prev.endDate },
     bs: {
-      assets,
-      liabilities,
-      equity,
+      assetGroups,
+      liabilityGroups,
+      equityGroups,
       netIncome,
       totalAssets,
       totalLiabilities,
