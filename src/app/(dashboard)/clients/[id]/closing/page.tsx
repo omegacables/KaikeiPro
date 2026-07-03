@@ -31,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
+import { useAuth } from "@/components/providers/auth-provider";
 
 type StepStatus = "completed" | "current" | "pending";
 
@@ -43,6 +44,7 @@ const emptyDepreciation: DepreciationSummary = {
 export default function ClosingPage() {
   const { id } = useParams();
   const clientId = id as string;
+  const { user } = useAuth();
   const [showLockWarning, setShowLockWarning] = useState(false);
   const [showAddForm, setShowAddForm] = useState(false);
   const [savingEntry, setSavingEntry] = useState(false);
@@ -116,7 +118,7 @@ export default function ClosingPage() {
   })();
 
   const handleAddAdjustment = async () => {
-    if (!newAdjustment.description || !newAdjustment.amount || !fiscalYear) return;
+    if (!newAdjustment.description || !newAdjustment.amount || !fiscalYear || !user?.id) return;
     setSavingEntry(true);
     try {
       await createJournalEntry(
@@ -126,7 +128,7 @@ export default function ClosingPage() {
           description: newAdjustment.description,
           status: "draft",
           source: "closing",
-          created_by: clientId,
+          created_by: user.id,
         },
         [
           { account_id: newAdjustment.debit_account || ("" as unknown as string), debit_amount: newAdjustment.amount, credit_amount: 0 },

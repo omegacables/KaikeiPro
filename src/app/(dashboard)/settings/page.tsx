@@ -1036,7 +1036,7 @@ export default function SettingsPage() {
                       ))}
                     </select>
                     <p className="text-xs text-muted-foreground mt-1">
-                      会計年度: {clientData.fiscal_year_start_month}月 〜 翌{settlementMonth(clientData.fiscal_year_start_month)}月
+                      会計年度: {clientData.fiscal_year_start_month}月 〜 {clientData.fiscal_year_start_month === 1 ? "" : "翌"}{settlementMonth(clientData.fiscal_year_start_month)}月
                     </p>
                   </div>
                 </div>

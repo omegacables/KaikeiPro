@@ -26,6 +26,7 @@ import { getClient } from "@/actions/clients";
 import { getRecentJournals } from "@/actions/journals";
 import { getFirms } from "@/actions/firms";
 import { formatCurrency, getInitials } from "@/lib/utils";
+import { settlementMonth } from "@/lib/fiscal";
 import { ClientPortalAccountForm } from "@/components/client-portal-account-form";
 import { FirmAssignment } from "@/components/firm-assignment";
 
@@ -131,7 +132,7 @@ export default async function ClientDetailPage({
             <div className="flex items-center gap-3 mt-1">
               <Badge variant="muted">{clientData.business_type}</Badge>
               <span className="text-muted-foreground text-sm">
-                決算月: {clientData.fiscal_year_start_month + 11 > 12 ? clientData.fiscal_year_start_month - 1 : clientData.fiscal_year_start_month + 11}月
+                決算月: {settlementMonth(clientData.fiscal_year_start_month)}月
               </span>
               <span className="text-muted-foreground text-sm">•</span>
               <span className="text-muted-foreground text-sm">

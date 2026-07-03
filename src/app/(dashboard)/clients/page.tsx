@@ -18,6 +18,7 @@ import { ProgressBar } from "@/components/ui/progress-bar";
 import { useData } from "@/lib/use-data";
 import { getClientSummaries, createClient } from "@/actions/clients";
 import { getInitials } from "@/lib/utils";
+import { settlementMonth, startMonthFromSettlement } from "@/lib/fiscal";
 
 const statusConfig = {
   good: { variant: "success" as const, label: "順調" },
@@ -67,7 +68,7 @@ function ClientsPageContent() {
     name: s.client.name,
     initials: getInitials(s.client.name),
     business_type: s.client.business_type ?? "",
-    fiscal_year_end: `${((s.client.fiscal_year_start_month + 10) % 12) + 1}月`,
+    fiscal_year_end: `${settlementMonth(s.client.fiscal_year_start_month)}月`,
     tax_method: s.client.tax_method === "standard" ? "本則課税" : "簡易課税",
     status: s.status,
     statusLabel:
@@ -189,12 +190,15 @@ function ClientsPageContent() {
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">
-                決算開始月
+                決算月
               </label>
               <select
-                value={newClient.fiscal_year_start_month}
+                value={settlementMonth(newClient.fiscal_year_start_month)}
                 onChange={(e) =>
-                  setNewClient({ ...newClient, fiscal_year_start_month: Number(e.target.value) })
+                  setNewClient({
+                    ...newClient,
+                    fiscal_year_start_month: startMonthFromSettlement(Number(e.target.value)),
+                  })
                 }
                 className="w-full bg-card border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
               >
@@ -204,6 +208,11 @@ function ClientsPageContent() {
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-muted-foreground mt-1">
+                会計年度: {newClient.fiscal_year_start_month}月 〜{" "}
+                {newClient.fiscal_year_start_month === 1 ? "" : "翌"}
+                {settlementMonth(newClient.fiscal_year_start_month)}月
+              </p>
             </div>
             <div>
               <label className="block text-sm font-medium text-foreground mb-1.5">

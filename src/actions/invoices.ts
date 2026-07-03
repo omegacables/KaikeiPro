@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import type { Database } from "@/types/database";
 
 type InvoiceRow = Database["public"]["Tables"]["invoices"]["Row"];
@@ -206,6 +207,8 @@ export async function updateInvoice(id: string, input: InvoiceUpdate) {
 }
 
 export async function deleteInvoice(id: string) {
+  // サービスロールで仕訳を連動削除するため、先に所有権を確認する
+  await resolveClientIdForRecord("invoices", id);
   const supabase = await createServerSupabaseClient();
   // 紐づく計上仕訳IDを取得（削除すると全帳簿からも消える）
   const { data: inv } = await supabase
@@ -216,11 +219,15 @@ export async function deleteInvoice(id: string) {
   const jeId = (inv as { journal_entry_id?: string | null } | null)?.journal_entry_id ?? null;
 
   // 請求書を削除（invoice_items はカスケード）
-  const { error } = await supabase.from("invoices").delete().eq("id", id);
+  const { data: deleted, error } = await supabase
+    .from("invoices")
+    .delete()
+    .eq("id", id)
+    .select("id");
   if (error) throw new Error(error.message);
 
-  // 紐づく仕訳も連動削除
-  if (jeId) {
+  // 請求書本体が実際に削除できた場合のみ、紐づく仕訳も連動削除
+  if (jeId && (deleted?.length ?? 0) > 0) {
     const admin = createAdminSupabaseClient();
     await admin.from("journal_entry_lines").delete().eq("journal_entry_id", jeId);
     await admin.from("journal_entries").delete().eq("id", jeId);
@@ -231,6 +238,8 @@ export async function deleteAllInvoices(
   clientId: string,
   direction?: "sales" | "purchase"
 ) {
+  // サービスロールで仕訳を連動削除するため、先にクライアントへのアクセス権を確認する
+  await assertClientAccess(clientId);
   const supabase = await createServerSupabaseClient();
   // 紐づく計上仕訳IDを収集（direction 指定時はその区分のみ）
   let collectQuery = supabase

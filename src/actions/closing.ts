@@ -1,12 +1,15 @@
 "use server";
 
-import { createServerSupabaseClient } from "@/lib/supabase";
+import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { assertClientAccess } from "@/lib/authz";
+import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
 import type { Database } from "@/types/database";
 
 type FiscalYearRow = Database["public"]["Tables"]["fiscal_years"]["Row"];
 type FixedAssetRow = Database["public"]["Tables"]["fixed_assets"]["Row"];
 
 export async function getActiveFiscalYear(clientId: string): Promise<FiscalYearRow | null> {
+  await assertClientAccess(clientId);
   const supabase = await createServerSupabaseClient();
 
   // Get the most recent fiscal year (prefer open, then closed)
@@ -20,7 +23,29 @@ export async function getActiveFiscalYear(clientId: string): Promise<FiscalYearR
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data;
+  if (data) return data;
+
+  // 会計年度が未登録なら、クライアントの決算月から当期分を自動作成する
+  // （fiscal_years はUI上に作成手段がなく、未登録だと決算処理・年度ロックが使えないため）
+  const admin = createAdminSupabaseClient();
+  const { data: client } = await admin
+    .from("clients")
+    .select("fiscal_year_start_month")
+    .eq("id", clientId)
+    .single();
+  const startMonth =
+    (client as { fiscal_year_start_month?: number } | null)?.fiscal_year_start_month ?? 4;
+  const { startDate, endDate } = fiscalRangeFromStartYear(
+    startMonth,
+    currentFiscalStartYear(startMonth)
+  );
+  const { data: created, error: insertError } = await admin
+    .from("fiscal_years")
+    .insert({ client_id: clientId, start_date: startDate, end_date: endDate, status: "open" })
+    .select()
+    .single();
+  if (insertError) throw new Error(insertError.message);
+  return created;
 }
 
 export interface ClosingEntry {
@@ -151,34 +176,60 @@ export async function getDepreciationSummary(
   };
 }
 
+// 会計年度末日を基準に、当会計年度の減価償却費を月割りで計算する。
+// - 会計年度は期末日から遡る12ヶ月（暦年ではなく決算期に対応）
+// - 取得年度は取得月から期末までの月数で月割り
+// - 償却累計が償却可能限度額（取得価額−残存価額）を超えないよう調整
 function calculateAnnualDepreciation(
   asset: FixedAssetRow,
   fiscalYearEnd: Date
 ): number {
-  const acquisitionDate = new Date(asset.acquisition_date);
-  const yearsElapsed = (fiscalYearEnd.getTime() - acquisitionDate.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  const acquisition = new Date(asset.acquisition_date);
+  if (acquisition > fiscalYearEnd) return 0;
 
-  if (yearsElapsed < 0 || yearsElapsed > asset.useful_life) return 0;
+  // 月を通し番号にして扱う（取得月・期首月を含む月数で計算）
+  const monthIndex = (d: Date) => d.getFullYear() * 12 + d.getMonth();
+  const acqIdx = monthIndex(acquisition);
+  const fyEndIdx = monthIndex(fiscalYearEnd);
+  const fyStartIdx = Math.max(fyEndIdx - 11, acqIdx); // 当期の償却開始月
+  const monthsThisYear = fyEndIdx - fyStartIdx + 1;   // 当期の償却月数（1〜12）
+  const monthsBefore = fyStartIdx - acqIdx;           // 期首までの経過月数
 
   if (asset.depreciation_method === "straight_line") {
-    return Math.floor(
-      (asset.acquisition_cost - asset.salvage_value) / asset.useful_life
-    );
+    const depreciableBase = Math.max(0, asset.acquisition_cost - asset.salvage_value);
+    const annual = depreciableBase / asset.useful_life;
+    const accumulated = Math.floor((annual * monthsBefore) / 12);
+    const remaining = depreciableBase - accumulated;
+    if (remaining <= 0) return 0;
+    return Math.min(Math.floor((annual * monthsThisYear) / 12), remaining);
   }
 
-  // Declining balance: rate = 1 - (salvage / cost)^(1/life)
+  // 定率法: rate = 1 - (残存価額/取得価額)^(1/耐用年数)、残存価額0なら200%定率法
   const rate =
     asset.salvage_value > 0
       ? 1 - Math.pow(asset.salvage_value / asset.acquisition_cost, 1 / asset.useful_life)
-      : 2 / asset.useful_life; // 200% declining balance if no salvage
+      : 2 / asset.useful_life;
+  const floorValue = Math.max(asset.salvage_value, 0);
 
-  const yearsCompleted = Math.floor(yearsElapsed);
+  // 過年度分を会計年度単位（取得年度は月割り）で償却して期首帳簿価額を求める
   let bookValue = asset.acquisition_cost;
-  for (let i = 0; i < yearsCompleted; i++) {
-    bookValue -= Math.floor(bookValue * rate);
+  const firstWindowStart =
+    fyStartIdx - 12 * Math.ceil((fyStartIdx - acqIdx) / 12);
+  for (let ws = firstWindowStart; ws < fyStartIdx; ws += 12) {
+    const from = Math.max(acqIdx, ws);
+    const months = ws + 12 - from;
+    const dep = Math.min(
+      Math.floor((bookValue * rate * months) / 12),
+      bookValue - floorValue
+    );
+    bookValue -= Math.max(0, dep);
   }
 
-  return Math.floor(bookValue * rate);
+  const dep = Math.min(
+    Math.floor((bookValue * rate * monthsThisYear) / 12),
+    bookValue - floorValue
+  );
+  return Math.max(0, dep);
 }
 
 export async function updateFiscalYearStatus(

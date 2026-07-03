@@ -46,7 +46,7 @@ import { Badge } from "@/components/ui/badge";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { getAccounts } from "@/actions/accounts";
 import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { fiscalRangeFromStartYear, currentFiscalStartYear } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { deleteJournalEntries, getDescriptionSuggestions, getJournalEntry, updateJournalEntryWithLines } from "@/actions/journals";
@@ -1179,8 +1179,13 @@ export default function LedgersPage() {
   const thisMonthLastDay = new Date(year, month, 0).getDate();
   const thisMonthTo = `${year}-${String(month).padStart(2, "0")}-${String(thisMonthLastDay).padStart(2, "0")}`;
 
+  // 今年度 = クライアントの決算月基準の会計年度（今月と同一だったバグを修正）
+  const currentFiscalRange = fiscalRangeFromStartYear(
+    fiscalStartMonth,
+    currentFiscalStartYear(fiscalStartMonth)
+  );
   const presets = [
-    { label: "今年度", from: defaultFrom, to: defaultTo },
+    { label: "今年度", from: currentFiscalRange.startDate, to: currentFiscalRange.endDate },
     { label: "今月", from: thisMonthFrom, to: thisMonthTo },
     { label: "前月", from: `${prevMonthYear}-${String(prevMonth).padStart(2, "0")}-01`, to: `${prevMonthYear}-${String(prevMonth).padStart(2, "0")}-${String(prevMonthLastDay).padStart(2, "0")}` },
   ];
