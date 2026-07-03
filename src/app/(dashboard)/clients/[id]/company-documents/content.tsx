@@ -52,7 +52,7 @@ function formatSize(bytes: number | null): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export default function CompanyDocumentsPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
+export function CompanyDocumentsPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const [docs, setDocs] = useState<CompanyDocument[]>([]);

@@ -107,7 +107,7 @@ function AuditLogDetail({ log }: { log: AuditLogRow }) {
   );
 }
 
-export default function AuditLogPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
+export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
   const { id } = useParams<{ id: string }>();
 
   const [logs, setLogs] = useState<AuditLogRow[]>([]);

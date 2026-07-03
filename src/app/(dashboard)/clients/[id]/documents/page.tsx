@@ -4,8 +4,8 @@ import { useState } from "react";
 import { useParams } from "next/navigation";
 import { FileCheck, Receipt, FileText, FileSpreadsheet } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { ReceiptsPageContent } from "../receipts/page";
-import { InvoicesPageContent } from "../invoices/page";
+import { ReceiptsPageContent } from "../receipts/content";
+import { InvoicesPageContent } from "../invoices/content";
 
 type DocumentTab = "issued" | "received" | "statements";
 

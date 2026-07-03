@@ -16,7 +16,9 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { printPage } from "@/lib/export";
 import { useData } from "@/lib/use-data";
-import { getFiscalYears, getTaxSummary, type TaxSummary } from "@/actions/tax";
+import { getTaxSummary, type TaxSummary } from "@/actions/tax";
+import { getClient } from "@/actions/clients";
+import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
 
 type TaxMethod = "standard" | "simplified";
 
@@ -44,38 +46,43 @@ const emptyTaxSummary: TaxSummary = {
   salesExempt: 0, salesTaxFree: 0, salesOutOfScope: 0,
 };
 
-export default function TaxPage({ hideHeader = false }: { hideHeader?: boolean } = {}) {
+export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
   const { id } = useParams();
   const clientId = id as string;
   const [selectedPeriodIdx, setSelectedPeriodIdx] = useState(0);
   const [taxMethod, setTaxMethod] = useState<TaxMethod>("standard");
 
-  // Fetch fiscal years from DB
-  const { data: fiscalYears } = useData(
-    useCallback(() => getFiscalYears(clientId), [clientId]),
-    []
+  // クライアントの決算月（期首月）を取得。
+  // 会計年度は他画面（試算表・決算書等）と同じく clients.fiscal_year_start_month を
+  // 唯一の基準にする（fiscal_years テーブルはUI上の作成手段がなく不整合の元のため）。
+  const { data: fiscalStartMonth } = useData<number | null>(
+    useCallback(
+      () =>
+        getClient(clientId).then(
+          (c) => (c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4
+        ),
+      [clientId]
+    ),
+    null
   );
 
-  // Build period options from fiscal years
+  // Build period options（当期から過去5年度分）
   const periods = useMemo(() => {
-    if (fiscalYears.length === 0) return [];
-    // ISO日付文字列を直接パース（new Date はUTC解釈→ローカル変換で月がズレるため避ける）
-    const ym = (iso: string) => {
-      const [y, m] = iso.split("-").map(Number);
-      return { y, m };
-    };
-    return fiscalYears.map((fy) => {
-      const s = ym(fy.start_date);
-      const e = ym(fy.end_date);
-      const label = `${s.y}年度 通期 (${s.m}月〜${e.m}月)`;
+    if (fiscalStartMonth === null) return [];
+    const currentYear = currentFiscalStartYear(fiscalStartMonth);
+    return Array.from({ length: 5 }, (_, i) => {
+      const y = currentYear - i;
+      const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, y);
+      const sm = Number(startDate.slice(5, 7));
+      const em = Number(endDate.slice(5, 7));
       return {
-        value: fy.id,
-        label,
-        startDate: fy.start_date,
-        endDate: fy.end_date,
+        value: String(y),
+        label: `${y}年度 通期 (${sm}月〜${em}月)`,
+        startDate,
+        endDate,
       };
     });
-  }, [fiscalYears]);
+  }, [fiscalStartMonth]);
 
   const selectedPeriod = periods[selectedPeriodIdx] ?? null;
 
@@ -138,7 +145,7 @@ export default function TaxPage({ hideHeader = false }: { hideHeader?: boolean }
               className="appearance-none pl-3 pr-8 py-2 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
             >
               {periods.length === 0 && (
-                <option value={0}>会計年度が未設定です</option>
+                <option value={0}>読み込み中...</option>
               )}
               {periods.map((p, i) => (
                 <option key={p.value} value={i}>

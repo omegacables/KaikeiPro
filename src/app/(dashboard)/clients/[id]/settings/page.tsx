@@ -3,9 +3,9 @@
 import { useState } from "react";
 import { Settings, Percent, FolderArchive, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
-import TaxPage from "../tax/page";
-import CompanyDocumentsPage from "../company-documents/page";
-import AuditLogPage from "../audit/page";
+import { TaxPageContent } from "../tax/content";
+import { CompanyDocumentsPageContent } from "../company-documents/content";
+import { AuditLogPageContent } from "../audit/content";
 
 type SettingsTab = "tax" | "company_documents" | "audit";
 
@@ -53,9 +53,9 @@ export default function ClientSettingsPage() {
       </div>
 
       {/* Content */}
-      {activeTab === "tax" && <TaxPage hideHeader />}
-      {activeTab === "company_documents" && <CompanyDocumentsPage hideHeader />}
-      {activeTab === "audit" && <AuditLogPage hideHeader />}
+      {activeTab === "tax" && <TaxPageContent hideHeader />}
+      {activeTab === "company_documents" && <CompanyDocumentsPageContent hideHeader />}
+      {activeTab === "audit" && <AuditLogPageContent hideHeader />}
     </>
   );
 }

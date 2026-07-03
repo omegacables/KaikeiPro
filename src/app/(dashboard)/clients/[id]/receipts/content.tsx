@@ -2025,6 +2025,3 @@ function StatementLinesSection({
   );
 }
 
-export default function ReceiptsPage() {
-  return <ReceiptsPageContent />;
-}
