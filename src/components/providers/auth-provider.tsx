@@ -93,11 +93,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       // Check client_users (portal user)
+      // 複数の顧問先に登録されているユーザーでも解決できるよう、最初の1件を採用する
+      // （maybeSingle() は複数行でエラーになり、ロール未付与＝ポータル利用不可になっていた）
       const { data: clientUser } = await supabase
         .from("client_users")
         .select("name, client_id")
         .eq("user_id", authUser.id)
         .eq("is_active", true)
+        .order("created_at", { ascending: true })
+        .limit(1)
         .maybeSingle();
 
       if (clientUser) {
