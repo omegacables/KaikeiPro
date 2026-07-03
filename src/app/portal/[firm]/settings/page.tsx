@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/auth-provider";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { getClient, updateClient } from "@/actions/clients";
+import { settlementMonth, startMonthFromSettlement } from "@/lib/fiscal";
 
 export default function PortalSettingsPage() {
   const { user, signOut } = useAuth();
@@ -40,6 +41,8 @@ export default function PortalSettingsPage() {
   const [savingCompany, setSavingCompany] = useState(false);
   const [loadingCompany, setLoadingCompany] = useState(true);
   const [companyExpanded, setCompanyExpanded] = useState(false);
+  // 保存済みの期首月（決算月変更の検知・警告用）
+  const [savedStartMonth, setSavedStartMonth] = useState(4);
 
   const [notifications, setNotifications] = useState([
     { key: "receipt_reminder", label: "領収書リマインダー", description: "月末に未提出の領収書をお知らせ", enabled: true },
@@ -63,6 +66,7 @@ export default function PortalSettingsPage() {
           fiscal_year_start_month: client.fiscal_year_start_month,
           business_type: client.business_type ?? "",
         });
+        setSavedStartMonth(client.fiscal_year_start_month);
       })
       .catch(() => {
         /* DB not available */
@@ -103,6 +107,15 @@ export default function PortalSettingsPage() {
 
   const handleSaveCompany = async () => {
     if (!user?.clientId) return;
+    // 決算月の変更は全帳票の集計期間に影響するため、確認を挟む
+    if (companyData.fiscal_year_start_month !== savedStartMonth) {
+      const ok = window.confirm(
+        `決算月を ${settlementMonth(savedStartMonth)}月 から ${settlementMonth(companyData.fiscal_year_start_month)}月 に変更します。\n\n` +
+          "試算表・決算書・消費税集計など、すべての帳票の集計期間が変わります。\n" +
+          "会計事務所と確認のうえ変更することをお勧めします。よろしいですか？"
+      );
+      if (!ok) return;
+    }
     setSavingCompany(true);
     try {
       await updateClient(user.clientId, {
@@ -111,7 +124,9 @@ export default function PortalSettingsPage() {
         telephone: companyData.telephone || null,
         email: companyData.email || null,
         business_type: companyData.business_type || null,
+        fiscal_year_start_month: companyData.fiscal_year_start_month,
       });
+      setSavedStartMonth(companyData.fiscal_year_start_month);
       setEditingCompany(false);
     } catch (e) {
       alert(e instanceof Error ? e.message : "保存に失敗しました");
@@ -120,8 +135,7 @@ export default function PortalSettingsPage() {
     }
   };
 
-  const fiscalYearEndMonth =
-    ((companyData.fiscal_year_start_month + 10) % 12) + 1;
+  const fiscalYearEndMonth = settlementMonth(companyData.fiscal_year_start_month);
 
   return (
     <>
@@ -332,6 +346,35 @@ export default function PortalSettingsPage() {
                         setCompanyData({ ...companyData, email: v })
                       }
                     />
+                    <div>
+                      <label className="block text-xs font-medium text-muted-foreground mb-1.5">
+                        決算月
+                      </label>
+                      <select
+                        value={settlementMonth(companyData.fiscal_year_start_month)}
+                        onChange={(e) =>
+                          setCompanyData({
+                            ...companyData,
+                            fiscal_year_start_month: startMonthFromSettlement(
+                              Number(e.target.value)
+                            ),
+                          })
+                        }
+                        className="w-full bg-background border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-shadow"
+                      >
+                        {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
+                          <option key={m} value={m}>
+                            {m}月
+                          </option>
+                        ))}
+                      </select>
+                      <p className="text-[11px] text-muted-foreground mt-1">
+                        会計年度: {companyData.fiscal_year_start_month}月 〜{" "}
+                        {companyData.fiscal_year_start_month === 1 ? "" : "翌"}
+                        {settlementMonth(companyData.fiscal_year_start_month)}月
+                        ／ 変更すると全帳票の集計期間に影響します
+                      </p>
+                    </div>
                     <div className="flex gap-2 pt-1">
                       <Button
                         variant="ghost"

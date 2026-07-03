@@ -87,3 +87,70 @@
 - 顧問先ポータル(`/portal/[firm]`)は別レイアウトのため影響なし（クライアントのスマホ撮影は従来どおり）。
 
 検証: `tsc` 通過 / `npm run build` 成功 / dev server 起動・/dashboard等は認証リダイレクト（500なし）・ログイン画面はスマホ幅で崩れなし（スクショ確認）。撮影画面は認証必須のため実機（ログイン済み・スマホ）での確認推奨。
+
+---
+
+# 改修タスク：バグ修正＋決算書の一般的な帳票化（2026-07-03）
+
+## 決算書（表紙付き決算報告書）の刷新
+- [x] settlement-report.ts: B/Sを区分表示化（流動資産／固定資産（有形・無形・投資その他）／繰延資産、流動負債／固定負債、株主資本）。繰越利益剰余金に当期純利益を算入し「うち当期純利益」を内書き
+- [x] report/[year]/page.tsx: 一般的な決算書の見た目へ全面刷新
+  - 明朝体（Hiragino Mincho 等）・和暦表記（令和/平成）・△マイナス表記・（単位：円）
+  - 表紙: 決算報告書・事業年度（自/至）・会社名・住所・TEL・作成者（会計事務所）
+  - 貸借対照表: 勘定式（左=資産の部／右=負債の部・純資産の部）
+  - 損益計算書: 報告式（内訳・金額の2列）
+  - 株主資本等変動計算書: 横形式マトリクス（当期首残高/当期変動額/当期末残高）
+  - 個別注記表・販売費及び一般管理費の明細
+
+## バグ修正
+- [x] lib/parse-tabular.ts: CSVの引用符対応（"1,234" のカンマ・改行・""エスケープ）。ExcelJSのリッチテキスト/数式/ハイパーリンクセルが [object Object] になる問題を修正
+- [x] actions/invoices.ts: deleteInvoice/deleteAllInvoices に認可ガード追加（resolveClientIdForRecord/assertClientAccess）。請求書本体が削除できた場合のみ仕訳を連動削除するよう修正
+- [x] actions/closing.ts: 減価償却を会計年度・月割りベースに修正（取得年度の月割り、償却可能限度額の上限、定率法の年度窓計算）
+
+## 検証
+- [x] tsc --noEmit / npm run build 通過
+- [x] CSVパーサ・減価償却のユニット検証（全ケース合格）
+- [x] 実データ（株式会社MRコネクト・令和7年3月期）でプレビュー表示確認（全6シート・コンソールエラーなし・貸借一致）
+- 備考: エージェント指摘の「認可漏れ9件」はRLS付きクライアント使用のため誤検知と判断（本プロジェクトの規約: サービスロール経路のみ明示認可）
+
+---
+
+# 改修タスク：期間表示の整合性修正（2026-07-03 追記）
+
+- [x] tax/page.tsx: 消費税ページの対象期間を fiscal_years テーブルから clients.fiscal_year_start_month ベースに変更（他画面と基準統一。fiscal_years 未登録クライアントで「会計年度が未設定です」となり機能しなかった問題も解消）
+- [x] closing.ts getActiveFiscalYear: fiscal_years 未登録時にクライアントの決算月から当期分を自動作成（決算処理ページが空になる問題の解消）＋ assertClientAccess 追加
+- [x] closing/page.tsx: 決算整理仕訳の created_by に clientId を渡していた誤りを修正（useAuth の user.id へ）
+- [x] ledgers/page.tsx: 「今年度」プリセットが「今月」と同じ範囲だったバグを修正（決算月基準の会計年度に）
+- [x] clients/page.tsx 新規顧問先ダイアログ: 「決算開始月」（期首月を直接選択）→「決算月」に統一（設定ページと同じ変換 settlementMonth/startMonthFromSettlement）＋会計年度プレビュー表示
+- [x] 決算月表示の統一: clients/[id]/page.tsx・clients/page.tsx・portal settings の独自計算式を settlementMonth() に置換
+- [x] 「会計年度: N月〜翌M月」表記が期首1月のとき「翌12月」になる誤表示を修正（settings / clients 新規ダイアログ）
+- [x] 検証: tsc / build 通過。実データで税務ページ期間（3月〜2月）・元帳「今年度」（2026-03-01〜2027-02-28）・決算処理の年度自動作成（Renaxis 2026-05-01〜2027-04-30）を確認
+
+## 未解決（要ユーザー確認）
+- 株式会社MRコネクト: fiscal_year_start_month=3（=2月決算扱い）だが fiscal_years 行は 2025-04-01〜2026-03-31（=3月決算）で矛盾。実際の決算月の確認が必要（3月決算なら設定ページで決算月を3月に変更）
+
+---
+
+# 改修タスク：ポータルから決算月を変更可能に（2026-07-03 追記）
+
+- [x] portal/[firm]/settings: 会社情報の編集フォームに「決算月」セレクタを追加（settlementMonth/startMonthFromSettlement 変換、会計年度プレビュー付き）
+- [x] 決算月変更時は確認ダイアログを表示（全帳票の集計期間に影響する旨＋会計事務所と確認を推奨）
+- [x] updateClient は既に admin 経路＋assertClientAccess 済みのため追加のサーバー変更・マイグレーション不要（firm_id 変更は super_admin のみのまま）
+- [x] Next.js PageProps 検証エラーの根治: page.tsx から追加 export していた5ページ（tax/audit/company-documents/invoices/receipts）を content.tsx に分離し、page.tsx は薄いラッパーに（settings/documents の import も追随）
+- [x] 検証: tsc / build 通過。ポータルに顧問先ユーザーでログインし、決算月 4月→3月 変更（確認ダイアログ表示→DB反映）を確認後、データを元に戻し検証アカウント削除。分離した5ページのレンダリングもスモークテスト済み
+
+---
+
+# 新機能：経営ダッシュボード（ポータル「経営」タブ、2026-07-03 追記）
+
+- [x] actions/executive-summary.ts: getExecutiveSummary(clientId) 新設（assertClientAccess 済み）
+  - 会社の財産: 現金・預金／総資産／負債／純資産（=資産−負債）を基準日時点で集計
+  - 業績: 当期の売上・利益の累計＋月次推移（現金残高の月末推移も）
+  - 役員報酬・社員給与: 給与台帳（payroll_records, employee_type で役員/従業員区分）優先、未登録なら仕訳の科目（役員報酬／給料・給与・賃金）から自動集計
+- [x] portal/[firm]/company/page.tsx: スマホ最適化ダッシュボード
+  - 現金・預金のヒーロー表示＋残高スパークライン、売上バー＋利益ドットの月次チャート（SVG自作）
+  - 役員報酬カード（直近月・今期累計・役員別）、社員給与カード（直近月合計・人数・従業員別・手取り）
+  - 金額の目隠しトグル（外出先での閲覧用）・更新ボタン・エラー表示
+- [x] ポータルのボトムナビに「経営」タブを追加（6タブ化に伴い幅調整）
+- [x] 修正: 認証解決前に useData が一度だけ実行され読み込みが終わらない問題 → clientId 解決に追従する fetch に変更
+- [x] 検証: tsc / build 通過。実データ（MRコネクト）でスマホビューポート表示・目隠しトグル・会計年度表示（2026/04〜2027/03）を確認。検証アカウントは削除済み
