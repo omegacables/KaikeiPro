@@ -1322,9 +1322,10 @@ export default function SettingsPage() {
                                 <span>取引先: {raqtoSyncResult.result.counts.partners}件</span>
                                 <span>受注: {raqtoSyncResult.result.counts.salesOrders}件</span>
                                 <span>発注: {raqtoSyncResult.result.counts.purchaseOrders}件</span>
-                                <span>入金: {raqtoSyncResult.result.counts.payments}件</span>
                                 <span>領収書: {raqtoSyncResult.result.counts.receipts}件</span>
                                 <span>帳票: {raqtoSyncResult.result.counts.documents}件</span>
+                                <span>ステータス更新: {raqtoSyncResult.result.counts.statusUpdates}件</span>
+                                <span>支払反映(→Raqto): {raqtoSyncResult.result.counts.payments}件</span>
                               </div>
                               {raqtoSyncResult.result.errors.length > 0 && (
                                 <div className="mt-2 text-xs text-destructive">

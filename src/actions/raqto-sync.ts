@@ -15,7 +15,7 @@ import type {
 export type RaqtoSyncResult = {
   success: boolean;
   syncedAt: string;
-  counts: { partners: number; salesOrders: number; purchaseOrders: number; payments: number; receipts: number; documents: number };
+  counts: { partners: number; salesOrders: number; purchaseOrders: number; payments: number; receipts: number; documents: number; statusUpdates: number };
   errors: string[];
 };
 
@@ -23,7 +23,7 @@ function emptyResult(): RaqtoSyncResult {
   return {
     success: true,
     syncedAt: new Date().toISOString(),
-    counts: { partners: 0, salesOrders: 0, purchaseOrders: 0, payments: 0, receipts: 0, documents: 0 },
+    counts: { partners: 0, salesOrders: 0, purchaseOrders: 0, payments: 0, receipts: 0, documents: 0, statusUpdates: 0 },
     errors: [],
   };
 }
@@ -785,19 +785,202 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
   return result;
 }
 
+/**
+ * Raqto→会計のステータス連動。
+ * Raqto側で入金済み・キャンセル・無効化された受注/帳票を、会計側の請求書・証憑に反映する。
+ * - 受注が入金済み → 請求書を「入金済(paid)」に
+ * - 受注キャンセル・削除 / 帳票void → 請求書を「無効(void)」に
+ * - 前進遷移のみ: 会計側で既に paid / void のものは変更しない（返金等は手動対応）
+ * - void になった証憑（領収書・発注書等）は未仕訳なら削除
+ */
+export async function importRaqtoStatusUpdates(clientId: string): Promise<RaqtoSyncResult> {
+  const result = emptyResult();
+
+  try {
+    await getRaqtoCompanyId(clientId); // 連携確認 + 認可
+    const raqto = createRaqtoSupabaseClient();
+    const supabase = await createServerSupabaseClient();
+
+    // --- 1. 請求書のステータス反映 ---
+    const { data: invoices } = await supabase
+      .from("invoices")
+      .select("id, status, raqto_source_id, raqto_source_type, raqto_order_status")
+      .eq("client_id", clientId)
+      .not("raqto_source_id", "is", null);
+
+    const orderSourced = (invoices ?? []).filter((i) => i.raqto_source_type === "order");
+    const docSourced = (invoices ?? []).filter((i) => i.raqto_source_type === "document");
+
+    type RaqtoOrderStatus = { id: string; status: string; payment_status: string | null; deleted_at: string | null };
+    type RaqtoDocStatus = { id: string; status: string; payment_status: string | null; order_id: string | null };
+
+    const orderMap = new Map<string, RaqtoOrderStatus>();
+    const docMap = new Map<string, RaqtoDocStatus>();
+
+    if (orderSourced.length > 0) {
+      const { data } = await raqto
+        .from("orders")
+        .select("id, status, payment_status, deleted_at")
+        .in("id", orderSourced.map((i) => i.raqto_source_id as string));
+      for (const o of (data ?? []) as RaqtoOrderStatus[]) orderMap.set(o.id, o);
+    }
+    if (docSourced.length > 0) {
+      const { data } = await raqto
+        .from("documents")
+        .select("id, status, payment_status, order_id")
+        .in("id", docSourced.map((i) => i.raqto_source_id as string));
+      for (const d of (data ?? []) as RaqtoDocStatus[]) docMap.set(d.id, d);
+    }
+
+    let updatedCount = 0;
+
+    for (const inv of invoices ?? []) {
+      let newStatus: "paid" | "void" | null = null;
+      let raqtoStatus: string | null = null;
+
+      if (inv.raqto_source_type === "order") {
+        const o = orderMap.get(inv.raqto_source_id as string);
+        raqtoStatus = o ? o.status : "deleted";
+        if (!o || o.deleted_at || o.status === "canceled") newStatus = "void";
+        else if (o.payment_status === "paid" || o.status === "payment_completed") newStatus = "paid";
+      } else {
+        const d = docMap.get(inv.raqto_source_id as string);
+        raqtoStatus = d ? d.status : "deleted";
+        if (!d || d.status === "void") newStatus = "void";
+        else if (d.payment_status === "paid" || d.status === "paid") newStatus = "paid";
+      }
+
+      // 前進遷移のみ（paid/void からは動かさない）
+      const canTransition = inv.status !== "paid" && inv.status !== "void";
+      const statusChanged = newStatus !== null && canTransition && inv.status !== newStatus;
+      const raqtoStatusChanged = raqtoStatus !== inv.raqto_order_status;
+
+      if (!statusChanged && !raqtoStatusChanged) continue;
+
+      const updates: Record<string, unknown> = {};
+      if (statusChanged && newStatus) updates.status = newStatus;
+      if (raqtoStatusChanged) updates.raqto_order_status = raqtoStatus;
+
+      const { error: updateError } = await supabase.from("invoices").update(updates).eq("id", inv.id);
+      if (updateError) {
+        result.errors.push(`請求書ステータス更新エラー: ${updateError.message}`);
+      } else if (statusChanged) {
+        updatedCount++;
+      }
+    }
+
+    // --- 2. void になった帳票（証憑側）の削除（未仕訳のみ） ---
+    const { data: raqtoReceipts } = await supabase
+      .from("receipts")
+      .select("id, status, raqto_source_id, original_filename")
+      .eq("client_id", clientId)
+      .not("raqto_source_id", "is", null);
+
+    if (raqtoReceipts && raqtoReceipts.length > 0) {
+      const { data: docs } = await raqto
+        .from("documents")
+        .select("id, status")
+        .in("id", raqtoReceipts.map((r) => r.raqto_source_id as string));
+      const docStatusMap = new Map<string, string>((docs ?? []).map((d: { id: string; status: string }) => [d.id, d.status]));
+
+      for (const r of raqtoReceipts) {
+        const docStatus = docStatusMap.get(r.raqto_source_id as string);
+        const voided = !docStatus || docStatus === "void";
+        if (!voided) continue;
+
+        if (r.status === "journalized") {
+          result.errors.push(
+            `帳票「${r.original_filename ?? r.raqto_source_id}」はRaqto側で無効化されましたが、仕訳済みのため削除していません。内容を確認してください。`
+          );
+          continue;
+        }
+        const { error: delError } = await supabase.from("receipts").delete().eq("id", r.id);
+        if (delError) {
+          result.errors.push(`無効化帳票の削除エラー: ${delError.message}`);
+        } else {
+          updatedCount++;
+        }
+      }
+    }
+
+    result.counts.statusUpdates = updatedCount;
+  } catch (e) {
+    result.success = false;
+    result.errors.push(e instanceof Error ? e.message : "ステータス連動に失敗しました");
+  }
+
+  return result;
+}
+
+/**
+ * 会計→Raqtoのステータス書き戻し。
+ * 会計側で入金済み（status=paid または消込累計が請求額以上）になったRaqto由来の請求書について、
+ * Raqto側の受注・帳票の支払ステータスを「支払済」に更新する。
+ */
 export async function exportRaqtoPaymentStatus(clientId: string): Promise<RaqtoSyncResult> {
   const result = emptyResult();
 
   try {
+    await getRaqtoCompanyId(clientId); // 連携確認 + 認可
+    const raqto = createRaqtoSupabaseClient();
     const supabase = await createServerSupabaseClient();
 
-    const { data: payments } = await supabase
-      .from("payments")
-      .select("id, amount")
-      .eq("client_id", clientId);
+    const { data: invoices } = await supabase
+      .from("invoices")
+      .select("id, status, total_amount, raqto_source_id, raqto_source_type, payment_allocations ( allocated_amount )")
+      .eq("client_id", clientId)
+      .not("raqto_source_id", "is", null)
+      .neq("status", "void");
 
-    result.counts.payments = payments?.length ?? 0;
-    // Stub: payment status export will be implemented later
+    const paidInvoices = (invoices ?? []).filter((inv) => {
+      if (inv.status === "paid") return true;
+      const allocs = (inv.payment_allocations as unknown as { allocated_amount: number }[]) ?? [];
+      const allocated = allocs.reduce((s, a) => s + (a.allocated_amount ?? 0), 0);
+      return inv.total_amount > 0 && allocated >= inv.total_amount;
+    });
+
+    if (paidInvoices.length === 0) return result;
+
+    const paidOrderIds = paidInvoices
+      .filter((i) => i.raqto_source_type === "order")
+      .map((i) => i.raqto_source_id as string);
+    const paidDocIds = paidInvoices
+      .filter((i) => i.raqto_source_type === "document")
+      .map((i) => i.raqto_source_id as string);
+
+    let exportedCount = 0;
+    const now = new Date();
+    const today = now.toISOString().split("T")[0];
+
+    if (paidOrderIds.length > 0) {
+      const { data: updated, error } = await raqto
+        .from("orders")
+        .update({ payment_status: "paid", paid_at: now.toISOString() })
+        .in("id", paidOrderIds)
+        .neq("payment_status", "paid")
+        .select("id");
+      if (error) {
+        result.errors.push(`Raqto受注の支払ステータス更新エラー: ${error.message}`);
+      } else {
+        exportedCount += updated?.length ?? 0;
+      }
+    }
+
+    if (paidDocIds.length > 0) {
+      const { data: updated, error } = await raqto
+        .from("documents")
+        .update({ payment_status: "paid", payment_date: today })
+        .in("id", paidDocIds)
+        .neq("payment_status", "paid")
+        .select("id");
+      if (error) {
+        result.errors.push(`Raqto帳票の支払ステータス更新エラー: ${error.message}`);
+      } else {
+        exportedCount += updated?.length ?? 0;
+      }
+    }
+
+    result.counts.payments = exportedCount;
   } catch (e) {
     result.success = false;
     result.errors.push(e instanceof Error ? e.message : "入金ステータス連携に失敗しました");
@@ -815,6 +998,7 @@ export async function runFullRaqtoSync(clientId: string): Promise<RaqtoSyncResul
     importRaqtoSalesOrders,
     importRaqtoPurchaseOrders,
     importRaqtoOtherDocuments,
+    importRaqtoStatusUpdates,
     exportRaqtoPaymentStatus,
   ];
 
@@ -826,6 +1010,7 @@ export async function runFullRaqtoSync(clientId: string): Promise<RaqtoSyncResul
     finalResult.counts.payments += stepResult.counts.payments;
     finalResult.counts.receipts += stepResult.counts.receipts;
     finalResult.counts.documents += stepResult.counts.documents;
+    finalResult.counts.statusUpdates += stepResult.counts.statusUpdates;
     if (!stepResult.success) finalResult.success = false;
     errors.push(...stepResult.errors);
   }

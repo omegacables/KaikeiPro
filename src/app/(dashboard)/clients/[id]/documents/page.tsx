@@ -294,7 +294,7 @@ export default function DocumentsPage() {
       setRaqtoResult({
         success: false,
         syncedAt: new Date().toISOString(),
-        counts: { partners: 0, salesOrders: 0, purchaseOrders: 0, payments: 0, receipts: 0, documents: 0 },
+        counts: { partners: 0, salesOrders: 0, purchaseOrders: 0, payments: 0, receipts: 0, documents: 0, statusUpdates: 0 },
         errors: [e instanceof Error ? e.message : "Raqto取込に失敗しました"],
       });
     } finally {
@@ -333,7 +333,7 @@ export default function DocumentsPage() {
         >
           {raqtoResult.success && (
             <span>
-              Raqto受発注から取込みました — 請求書(受注): {raqtoResult.counts.salesOrders}件 / 領収書: {raqtoResult.counts.receipts}件 / 帳票（発注書・納品書・契約書）: {raqtoResult.counts.documents}件
+              Raqto受発注から取込みました — 請求書(受注): {raqtoResult.counts.salesOrders}件 / 領収書: {raqtoResult.counts.receipts}件 / 帳票（発注書・納品書・契約書）: {raqtoResult.counts.documents}件 / ステータス更新: {raqtoResult.counts.statusUpdates}件
             </span>
           )}
           {raqtoResult.errors.map((err, i) => (
