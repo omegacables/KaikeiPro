@@ -20,15 +20,16 @@ import {
   Download,
   CreditCard,
   ReceiptText,
+  ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
-import { getInvoices, createInvoice, deleteInvoice, deleteAllInvoices, issueInvoiceWithJournal } from "@/actions/invoices";
+import { getInvoices, createInvoice, updateInvoice, deleteInvoice, deleteAllInvoices, issueInvoiceWithJournal } from "@/actions/invoices";
 import { getPartners } from "@/actions/partners";
-import { importRaqtoSalesOrders, type RaqtoSyncResult } from "@/actions/raqto-sync";
+import { importRaqtoSalesOrders, exportRaqtoPaymentStatus, type RaqtoSyncResult } from "@/actions/raqto-sync";
 
 // ---------------------------------------------------------------------------
 // Types & config
@@ -231,6 +232,25 @@ export function InvoicesPageContent({
       alert(err instanceof Error ? err.message : "計上に失敗しました");
     } finally {
       setIssuingId(null);
+    }
+  };
+
+  // ステータスのインライン変更（Raqto取込分含む全請求書で変更可能）。
+  // 「入金済」に変更すると、次回のRaqto同期で受発注側にも「支払済」が書き戻される。
+  const [statusUpdatingId, setStatusUpdatingId] = useState<string | null>(null);
+  const handleStatusChange = async (invoiceId: string, status: Exclude<InvoiceStatus, "all">) => {
+    setStatusUpdatingId(invoiceId);
+    try {
+      await updateInvoice(invoiceId, { status });
+      // 入金済にした場合はRaqto受発注側へ即時に支払済を書き戻す（未連携なら静かにスキップ）
+      if (status === "paid") {
+        exportRaqtoPaymentStatus(id).catch(() => {});
+      }
+      refetch();
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "ステータスの更新に失敗しました");
+    } finally {
+      setStatusUpdatingId(null);
     }
   };
 
@@ -798,12 +818,34 @@ export function InvoicesPageContent({
                     <td className="px-4 py-3 text-right font-mono font-bold text-foreground">
                       {formatCurrency(inv.totalAmount)}
                     </td>
-                    {/* ステータス */}
+                    {/* ステータス（クリックで変更可能） */}
                     <td className="px-4 py-3 text-center">
-                      <Badge variant={cfg.variant} className="gap-1">
-                        <StatusIcon className="size-3" />
-                        {cfg.label}
-                      </Badge>
+                      <div className="relative inline-flex items-center">
+                        <Badge variant={cfg.variant} className="gap-1 pr-4">
+                          {statusUpdatingId === inv.id ? (
+                            <Loader2 className="size-3 animate-spin" />
+                          ) : (
+                            <StatusIcon className="size-3" />
+                          )}
+                          {cfg.label}
+                          <ChevronDown className="size-2.5 absolute right-1 opacity-60" />
+                        </Badge>
+                        <select
+                          value={inv.status}
+                          disabled={statusUpdatingId === inv.id}
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) =>
+                            handleStatusChange(inv.id, e.target.value as Exclude<InvoiceStatus, "all">)
+                          }
+                          className="absolute inset-0 opacity-0 cursor-pointer"
+                          title="ステータスを変更"
+                        >
+                          {(Object.entries(isPurchaseInv ? purchaseStatusConfig : salesStatusConfig) as [Exclude<InvoiceStatus, "all">, { label: string }][])
+                            .map(([key, sc]) => (
+                              <option key={key} value={key}>{sc.label}</option>
+                            ))}
+                        </select>
+                      </div>
                     </td>
                     {/* 区分バッジ（すべてビューのみ） */}
                     {!lockedDirection && (
