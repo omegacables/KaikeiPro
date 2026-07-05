@@ -17,6 +17,9 @@ import { ReceiptsPageContent } from "../receipts/content";
 import { InvoicesPageContent } from "../invoices/content";
 import { uploadReceipt } from "@/actions/receipt-storage";
 import { processReceiptOcr } from "@/actions/ocr";
+import { runFullRaqtoSync, type RaqtoSyncResult } from "@/actions/raqto-sync";
+import { Button } from "@/components/ui/button";
+import { RefreshCw } from "lucide-react";
 
 type DocumentTab = "issued" | "received" | "orders" | "statements";
 
@@ -276,10 +279,33 @@ export default function DocumentsPage() {
   // アップロード完了時にインクリメントし、タブ内容を再マウントして一覧を再取得させる
   const [refreshKey, setRefreshKey] = useState(0);
 
+  // Raqto受発注からの帳票取込
+  const [raqtoSyncing, setRaqtoSyncing] = useState(false);
+  const [raqtoResult, setRaqtoResult] = useState<RaqtoSyncResult | null>(null);
+
+  const handleRaqtoSync = async () => {
+    setRaqtoSyncing(true);
+    setRaqtoResult(null);
+    try {
+      const result = await runFullRaqtoSync(id);
+      setRaqtoResult(result);
+      setRefreshKey((k) => k + 1);
+    } catch (e) {
+      setRaqtoResult({
+        success: false,
+        syncedAt: new Date().toISOString(),
+        counts: { partners: 0, salesOrders: 0, purchaseOrders: 0, payments: 0, receipts: 0, documents: 0 },
+        errors: [e instanceof Error ? e.message : "Raqto取込に失敗しました"],
+      });
+    } finally {
+      setRaqtoSyncing(false);
+    }
+  };
+
   return (
     <>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <FileCheck className="size-6 text-primary" />
@@ -289,7 +315,32 @@ export default function DocumentsPage() {
             領収書・請求書を「発行（自社）／受領（取引先）」に分けて管理。発行タブから請求書を新規作成・発行できます。
           </p>
         </div>
+        <Button variant="outline" onClick={handleRaqtoSync} disabled={raqtoSyncing} className="shrink-0">
+          <RefreshCw className={cn("size-4 mr-1.5", raqtoSyncing && "animate-spin")} />
+          {raqtoSyncing ? "取込中..." : "Raqtoから取込"}
+        </Button>
       </div>
+
+      {/* Raqto取込結果 */}
+      {raqtoResult && (
+        <div
+          className={cn(
+            "mb-4 rounded-lg border px-4 py-2.5 text-xs",
+            raqtoResult.success
+              ? "border-border bg-muted/10 text-muted-foreground"
+              : "border-destructive/30 bg-destructive/5 text-destructive"
+          )}
+        >
+          {raqtoResult.success && (
+            <span>
+              Raqto受発注から取込みました — 請求書(受注): {raqtoResult.counts.salesOrders}件 / 領収書: {raqtoResult.counts.receipts}件 / 帳票（発注書・納品書・契約書）: {raqtoResult.counts.documents}件
+            </span>
+          )}
+          {raqtoResult.errors.map((err, i) => (
+            <p key={i}>{err}</p>
+          ))}
+        </div>
+      )}
 
       {/* ドラッグ&ドロップアップロード（AIが書類種別・発行/受領を自動判定） */}
       <DocumentDropzone clientId={id} onUploaded={() => setRefreshKey((k) => k + 1)} />

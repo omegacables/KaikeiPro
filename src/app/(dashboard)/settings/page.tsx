@@ -1318,11 +1318,13 @@ export default function SettingsPage() {
                               <p className="text-xs font-bold text-foreground mb-1">
                                 同期結果 ({raqtoIntegrations.find((r) => r.client_id === raqtoSyncResult.clientId)?.client_name})
                               </p>
-                              <div className="flex gap-4 text-xs text-muted-foreground">
+                              <div className="flex gap-4 text-xs text-muted-foreground flex-wrap">
                                 <span>取引先: {raqtoSyncResult.result.counts.partners}件</span>
                                 <span>受注: {raqtoSyncResult.result.counts.salesOrders}件</span>
                                 <span>発注: {raqtoSyncResult.result.counts.purchaseOrders}件</span>
                                 <span>入金: {raqtoSyncResult.result.counts.payments}件</span>
+                                <span>領収書: {raqtoSyncResult.result.counts.receipts}件</span>
+                                <span>帳票: {raqtoSyncResult.result.counts.documents}件</span>
                               </div>
                               {raqtoSyncResult.result.errors.length > 0 && (
                                 <div className="mt-2 text-xs text-destructive">
