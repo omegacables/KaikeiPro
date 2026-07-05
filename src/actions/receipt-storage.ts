@@ -4,6 +4,7 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
+import { createRaqtoSupabaseClient } from "@/lib/supabase-raqto";
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 
 import { createHash } from "crypto";
@@ -151,12 +152,71 @@ export async function uploadReceipt(formData: FormData) {
 /**
  * レシート画像の署名付きURLを取得（1時間有効）
  */
+/**
+ * Raqto受発注システム側の帳票PDFの署名付きURLを取得。
+ * image_path = "raqto://documents/{documentId}" の証憑が対象。
+ */
+async function getRaqtoDocumentUrl(imagePath: string): Promise<string | null> {
+  const docId = imagePath.replace("raqto://documents/", "");
+  if (!docId || !/^[0-9a-f-]{36}$/i.test(docId)) return null;
+
+  // 所有権チェック: RLSバウンドのクライアントでこの image_path を持つ証憑が
+  // 見えること（= 呼び出し者がアクセスできるクライアントの帳票であること）を確認。
+  const supabase = await createServerSupabaseClient();
+  const { data: receipt } = await supabase
+    .from("receipts")
+    .select("id, client_id")
+    .eq("image_path", imagePath)
+    .limit(1)
+    .maybeSingle();
+  if (!receipt) return null;
+
+  // テナント境界チェック: image_path は createReceipt/updateReceipt 経由で
+  // 利用者が任意に設定できるため、証憑行の存在だけでは信用できない。
+  // Raqto側ドキュメントの company_id が、この証憑のクライアントに連携された
+  // Raqto会社IDと一致する場合のみ署名URLを発行する（他社帳票のIDOR防止）。
+  const { data: integration } = await supabase
+    .from("raqto_integrations")
+    .select("raqto_company_id")
+    .eq("client_id", receipt.client_id)
+    .eq("is_active", true)
+    .maybeSingle();
+  if (!integration?.raqto_company_id) return null;
+
+  try {
+    const raqto = createRaqtoSupabaseClient();
+    const { data: doc } = await raqto
+      .from("documents")
+      .select("pdf_storage_path")
+      .eq("id", docId)
+      .eq("company_id", integration.raqto_company_id)
+      .maybeSingle();
+    if (!doc?.pdf_storage_path) return null;
+
+    const { data, error } = await raqto.storage
+      .from("documents")
+      .createSignedUrl(doc.pdf_storage_path, 3600);
+    if (error) {
+      console.error(`Raqto帳票URL取得エラー: ${error.message}`);
+      return null;
+    }
+    return data.signedUrl;
+  } catch {
+    // RAQTO_SUPABASE_URL 未設定などの場合は閲覧不可として扱う
+    return null;
+  }
+}
+
 export async function getReceiptImageUrl(
   imagePath: string
 ): Promise<string | null> {
-  // Raqto連携パスやプレースホルダーはスキップ
-  if (!imagePath || imagePath.startsWith("raqto://") || imagePath.startsWith("receipts/")) {
+  if (!imagePath || imagePath.startsWith("receipts/")) {
     return null;
+  }
+
+  // Raqto連携帳票は受発注システム側のストレージからPDFを取得
+  if (imagePath.startsWith("raqto://")) {
+    return getRaqtoDocumentUrl(imagePath);
   }
 
   // 所有権チェック（IDOR対策）: パス先頭セグメント = client_id。

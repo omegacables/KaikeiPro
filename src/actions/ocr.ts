@@ -5,7 +5,7 @@ import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/sup
 import { resolveClientIdForRecord } from "@/lib/authz";
 import { downloadReceiptImage } from "./receipt-storage";
 import { generateJournalSuggestion } from "./ai-journal";
-import type { OcrResult } from "@/types/index";
+import { DOCUMENT_TYPES, type OcrResult } from "@/types/index";
 
 function getGeminiClient() {
   const apiKey = process.env.GOOGLE_API_KEY;
@@ -112,7 +112,7 @@ export async function processReceiptOcr(
       {
         text: `${isPdf ? "このPDF" : "この画像"}に含まれる領収書・書類を全て読み取り、以下のJSON形式で返してください。値が不明な場合はnullにしてください。JSONのみ返し、説明文は不要です。
 
-{"receipts":[{"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"適格請求書発行事業者の登録番号 T+13桁のみ。無ければnull","document_number":"請求書番号・領収書No等の一般書類番号（登録番号以外）。無ければnull","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","confidence":0.0-1.0}]}
+{"receipts":[{"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"適格請求書発行事業者の登録番号 T+13桁のみ。無ければnull","document_number":"請求書番号・領収書No等の一般書類番号（登録番号以外）。無ければnull","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|purchase_order|goods_receipt|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","confidence":0.0-1.0}]}
 
 document_typeの判定基準:
 - qualified_invoice: T+13桁の登録番号がある請求書
@@ -120,7 +120,9 @@ document_typeの判定基準:
 - receipt: 領収書・レシート（コンビニ・飲食店・タクシー等）
 - statement: 利用明細・クレカ明細・銀行明細・給与明細
 - delivery_note: 納品書
-- estimate: 見積書・注文書・発注書
+- purchase_order: 発注書・注文書（「発注書」「注文書」「Purchase Order」の表題）
+- goods_receipt: 受領書・物品受領書・検収書（「受領書」「検収書」の表題）
+- estimate: 見積書
 - contract: 契約書・覚書
 - other: 上記以外
 
@@ -166,7 +168,7 @@ payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e
     ): Promise<{
       ocrResult: OcrResult;
       detectedPayment: "cash" | "card" | "e_money" | "bank_transfer" | null;
-      documentType: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other" | undefined;
+      documentType: NonNullable<OcrResult["document_type"]> | undefined;
     }> => {
       const currency: string = (parsed.currency as string) ?? "JPY";
       const originalAmount =
@@ -209,9 +211,8 @@ payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e
       const documentNumber =
         rawDocNo || (rawInvoiceNo && !invStartsWithT ? rawInvoiceNo : undefined);
 
-      const validDocumentTypes = ["qualified_invoice", "category_invoice", "receipt", "statement", "delivery_note", "estimate", "contract", "other"];
-      const rawDocumentType = validDocumentTypes.includes(parsed.document_type as string)
-        ? (parsed.document_type as "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other")
+      const rawDocumentType = (DOCUMENT_TYPES as readonly string[]).includes(parsed.document_type as string)
+        ? (parsed.document_type as NonNullable<OcrResult["document_type"]>)
         : undefined;
       // 適格請求書(qualified_invoice)は登録番号(T+13桁)が必須。登録番号が取れていない場合は
       // 区分記載請求書(category_invoice)に格下げする（非インボイス登録事業者の請求書を

@@ -999,7 +999,12 @@ export default function LedgersPage() {
       if (!receipt?.image_path) throw new Error("画像パスがありません");
       const url = await getReceiptImageUrl(receipt.image_path);
       setReceiptPreviewUrl(url);
-      setReceiptPreviewMime(receipt.mime_type ?? null);
+      // Raqto連携帳票は常にPDF（mime_type未設定のため画像パスから判定）
+      const isPdf =
+        receipt.mime_type === "application/pdf" ||
+        receipt.image_path.endsWith(".pdf") ||
+        receipt.image_path.startsWith("raqto://");
+      setReceiptPreviewMime(isPdf ? "application/pdf" : receipt.mime_type ?? null);
     } catch {
       setReceiptPreviewUrl(null);
     } finally {

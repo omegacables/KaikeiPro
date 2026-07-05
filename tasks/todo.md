@@ -154,3 +154,38 @@
 - [x] ポータルのボトムナビに「経営」タブを追加（6タブ化に伴い幅調整）
 - [x] 修正: 認証解決前に useData が一度だけ実行され読み込みが終わらない問題 → clientId 解決に追従する fetch に変更
 - [x] 検証: tsc / build 通過。実データ（MRコネクト）でスマホビューポート表示・目隠しトグル・会計年度表示（2026/04〜2027/03）を確認。検証アカウントは削除済み
+
+---
+
+# 改修タスク 2026-07-05：帳票D&D＋自動分類・Raqto同期修正
+
+## Part E — Raqto受発注→帳票読み込みの検証・修正
+- [x] E-1 検証: Raqto側スキーマ/データとコードの整合（MCPでDB直接確認）
+- [x] E-2 raqto-sync.ts: 削除済み注文の除外（deleted_at IS NULL フィルタ）
+- [x] E-3 raqto-sync.ts: 受注→請求書の二重取込防止（order由来とdocument由来の重複）
+- [x] E-4 raqto-sync.ts: 認可強化（assertClientAccess）
+- [x] E-5 receipt-storage.ts: raqto:// 帳票のPDF閲覧対応（Raqto documentsバケットの署名URL）
+- [x] E-6 .env.local.example に RAQTO_SUPABASE_URL / RAQTO_SUPABASE_SERVICE_ROLE_KEY を追記
+
+## Part F — 帳票管理ページ: D&Dアップロード＋自動分類
+- [x] F-1 document_type に purchase_order（発注書）/ goods_receipt（受領書）を追加（ocr.ts プロンプト・types）
+- [x] F-2 receipts/content.tsx: 新分類のラベル・バッジ、onlyDocTypes プロップ、raqto:// PDF表示
+- [x] F-3 documents/page.tsx: ドラッグ&ドロップアップロードゾーン（複数ファイル、自動OCR分類）
+- [x] F-4 documents/page.tsx: 「受発注書類」タブ追加（発注書・受領書・見積書・納品書・契約書）
+
+## Part G — 検証・リリース
+- [x] G-1 tsc --noEmit / npm run build
+- [ ] G-2 GitHub push (main)
+- [ ] G-3 デプロイ確認
+
+## レビュー（2026-07-05 実施結果）
+- コードレビュー（3系統の並列レビュア + 検証）で以下を検出・修正:
+  - [重大] getRaqtoDocumentUrl のIDOR: image_path偽造で他社Raqto帳票の署名URL取得が可能だった → raqto_integrations.raqto_company_id との照合を追加
+  - raqto-sync: 受注(order)由来とドキュメント由来の請求書二重取込 → 事前一括取得のSetで排除（ループ内逐次クエリも解消）
+  - raqto-sync: 削除済み注文(deleted_at)の取込 → フィルタ追加
+  - ledgers の証憑プレビューが Raqto PDF を <img> 表示 → PDF判定追加
+  - dropzone: stale closure による並行アップロード、dragleave フリッカー、file.type 空のD&Dファイル拒否、OCRエラー不可視 → 修正
+  - document_type の型定義4重複 → types/index.ts の DOCUMENT_TYPES に一元化
+  - refreshKey での全タブ再マウント（操作状態消失） → refreshToken プロップでの refetch に変更
+- 未対応（設計判断）: アップロードUI3箇所（portal/journals/documents）の共通フック化は影響範囲が広いため見送り。次回リファクタ候補。
+- 環境設定の注意: RAQTO_SUPABASE_URL / RAQTO_SUPABASE_SERVICE_ROLE_KEY が .env.local に未設定。Raqto同期・Raqto帳票閲覧はローカルでは動作しない。Vercel側の環境変数を要確認。

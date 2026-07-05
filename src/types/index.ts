@@ -144,6 +144,21 @@ export interface Receipt {
   mime_type?: string;
 }
 
+// 書類種別の唯一の定義。OCRの分類・バリデーション・UIバッジはすべてここを参照する。
+export const DOCUMENT_TYPES = [
+  "qualified_invoice",
+  "category_invoice",
+  "receipt",
+  "statement",
+  "delivery_note",
+  "purchase_order",
+  "goods_receipt",
+  "estimate",
+  "contract",
+  "other",
+] as const;
+export type ReceiptDocumentType = (typeof DOCUMENT_TYPES)[number];
+
 export interface OcrResult {
   date?: string;
   amount_total?: number;
@@ -165,7 +180,7 @@ export interface OcrResult {
   exchange_rate?: number; // 適用為替レート（→JPY）
   amount_jpy?: number; // 円換算額
   // 書類種別
-  document_type?: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
+  document_type?: ReceiptDocumentType;
   // 明細書(statement)の種別: 銀行明細 / クレカ明細 / その他。相手勘定（普通預金 or 未払金）の自動推定に使用。
   statement_subtype?: "bank" | "card" | "other";
 }

@@ -85,7 +85,10 @@
       "Read(//Applications/**)",
       "Bash(/Users/adminpc/.nvm/versions/node/v24.15.0/bin/npm install *)",
       "Bash(export PATH=\"/Users/adminpc/.nvm/versions/node/v24.15.0/bin:$PATH\")",
-      "WebFetch(domain:docs.link.getmoneytree.com)"
+      "WebFetch(domain:docs.link.getmoneytree.com)",
+      "Bash(git push *)",
+      "Bash(npm run *)",
+      "Read(//tmp/**)"
     ]
   }
 }

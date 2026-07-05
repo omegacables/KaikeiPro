@@ -110,7 +110,7 @@ interface ReceiptData {
   taxExcluded?: number;
   taxRate?: number;
   invoiceNumber?: string;
-  documentType?: "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
+  documentType?: DocumentType;
   statementSubtype?: "bank" | "card" | "other";
   ocrConfidence?: number;
   folderId?: string | null;
@@ -154,7 +154,7 @@ const invoiceCheckConfig: Record<
   none: { label: "番号なし", variant: "muted" },
 };
 
-type DocumentType = "qualified_invoice" | "category_invoice" | "receipt" | "statement" | "delivery_note" | "estimate" | "contract" | "other";
+type DocumentType = import("@/types/index").ReceiptDocumentType;
 
 const documentTypeConfig: Record<DocumentType, { label: string; variant: "success" | "accent" | "muted" | "default" | "warning" }> = {
   qualified_invoice: { label: "適格請求書", variant: "success" },
@@ -162,6 +162,8 @@ const documentTypeConfig: Record<DocumentType, { label: string; variant: "succes
   receipt: { label: "領収書", variant: "muted" },
   statement: { label: "明細書", variant: "default" },
   delivery_note: { label: "納品書", variant: "default" },
+  purchase_order: { label: "発注書", variant: "accent" },
+  goods_receipt: { label: "受領書", variant: "success" },
   estimate: { label: "見積書", variant: "warning" },
   contract: { label: "契約書", variant: "warning" },
   other: { label: "その他", variant: "muted" },
@@ -179,6 +181,8 @@ export function ReceiptsPageContent({
   hideProcessingSection = false,
   lockedDocType,
   excludeDocTypes,
+  onlyDocTypes,
+  refreshToken,
 }: {
   hideHeader?: boolean;
   lockedDirection?: "received" | "issued";
@@ -190,6 +194,10 @@ export function ReceiptsPageContent({
   lockedDocType?: DocumentType;
   // 領収書タブ用：指定した書類種別を一覧から除外（明細書は専用タブに集約）
   excludeDocTypes?: DocumentType[];
+  // 「受発注書類」タブ用：指定した書類種別群だけを表示（種別チップでの絞り込みは可能）
+  onlyDocTypes?: DocumentType[];
+  // 親側でアップロード完了時などにインクリメントすると一覧を再取得する（状態は保持）
+  refreshToken?: number;
 }) {
   const { id } = useParams<{ id: string }>();
 
@@ -278,6 +286,12 @@ export function ReceiptsPageContent({
   // null = まだ取得前（ローディング中）
   const receiptsLoading = dbReceipts === null;
   const receipts: ReceiptData[] = dbReceipts ?? [];
+
+  // 親からのリフレッシュ要求（ドロップゾーンでのアップロード完了時など）
+  useEffect(() => {
+    if (refreshToken) refetch();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [refreshToken]);
 
   // OCR処理中のレシートがある間は10秒ごとに自動リフレッシュ
   const hasProcessing = receipts.some(
@@ -527,7 +541,8 @@ export function ReceiptsPageContent({
       r.status !== "processing" &&
       (!lockedDirection || r.direction === lockedDirection) &&
       (!lockedDocType || r.documentType === lockedDocType) &&
-      !(excludeDocTypes && r.documentType && excludeDocTypes.includes(r.documentType))
+      !(excludeDocTypes && r.documentType && excludeDocTypes.includes(r.documentType)) &&
+      (!onlyDocTypes || (r.documentType != null && onlyDocTypes.includes(r.documentType)))
   );
 
   // 書類種別ごとの件数（フォルダ・方向フィルター適用前の全件から集計）
@@ -1135,7 +1150,7 @@ export function ReceiptsPageContent({
                       <Loader2 className="size-6 animate-spin text-muted-foreground" />
                     </div>
                   ) : detailImageUrl ? (
-                    selectedData.mimeType === "application/pdf" || selectedData.imagePath?.endsWith(".pdf") ? (
+                    selectedData.mimeType === "application/pdf" || selectedData.imagePath?.endsWith(".pdf") || selectedData.imagePath?.startsWith("raqto://") ? (
                       <iframe
                         src={detailImageUrl}
                         title="領収書PDF"

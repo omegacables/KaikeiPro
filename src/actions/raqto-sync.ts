@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { createRaqtoSupabaseClient } from "@/lib/supabase-raqto";
 import { getRaqtoIntegration } from "@/actions/raqto-integration";
+import { assertClientAccess } from "@/lib/authz";
 import type {
   RaqtoPartner,
   RaqtoOrder,
@@ -28,6 +29,8 @@ function emptyResult(): RaqtoSyncResult {
 }
 
 async function getRaqtoCompanyId(clientId: string): Promise<string> {
+  // Raqto側はサービスロールで読むため、先に呼び出し者のアクセス権を検証する
+  await assertClientAccess(clientId);
   const integration = await getRaqtoIntegration(clientId);
   if (!integration?.raqto_company_id) {
     throw new Error("Raqto受発注との連携が設定されていません。先にアカウント連携を行ってください。");
@@ -156,6 +159,21 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
     const salesAccountId = accounts?.find((a) => a.name === "売上高")?.id;
     const receivableAccountId = accounts?.find((a) => a.name === "売掛金")?.id;
 
+    // 既存のRaqto由来請求書を一括取得（ループ内の逐次クエリを避け、重複取込を防ぐ）
+    const { data: existingRaqtoInvoices } = await supabase
+      .from("invoices")
+      .select("raqto_source_id, raqto_source_type")
+      .eq("client_id", clientId)
+      .not("raqto_source_id", "is", null);
+
+    const importedDocIds = new Set<string>();
+    const orderSourcedInvoiceIds = new Set<string>();
+    for (const inv of existingRaqtoInvoices ?? []) {
+      if (!inv.raqto_source_id) continue;
+      if (inv.raqto_source_type === "document") importedDocIds.add(inv.raqto_source_id);
+      if (inv.raqto_source_type === "order") orderSourcedInvoiceIds.add(inv.raqto_source_id);
+    }
+
     let invoiceCount = 0;
     let receiptCount = 0;
 
@@ -165,7 +183,8 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
       .select("*")
       .eq("company_id", raqtoCompanyId)
       .eq("order_type", "sales_order")
-      .neq("status", "canceled");
+      .neq("status", "canceled")
+      .is("deleted_at", null);
 
     if (orderError) {
       result.errors.push(`Raqto受注取得エラー: ${orderError.message}`);
@@ -285,16 +304,15 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
         }
 
         // --- Invoice → invoices table ---
-        const { data: existingInv } = await supabase
-          .from("invoices")
-          .select("id")
-          .eq("client_id", clientId)
-          .eq("raqto_source_id", doc.id)
-          .eq("raqto_source_type", "document")
-          .maybeSingle();
-
-        if (existingInv) {
+        if (importedDocIds.has(doc.id)) {
           if (doc.order_id) importedOrderIds.add(doc.order_id);
+          continue;
+        }
+
+        // 過去の同期で受注（order）として先に取り込まれている場合も重複させない
+        // （同じ受注に対して order 由来と document 由来の請求書・仕訳が二重になるのを防ぐ）
+        if (doc.order_id && orderSourcedInvoiceIds.has(doc.order_id)) {
+          importedOrderIds.add(doc.order_id);
           continue;
         }
 
@@ -392,16 +410,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
     // --- 3. Import sales orders that don't have a document yet (as draft) ---
     for (const order of (raqtoOrders ?? []) as RaqtoOrder[]) {
       if (importedOrderIds.has(order.id)) continue;
-
-      const { data: existingInv } = await supabase
-        .from("invoices")
-        .select("id")
-        .eq("client_id", clientId)
-        .eq("raqto_source_id", order.id)
-        .eq("raqto_source_type", "order")
-        .maybeSingle();
-
-      if (existingInv) continue;
+      if (orderSourcedInvoiceIds.has(order.id)) continue;
 
       const localPartnerId = partnerMap.get(order.partner_id);
       if (!localPartnerId) {
@@ -542,7 +551,8 @@ export async function importRaqtoPurchaseOrders(clientId: string): Promise<Raqto
       .select("*")
       .eq("company_id", raqtoCompanyId)
       .eq("order_type", "purchase_order")
-      .neq("status", "canceled");
+      .neq("status", "canceled")
+      .is("deleted_at", null);
 
     if (fetchError) {
       result.errors.push(`Raqto発注取得エラー: ${fetchError.message}`);
@@ -550,18 +560,21 @@ export async function importRaqtoPurchaseOrders(clientId: string): Promise<Raqto
       return result;
     }
 
+    // 既存のRaqto由来仕訳を一括取得（ループ内の逐次クエリを避ける）
+    const { data: existingEntries } = await supabase
+      .from("journal_entries")
+      .select("raqto_source_id")
+      .eq("client_id", clientId)
+      .not("raqto_source_id", "is", null);
+    const importedPoIds = new Set(
+      (existingEntries ?? []).map((e) => e.raqto_source_id).filter(Boolean)
+    );
+
     let createdCount = 0;
 
     for (const po of (raqtoOrders ?? []) as RaqtoOrder[]) {
       // Skip if already imported
-      const { data: existing } = await supabase
-        .from("journal_entries")
-        .select("id")
-        .eq("client_id", clientId)
-        .eq("raqto_source_id", po.id)
-        .maybeSingle();
-
-      if (existing) continue;
+      if (importedPoIds.has(po.id)) continue;
 
       const partnerName = partnerNameMap.get(po.partner_id) ?? "";
       const description = `${partnerName} ${po.order_number}`.trim();
