@@ -124,7 +124,7 @@ export type ReconcileResult = {
 export async function reconcileDeposits(
   clientId: string,
   deposits: DepositInput[],
-  opts: { onlyWhenMatched?: boolean } = {}
+  opts: { onlyWhenMatched?: boolean; bankAccount?: string | null } = {}
 ): Promise<ReconcileResult> {
   await assertClientAccess(clientId);
   const supabase = await createServerSupabaseClient();
@@ -190,6 +190,7 @@ export async function reconcileDeposits(
           amount,
           payment_date: d.payment_date,
           payment_method: d.payment_method ?? "bank_transfer",
+          bank_account: opts.bankAccount ?? null,
           memo: d.memo ?? null,
         })
         .select()

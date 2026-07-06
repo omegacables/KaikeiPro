@@ -27,6 +27,9 @@ import { analyzeDepositsRows, analyzeDepositsPdf, type DepositSuggestion } from 
 import { parseTabularFile } from "@/lib/parse-tabular";
 import { getPartners } from "@/actions/partners";
 import { getUnpaidInvoices } from "@/actions/invoices";
+import { getBankAccounts, createBankAccount } from "@/actions/bank";
+import { BankSelectModal } from "@/components/bank-select-modal";
+import type { JapanBank } from "@/lib/japan-banks";
 
 type UnmatchedPayment = {
   id: string;
@@ -99,6 +102,51 @@ export default function PaymentsPage() {
     } catch { /* ignore */ }
   }
 
+  // 取込口座（どの口座の明細かを payments.bank_account に記録する）
+  type BankAccountOption = { id: string; bank_name: string; branch_name: string | null };
+  const [bankAccountList, setBankAccountList] = useState<BankAccountOption[]>([]);
+  const [selectedBankAccountId, setSelectedBankAccountId] = useState<string>("");
+  const [showBankModal, setShowBankModal] = useState(false);
+  const [bankSaving, setBankSaving] = useState(false);
+
+  async function loadBankAccounts() {
+    try {
+      const rows = await getBankAccounts(id);
+      setBankAccountList(
+        rows
+          .filter((r) => r.is_active !== false)
+          .map((r) => ({ id: r.id, bank_name: r.bank_name, branch_name: r.branch_name }))
+      );
+    } catch { /* ignore */ }
+  }
+
+  function bankAccountLabel(accountId: string): string | null {
+    const acc = bankAccountList.find((a) => a.id === accountId);
+    if (!acc) return null;
+    return `${acc.bank_name}${acc.branch_name ? ` ${acc.branch_name}` : ""}`;
+  }
+
+  async function handleCreateBankAccount(bank: JapanBank, managementName: string) {
+    setBankSaving(true);
+    try {
+      const created = await createBankAccount({
+        client_id: id,
+        bank_name: bank.n,
+        branch_name: managementName || null,
+        account_number: "",
+        provider: "manual",
+        settings: { source: "deposit_upload", zengin_code: bank.c },
+      });
+      await loadBankAccounts();
+      setSelectedBankAccountId(created.id);
+      setShowBankModal(false);
+    } catch (err) {
+      alert(err instanceof Error ? err.message : "口座の作成に失敗しました");
+    } finally {
+      setBankSaving(false);
+    }
+  }
+
   function clearImport() {
     setDeposits([]);
     setImportWarnings([]);
@@ -164,7 +212,8 @@ export default function PaymentsPage() {
           amount: d.amount,
           business_partner_id: d.business_partner_id,
           memo: d.memo || d.payer || null,
-        }))
+        })),
+        { bankAccount: selectedBankAccountId ? bankAccountLabel(selectedBankAccountId) : null }
       );
       alert(
         `${result.created}件を入金登録し、うち${result.matched}件を自動消込しました。` +
@@ -317,7 +366,7 @@ export default function PaymentsPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" onClick={() => { setShowImport(!showImport); if (!showImport) loadPartners(); }}>
+          <Button variant="outline" onClick={() => { setShowImport(!showImport); if (!showImport) { loadPartners(); loadBankAccounts(); } }}>
             <Upload className="size-4" />
             ファイルから取込
           </Button>
@@ -390,6 +439,30 @@ export default function PaymentsPage() {
             >
               <X className="size-4" />
             </button>
+          </div>
+
+          {/* 取込口座の選択（INVOY風: 全銀マスタから検索して口座を作成） */}
+          <div className="mb-4 flex items-center gap-2 flex-wrap">
+            <label className="text-xs font-bold text-muted-foreground shrink-0">取込口座</label>
+            <select
+              value={selectedBankAccountId}
+              onChange={(e) => setSelectedBankAccountId(e.target.value)}
+              className="rounded-lg border border-border bg-card px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+            >
+              <option value="">口座を指定しない</option>
+              {bankAccountList.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.bank_name}{a.branch_name ? ` ${a.branch_name}` : ""}
+                </option>
+              ))}
+            </select>
+            <Button size="sm" variant="outline" onClick={() => setShowBankModal(true)} className="text-xs gap-1">
+              <Plus className="size-3.5" />
+              口座を追加
+            </Button>
+            <span className="text-[10px] text-muted-foreground">
+              選択すると、取込んだ入金にどの口座の明細かが記録されます
+            </span>
           </div>
 
           <input
@@ -894,6 +967,14 @@ export default function PaymentsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 明細アップロード用の口座作成モーダル */}
+      <BankSelectModal
+        open={showBankModal}
+        saving={bankSaving}
+        onClose={() => setShowBankModal(false)}
+        onSave={handleCreateBankAccount}
+      />
     </>
   );
 }
