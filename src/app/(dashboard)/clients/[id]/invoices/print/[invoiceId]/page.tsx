@@ -70,7 +70,7 @@ export default function InvoicePrintPage({
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"
         >
           <ArrowLeft className="size-4" />
-          帳票管理に戻る
+          証憑管理に戻る
         </button>
         <button
           onClick={() => window.print()}

@@ -645,7 +645,7 @@ export async function importRaqtoPurchaseOrders(clientId: string): Promise<Raqto
   return result;
 }
 
-// Raqto帳票種別 → 会計側 receipts.document_type の対応（請求書・領収書は専用フローで取込）
+// Raqto証憑種別 → 会計側 receipts.document_type の対応（請求書・領収書は専用フローで取込）
 const RAQTO_DOC_TYPE_MAP: Record<string, "purchase_order" | "contract" | "delivery_note"> = {
   purchase_order: "purchase_order",
   contract: "contract",
@@ -653,8 +653,8 @@ const RAQTO_DOC_TYPE_MAP: Record<string, "purchase_order" | "contract" | "delive
 };
 
 /**
- * Raqto受発注で発行されたその他の帳票（発注書・契約書・納品書）を証憑として取り込む。
- * 会計仕訳は生成せず、帳票管理の「受発注書類」タブで閲覧できるようにする。
+ * Raqto受発注で発行されたその他の証憑（発注書・契約書・納品書）を証憑として取り込む。
+ * 会計仕訳は生成せず、証憑管理の「受発注書類」タブで閲覧できるようにする。
  */
 export async function importRaqtoOtherDocuments(clientId: string): Promise<RaqtoSyncResult> {
   const result = emptyResult();
@@ -684,7 +684,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
       .neq("status", "void");
 
     if (docError) {
-      result.errors.push(`Raqto帳票取得エラー: ${docError.message}`);
+      result.errors.push(`Raqto証憑取得エラー: ${docError.message}`);
       result.success = false;
       return result;
     }
@@ -742,13 +742,13 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
 
       const existingId = existingByPath.get(imagePath);
       if (existingId) {
-        // 最新の内容で更新（Raqto側での帳票修正を反映）
+        // 最新の内容で更新（Raqto側での証憑修正を反映）
         const { error: updateError } = await supabase
           .from("receipts")
           .update({ ocr_result: ocrResult, document_type: documentType, raqto_source_id: doc.id })
           .eq("id", existingId);
         if (updateError) {
-          result.errors.push(`帳票「${doc.document_number}」更新エラー: ${updateError.message}`);
+          result.errors.push(`証憑「${doc.document_number}」更新エラー: ${updateError.message}`);
         } else {
           importedCount++;
         }
@@ -760,7 +760,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
         uploaded_by: clientId,
         image_path: imagePath,
         status: "ocr_done",
-        // Raqtoで自社が発行した帳票（発注書・契約書・納品書）
+        // Raqtoで自社が発行した証憑（発注書・契約書・納品書）
         direction: "issued",
         document_type: documentType,
         mime_type: "application/pdf",
@@ -770,7 +770,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
       });
 
       if (insertError) {
-        result.errors.push(`帳票「${doc.document_number}」: ${insertError.message}`);
+        result.errors.push(`証憑「${doc.document_number}」: ${insertError.message}`);
       } else {
         importedCount++;
       }
@@ -779,7 +779,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
     result.counts.documents = importedCount;
   } catch (e) {
     result.success = false;
-    result.errors.push(e instanceof Error ? e.message : "帳票の取込に失敗しました");
+    result.errors.push(e instanceof Error ? e.message : "証憑の取込に失敗しました");
   }
 
   return result;
@@ -787,9 +787,9 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
 
 /**
  * Raqto→会計のステータス連動。
- * Raqto側で入金済み・キャンセル・無効化された受注/帳票を、会計側の請求書・証憑に反映する。
+ * Raqto側で入金済み・キャンセル・無効化された受注/証憑を、会計側の請求書・証憑に反映する。
  * - 受注が入金済み → 請求書を「入金済(paid)」に
- * - 受注キャンセル・削除 / 帳票void → 請求書を「無効(void)」に
+ * - 受注キャンセル・削除 / 証憑void → 請求書を「無効(void)」に
  * - 前進遷移のみ: 会計側で既に paid / void のものは変更しない（返金等は手動対応）
  * - void になった証憑（領収書・発注書等）は未仕訳なら削除
  */
@@ -869,7 +869,7 @@ export async function importRaqtoStatusUpdates(clientId: string): Promise<RaqtoS
       }
     }
 
-    // --- 2. void になった帳票（証憑側）の削除（未仕訳のみ） ---
+    // --- 2. void になった証憑（証憑側）の削除（未仕訳のみ） ---
     const { data: raqtoReceipts } = await supabase
       .from("receipts")
       .select("id, status, raqto_source_id, original_filename")
@@ -890,13 +890,13 @@ export async function importRaqtoStatusUpdates(clientId: string): Promise<RaqtoS
 
         if (r.status === "journalized") {
           result.errors.push(
-            `帳票「${r.original_filename ?? r.raqto_source_id}」はRaqto側で無効化されましたが、仕訳済みのため削除していません。内容を確認してください。`
+            `証憑「${r.original_filename ?? r.raqto_source_id}」はRaqto側で無効化されましたが、仕訳済みのため削除していません。内容を確認してください。`
           );
           continue;
         }
         const { error: delError } = await supabase.from("receipts").delete().eq("id", r.id);
         if (delError) {
-          result.errors.push(`無効化帳票の削除エラー: ${delError.message}`);
+          result.errors.push(`無効化証憑の削除エラー: ${delError.message}`);
         } else {
           updatedCount++;
         }
@@ -915,7 +915,7 @@ export async function importRaqtoStatusUpdates(clientId: string): Promise<RaqtoS
 /**
  * 会計→Raqtoのステータス書き戻し。
  * 会計側で入金済み（status=paid または消込累計が請求額以上）になったRaqto由来の請求書について、
- * Raqto側の受注・帳票の支払ステータスを「支払済」に更新する。
+ * Raqto側の受注・証憑の支払ステータスを「支払済」に更新する。
  */
 export async function exportRaqtoPaymentStatus(clientId: string): Promise<RaqtoSyncResult> {
   const result = emptyResult();
@@ -974,7 +974,7 @@ export async function exportRaqtoPaymentStatus(clientId: string): Promise<RaqtoS
         .neq("payment_status", "paid")
         .select("id");
       if (error) {
-        result.errors.push(`Raqto帳票の支払ステータス更新エラー: ${error.message}`);
+        result.errors.push(`Raqto証憑の支払ステータス更新エラー: ${error.message}`);
       } else {
         exportedCount += updated?.length ?? 0;
       }

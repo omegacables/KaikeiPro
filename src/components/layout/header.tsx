@@ -25,7 +25,7 @@ const pageTitles: Record<string, string> = {
 
 const clientSubPageTitles: Record<string, string> = {
   journals: "仕訳入力",
-  documents: "帳票管理",
+  documents: "証憑管理",
   receipts: "領収書管理",
   ledgers: "帳簿閲覧",
   statements: "試算表・財務諸表",

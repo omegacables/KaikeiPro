@@ -1323,7 +1323,7 @@ export default function SettingsPage() {
                                 <span>受注: {raqtoSyncResult.result.counts.salesOrders}件</span>
                                 <span>発注: {raqtoSyncResult.result.counts.purchaseOrders}件</span>
                                 <span>領収書: {raqtoSyncResult.result.counts.receipts}件</span>
-                                <span>帳票: {raqtoSyncResult.result.counts.documents}件</span>
+                                <span>受発注書類: {raqtoSyncResult.result.counts.documents}件</span>
                                 <span>ステータス更新: {raqtoSyncResult.result.counts.statusUpdates}件</span>
                                 <span>支払反映(→Raqto): {raqtoSyncResult.result.counts.payments}件</span>
                               </div>

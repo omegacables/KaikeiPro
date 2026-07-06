@@ -58,7 +58,7 @@ function SectionHeading({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * 帳票ドラッグ&ドロップアップロードゾーン。
+ * 証憑ドラッグ&ドロップアップロードゾーン。
  * アップロード後はAI-OCRが自動で書類種別（領収書/請求書/受領書/発注書等）と
  * 発行/受領を判定し、該当タブに振り分けられる。
  */
@@ -216,7 +216,7 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
           <UploadCloud className={cn("size-8", dragOver ? "text-primary" : "text-muted-foreground")} />
         )}
         <div className="text-sm font-bold text-foreground">
-          帳票をドラッグ&ドロップ、またはクリックして選択
+          証憑をドラッグ&ドロップ、またはクリックして選択
         </div>
         <p className="text-xs text-muted-foreground">
           領収書・請求書・受領書・発注書などをAIが自動判別して各タブに振り分けます（JPG / PNG / PDF、10MBまで・複数可）
@@ -244,7 +244,7 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
       {ocrError && (
         <div className="mt-2 rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
           読み取り・自動分類でエラーが発生しました: {ocrError}
-          （該当の帳票は「処理中」または「アップロード済」のまま残ります。証憑一覧からOCRを再実行できます）
+          （該当の証憑は「処理中」または「アップロード済」のまま残ります。証憑一覧からOCRを再実行できます）
         </div>
       )}
 
@@ -279,7 +279,7 @@ export default function DocumentsPage() {
   // アップロード完了時にインクリメントし、タブ内容を再マウントして一覧を再取得させる
   const [refreshKey, setRefreshKey] = useState(0);
 
-  // Raqto受発注からの帳票取込
+  // Raqto受発注からの証憑取込
   const [raqtoSyncing, setRaqtoSyncing] = useState(false);
   const [raqtoResult, setRaqtoResult] = useState<RaqtoSyncResult | null>(null);
 
@@ -309,7 +309,7 @@ export default function DocumentsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <FileCheck className="size-6 text-primary" />
-            帳票管理
+            証憑管理
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
             領収書・請求書を「発行（自社）／受領（取引先）」に分けて管理。発行タブから請求書を新規作成・発行できます。
@@ -333,7 +333,7 @@ export default function DocumentsPage() {
         >
           {raqtoResult.success && (
             <span>
-              Raqto受発注から取込みました — 請求書(受注): {raqtoResult.counts.salesOrders}件 / 領収書: {raqtoResult.counts.receipts}件 / 帳票（発注書・納品書・契約書）: {raqtoResult.counts.documents}件 / ステータス更新: {raqtoResult.counts.statusUpdates}件
+              Raqto受発注から取込みました — 請求書(受注): {raqtoResult.counts.salesOrders}件 / 領収書: {raqtoResult.counts.receipts}件 / 証憑（発注書・納品書・契約書）: {raqtoResult.counts.documents}件 / ステータス更新: {raqtoResult.counts.statusUpdates}件
             </span>
           )}
           {raqtoResult.errors.map((err, i) => (

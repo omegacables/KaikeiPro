@@ -49,7 +49,7 @@ const navGroups: NavGroup[] = [
     icon: Calculator,
     items: [
       { href: "/journals", label: "仕訳入力", icon: Calculator },
-      { href: "/documents", label: "帳票管理", icon: FileCheck },
+      { href: "/documents", label: "証憑管理", icon: FileCheck },
       { href: "/payments", label: "入金消込", icon: Wallet },
       // 銀行連携は一旦非表示（コードは残す。仕訳入力ページのCSV取込で代替）
       // { href: "/bank-transactions", label: "口座取引", icon: Banknote },

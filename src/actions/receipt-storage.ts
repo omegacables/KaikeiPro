@@ -153,7 +153,7 @@ export async function uploadReceipt(formData: FormData) {
  * レシート画像の署名付きURLを取得（1時間有効）
  */
 /**
- * Raqto受発注システム側の帳票PDFの署名付きURLを取得。
+ * Raqto受発注システム側の証憑PDFの署名付きURLを取得。
  * image_path = "raqto://documents/{documentId}" の証憑が対象。
  */
 async function getRaqtoDocumentUrl(imagePath: string): Promise<string | null> {
@@ -161,7 +161,7 @@ async function getRaqtoDocumentUrl(imagePath: string): Promise<string | null> {
   if (!docId || !/^[0-9a-f-]{36}$/i.test(docId)) return null;
 
   // 所有権チェック: RLSバウンドのクライアントでこの image_path を持つ証憑が
-  // 見えること（= 呼び出し者がアクセスできるクライアントの帳票であること）を確認。
+  // 見えること（= 呼び出し者がアクセスできるクライアントの証憑であること）を確認。
   const supabase = await createServerSupabaseClient();
   const { data: receipt } = await supabase
     .from("receipts")
@@ -174,7 +174,7 @@ async function getRaqtoDocumentUrl(imagePath: string): Promise<string | null> {
   // テナント境界チェック: image_path は createReceipt/updateReceipt 経由で
   // 利用者が任意に設定できるため、証憑行の存在だけでは信用できない。
   // Raqto側ドキュメントの company_id が、この証憑のクライアントに連携された
-  // Raqto会社IDと一致する場合のみ署名URLを発行する（他社帳票のIDOR防止）。
+  // Raqto会社IDと一致する場合のみ署名URLを発行する（他社証憑のIDOR防止）。
   const { data: integration } = await supabase
     .from("raqto_integrations")
     .select("raqto_company_id")
@@ -197,7 +197,7 @@ async function getRaqtoDocumentUrl(imagePath: string): Promise<string | null> {
       .from("documents")
       .createSignedUrl(doc.pdf_storage_path, 3600);
     if (error) {
-      console.error(`Raqto帳票URL取得エラー: ${error.message}`);
+      console.error(`Raqto証憑URL取得エラー: ${error.message}`);
       return null;
     }
     return data.signedUrl;
@@ -214,7 +214,7 @@ export async function getReceiptImageUrl(
     return null;
   }
 
-  // Raqto連携帳票は受発注システム側のストレージからPDFを取得
+  // Raqto連携証憑は受発注システム側のストレージからPDFを取得
   if (imagePath.startsWith("raqto://")) {
     return getRaqtoDocumentUrl(imagePath);
   }
