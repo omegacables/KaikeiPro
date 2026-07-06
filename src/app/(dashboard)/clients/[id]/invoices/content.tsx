@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   FileText,
@@ -29,6 +29,8 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice, deleteAllInvoices, issueInvoiceWithJournal } from "@/actions/invoices";
 import { getPartners } from "@/actions/partners";
+import { getClient } from "@/actions/clients";
+import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { importRaqtoSalesOrders, exportRaqtoPaymentStatus, type RaqtoSyncResult } from "@/actions/raqto-sync";
 
 // ---------------------------------------------------------------------------
@@ -127,6 +129,18 @@ export function InvoicesPageContent({
 
   const [activeStatus, setActiveStatus]   = useState<InvoiceStatus>("all");
   const [searchQuery, setSearchQuery]     = useState("");
+
+  // 期間フィルター（発行日ベース。年度 or 月で絞り込み）
+  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
+  const [fiscalYear, setFiscalYear] = useState("");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  useEffect(() => {
+    getClient(id)
+      .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
+      .catch(() => {});
+  }, [id]);
   const [directionFilter, setDirectionFilter] = useState<"all" | Direction>("all");
   const [showNewForm, setShowNewForm]     = useState(false);
   const [saving, setSaving]               = useState(false);
@@ -180,6 +194,12 @@ export function InvoicesPageContent({
   const filteredInvoices = invoices.filter((inv) => {
     if (effectiveDirection !== "all" && inv.direction !== effectiveDirection) return false;
     if (activeStatus !== "all" && inv.status !== activeStatus) return false;
+    // 期間フィルター（発行日ベース。issuedDate は YYYY/MM/DD 表示形式なので ISO に戻して比較）
+    if (dateFrom || dateTo) {
+      const iso = inv.issuedDate.replace(/\//g, "-");
+      if (dateFrom && iso < dateFrom) return false;
+      if (dateTo && iso > dateTo) return false;
+    }
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       return inv.invoiceNumber.toLowerCase().includes(q) || inv.partnerName.toLowerCase().includes(q);
@@ -736,6 +756,41 @@ export function InvoicesPageContent({
             ))}
           </div>
         )}
+
+        {/* 期間フィルター（年度 / 月。発行日ベース） */}
+        <select
+          value={periodMode === "year" ? fiscalYear : ""}
+          onChange={(e) => {
+            const v = e.target.value;
+            setFiscalYear(v);
+            if (!v) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
+            const fy = parseInt(v);
+            const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, fy);
+            setDateFrom(startDate);
+            setDateTo(endDate);
+            setPeriodMode("year");
+          }}
+          className="px-2 py-2 rounded-lg border border-border bg-card text-foreground text-xs shrink-0"
+        >
+          <option value="">年度</option>
+          {Array.from({ length: 5 }, (_, i) => {
+            const y = new Date().getFullYear() - i;
+            return <option key={y} value={y}>{y}年度</option>;
+          })}
+        </select>
+        <input
+          type="month"
+          value={periodMode === "year" ? "" : (dateFrom ? dateFrom.slice(0, 7) : "")}
+          onChange={(e) => {
+            if (!e.target.value) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
+            const [y, m] = e.target.value.split("-").map(Number);
+            const ld = new Date(y, m, 0).getDate();
+            setDateFrom(`${y}-${String(m).padStart(2, "0")}-01`);
+            setDateTo(`${y}-${String(m).padStart(2, "0")}-${String(ld).padStart(2, "0")}`);
+            setPeriodMode("month");
+          }}
+          className="px-2 py-2 rounded-lg border border-border bg-card text-foreground text-xs shrink-0"
+        />
 
         {/* 検索 */}
         <div className="relative flex-1 min-w-[200px]">
