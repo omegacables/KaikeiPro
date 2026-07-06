@@ -38,27 +38,158 @@ import { useMobileNav } from "@/components/layout/mobile-nav";
 
 type ClientOption = { id: string; name: string };
 
-const clientNav = [
-  { href: "/journals", label: "仕訳入力", icon: Calculator },
-  { href: "/documents", label: "帳票管理", icon: FileCheck },
-  { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
-  { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
-  { href: "/accounts", label: "勘定科目管理", icon: FileText },
-  { href: "/learned-rules", label: "仕訳学習", icon: Sparkles },
-  { href: "/allocations", label: "家事按分設定", icon: Home },
-  { href: "/closing", label: "決算処理", icon: Archive },
-  { href: "/closing-checklist", label: "決算前チェック", icon: ListChecks },
-  { href: "/opening-balances", label: "期首残高設定", icon: Scale },
-  { href: "/payroll", label: "給与台帳", icon: Banknote },
-  { href: "/loans", label: "借入金台帳", icon: Landmark },
-  { href: "/payments", label: "入金消込", icon: Wallet },
-  // 銀行連携は一旦非表示（コードは残す。仕訳入力ページのCSV取込で代替）
-  // { href: "/bank-transactions", label: "口座取引", icon: Banknote },
-  { href: "/card-transactions", label: "カード取引", icon: CreditCard },
-  { href: "/partners", label: "取引先管理", icon: Handshake },
-  // 消費税計算・会社書類・監査ログ は「設定」ページに集約
-  { href: "/settings", label: "設定", icon: Settings },
+type NavItem = { href: string; label: string; icon: typeof Calculator };
+type NavGroup = { key: string; label: string; icon: typeof Calculator; items: NavItem[] };
+
+// 業務メニューはトグル式のグループにまとめる（開くとアコーディオンで項目を表示）
+const navGroups: NavGroup[] = [
+  {
+    key: "daily",
+    label: "日常業務",
+    icon: Calculator,
+    items: [
+      { href: "/journals", label: "仕訳入力", icon: Calculator },
+      { href: "/documents", label: "帳票管理", icon: FileCheck },
+      { href: "/payments", label: "入金消込", icon: Wallet },
+      // 銀行連携は一旦非表示（コードは残す。仕訳入力ページのCSV取込で代替）
+      // { href: "/bank-transactions", label: "口座取引", icon: Banknote },
+      { href: "/card-transactions", label: "カード取引", icon: CreditCard },
+    ],
+  },
+  {
+    key: "books",
+    label: "帳簿・レポート",
+    icon: BookOpen,
+    items: [
+      { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
+      { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
+    ],
+  },
+  {
+    key: "closing",
+    label: "決算",
+    icon: Archive,
+    items: [
+      { href: "/closing-checklist", label: "決算前チェック", icon: ListChecks },
+      { href: "/closing", label: "決算処理", icon: Archive },
+      { href: "/opening-balances", label: "期首残高設定", icon: Scale },
+    ],
+  },
+  {
+    key: "records",
+    label: "台帳・取引先",
+    icon: Handshake,
+    items: [
+      { href: "/payroll", label: "給与台帳", icon: Banknote },
+      { href: "/loans", label: "借入金台帳", icon: Landmark },
+      { href: "/partners", label: "取引先管理", icon: Handshake },
+    ],
+  },
+  {
+    key: "master",
+    label: "マスタ・設定",
+    icon: Settings,
+    items: [
+      { href: "/accounts", label: "勘定科目管理", icon: FileText },
+      { href: "/learned-rules", label: "仕訳学習", icon: Sparkles },
+      { href: "/allocations", label: "家事按分設定", icon: Home },
+      // 消費税計算・会社書類・監査ログ は「設定」ページに集約
+      { href: "/settings", label: "設定", icon: Settings },
+    ],
+  },
 ];
+
+/**
+ * 業務メニュー（アコーディオン）。
+ * 現在ページを含むグループは自動で開き、開閉状態はユーザーごとに保存する。
+ */
+function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: string | null }) {
+  const pathname = usePathname();
+
+  // 現在ページが属するグループ
+  const activeGroupKey = navGroups.find((g) =>
+    g.items.some((item) => pathname === `${basePath}${item.href}`)
+  )?.key;
+
+  const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
+    const saved = typeof window !== "undefined" ? scopedGetItem(userId, "sidebar_open_groups") : null;
+    const initial = new Set<string>(saved ? (JSON.parse(saved) as string[]) : ["daily"]);
+    if (activeGroupKey) initial.add(activeGroupKey);
+    return initial;
+  });
+
+  // ページ遷移で別グループに移動したら、そのグループを自動で開く
+  useEffect(() => {
+    if (activeGroupKey && !openGroups.has(activeGroupKey)) {
+      setOpenGroups((prev) => new Set(prev).add(activeGroupKey));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeGroupKey]);
+
+  const toggleGroup = (key: string) => {
+    setOpenGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      scopedSetItem(userId, "sidebar_open_groups", JSON.stringify([...next]));
+      return next;
+    });
+  };
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      {navGroups.map((group) => {
+        const isOpen = openGroups.has(group.key);
+        const hasActive = group.key === activeGroupKey;
+        return (
+          <div key={group.key}>
+            {/* グループトグル */}
+            <button
+              onClick={() => toggleGroup(group.key)}
+              className={cn(
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm cursor-pointer",
+                hasActive && !isOpen
+                  ? "text-cream font-semibold"
+                  : "text-sage hover:bg-slate-purple/50 hover:text-cream"
+              )}
+            >
+              <group.icon className="size-4 shrink-0" />
+              <span className="flex-1 text-left">{group.label}</span>
+              <ChevronDown
+                className={cn("size-4 shrink-0 transition-transform", isOpen && "rotate-180")}
+              />
+            </button>
+
+            {/* アコーディオン項目 */}
+            {isOpen && (
+              <div className="ml-4 pl-3 border-l border-slate-purple/40 flex flex-col gap-0.5 py-0.5">
+                {group.items.map((item) => {
+                  const fullHref = `${basePath}${item.href}`;
+                  const isActive = pathname === fullHref;
+                  return (
+                    <Link
+                      key={item.href}
+                      href={fullHref}
+                      className={cn(
+                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors text-sm",
+                        isActive
+                          ? "bg-primary-light/20 text-cream font-semibold"
+                          : "text-sage hover:bg-slate-purple/50 hover:text-cream"
+                      )}
+                    >
+                      <item.icon className="size-4 shrink-0" />
+                      <span>{item.label}</span>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export function Sidebar() {
   const pathname = usePathname();
@@ -231,27 +362,7 @@ export function Sidebar() {
                   業務メニュー
                 </p>
               </div>
-              <div className="flex flex-col gap-0.5">
-                {clientNav.map((item) => {
-                  const fullHref = `/clients/${user.clientId}${item.href}`;
-                  const isActive = pathname === fullHref;
-                  return (
-                    <Link
-                      key={item.href}
-                      href={fullHref}
-                      className={cn(
-                        "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm",
-                        isActive
-                          ? "bg-primary-light/20 text-cream font-semibold"
-                          : "text-sage hover:bg-slate-purple/50 hover:text-cream"
-                      )}
-                    >
-                      <item.icon className="size-4 shrink-0" />
-                      <span>{item.label}</span>
-                    </Link>
-                  );
-                })}
-              </div>
+              <ClientNavAccordion basePath={`/clients/${user.clientId}`} userId={user?.id ?? null} />
             </>
           ) : (
             /* Regular users: show client selector and sub-nav */
@@ -319,26 +430,8 @@ export function Sidebar() {
 
                   {/* Client sub-navigation - always visible when a client is selected */}
                   {activeClientId && (
-                    <div className="mt-2 flex flex-col gap-0.5">
-                      {clientNav.map((item) => {
-                        const fullHref = `/clients/${activeClientId}${item.href}`;
-                        const isActive = pathname === fullHref;
-                        return (
-                          <Link
-                            key={item.href}
-                            href={fullHref}
-                            className={cn(
-                              "flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm",
-                              isActive
-                                ? "bg-primary-light/20 text-cream font-semibold"
-                                : "text-sage hover:bg-slate-purple/50 hover:text-cream"
-                            )}
-                          >
-                            <item.icon className="size-4 shrink-0" />
-                            <span>{item.label}</span>
-                          </Link>
-                        );
-                      })}
+                    <div className="mt-2">
+                      <ClientNavAccordion basePath={`/clients/${activeClientId}`} userId={user?.id ?? null} />
                     </div>
                   )}
                 </>
