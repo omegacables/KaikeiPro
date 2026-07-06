@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, CheckCircle, Loader2, CalendarClock, Wallet, Layers, Receipt, CreditCard } from "lucide-react";
+import { AlertTriangle, ChevronRight, CheckCircle, Loader2, CalendarClock, Wallet, Layers, Receipt, CreditCard, TrendingUp } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useData } from "@/lib/use-data";
@@ -10,6 +10,7 @@ import { getReviewCountsByClient } from "@/actions/receipts";
 import { getTaxCalendar, getClients } from "@/actions/clients";
 import { getInvoiceStatusByClient, getPayableStatusByClient } from "@/actions/invoices";
 import { getBalanceSummary, type BalanceSummary } from "@/actions/ledgers";
+import { getExecutiveSummary, type ExecutiveSummary, type MonthPoint } from "@/actions/executive-summary";
 import { formatDate, formatCurrency } from "@/lib/utils";
 
 const EMPTY_BALANCE: BalanceSummary = {
@@ -30,6 +31,45 @@ function BalanceAmount({ balance, debitNormal }: { balance: number; debitNormal:
         <span className="ml-1 text-[10px] font-normal text-destructive">{reverseLabel}</span>
       )}
     </span>
+  );
+}
+
+// 月次推移の簡易ラインチャート（売上・利益）。詳細は月次推移表ページで確認する。
+function MonthlyTrendChart({ months }: { months: MonthPoint[] }) {
+  const W = 560;
+  const H = 170;
+  const PAD_L = 10;
+  const PAD_R = 10;
+  const PAD_T = 12;
+  const PAD_B = 20;
+
+  const values = months.flatMap((m) => [m.sales, m.profit]);
+  const max = Math.max(...values, 1);
+  const min = Math.min(...values, 0);
+  const range = max - min || 1;
+
+  const x = (i: number) => PAD_L + (i * (W - PAD_L - PAD_R)) / Math.max(months.length - 1, 1);
+  const y = (v: number) => PAD_T + (H - PAD_T - PAD_B) * (1 - (v - min) / range);
+  const points = (key: "sales" | "profit") => months.map((m, i) => `${x(i)},${y(m[key])}`).join(" ");
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="売上・利益の月次推移">
+      {/* ゼロライン */}
+      <line x1={PAD_L} y1={y(0)} x2={W - PAD_R} y2={y(0)} stroke="var(--color-border)" strokeWidth="1" />
+      {/* 売上 */}
+      <polyline points={points("sales")} fill="none" stroke="var(--color-primary)" strokeWidth="2.5" strokeLinejoin="round" />
+      {/* 利益 */}
+      <polyline points={points("profit")} fill="none" stroke="var(--color-warning)" strokeWidth="2" strokeLinejoin="round" strokeDasharray="1 0" />
+      {months.map((m, i) => (
+        <g key={m.month}>
+          <circle cx={x(i)} cy={y(m.sales)} r="3" fill="var(--color-primary)" />
+          <circle cx={x(i)} cy={y(m.profit)} r="2.5" fill="var(--color-warning)" />
+          <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--color-muted-foreground)">
+            {m.label}
+          </text>
+        </g>
+      ))}
+    </svg>
   );
 }
 
@@ -59,6 +99,21 @@ export default function DashboardPage() {
   useEffect(() => {
     if (selectedClient) refetchBalance();
   }, [selectedClient, refetchBalance]);
+
+  // 月次推移（売上・利益）
+  const {
+    data: summary,
+    loading: trendLoading,
+    refetch: refetchTrend,
+  } = useData<ExecutiveSummary | null>(
+    () => (selectedClient ? getExecutiveSummary(selectedClient) : Promise.resolve(null)),
+    null
+  );
+  useEffect(() => {
+    if (selectedClient) refetchTrend();
+  }, [selectedClient, refetchTrend]);
+
+  const trendMonths = summary?.performance.months ?? [];
 
   const clientsWithReview = reviewCounts
     .filter((c) => c.count > 0)
@@ -330,6 +385,70 @@ export default function DashboardPage() {
                 ))}
               </div>
             </>
+          )}
+        </Card>
+
+        {/* 月次推移（クリックで月次推移表へ） */}
+        <Card className="p-4 lg:col-span-2">
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="flex items-center gap-1.5">
+              <TrendingUp className="size-5 text-primary" />
+              <h2 className="text-lg font-bold text-foreground">月次推移</h2>
+            </div>
+            <select
+              value={selectedClient}
+              onChange={(e) => setSelectedClient(e.target.value)}
+              className="h-7 max-w-[55%] rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            >
+              {clients.length === 0 && <option value="">顧問先がありません</option>}
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {trendLoading ? (
+            <div className="flex items-center justify-center py-10">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : trendMonths.length === 0 ? (
+            <p className="py-10 text-center text-xs text-muted-foreground">
+              表示できる月次データがありません
+            </p>
+          ) : (
+            <Link
+              href={selectedClient ? `/clients/${selectedClient}/statements?tab=monthly_trend` : "#"}
+              className="block rounded-lg -mx-1 px-1 hover:bg-muted/20 transition-colors"
+              title="クリックで月次推移表を開く"
+            >
+              <div className="flex items-center justify-between mb-1 text-xs">
+                <div className="flex items-center gap-3">
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <span className="inline-block size-2 rounded-full bg-primary" />
+                    売上
+                  </span>
+                  <span className="flex items-center gap-1 text-muted-foreground">
+                    <span className="inline-block size-2 rounded-full bg-warning" />
+                    利益
+                  </span>
+                </div>
+                <span className="flex items-center gap-0.5 text-muted-foreground">
+                  月次推移表を開く
+                  <ChevronRight className="size-3.5" />
+                </span>
+              </div>
+              <MonthlyTrendChart months={trendMonths} />
+              <div className="mt-1 flex items-center justify-end gap-4 text-xs text-muted-foreground tabular-nums">
+                <span>
+                  当期売上 <span className="font-bold text-foreground">{formatCurrency(summary?.performance.sales ?? 0)}</span>
+                </span>
+                <span>
+                  当期利益 <span className="font-bold text-foreground">{formatCurrency(summary?.performance.netIncome ?? 0)}</span>
+                </span>
+              </div>
+            </Link>
           )}
         </Card>
 

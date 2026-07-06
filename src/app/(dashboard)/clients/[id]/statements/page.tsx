@@ -1086,6 +1086,14 @@ export default function StatementsPage() {
   const [activeTab, setActiveTab] = useState<StatementTab>("trial_balance");
   const [period, setPeriod] = useState(`${defaultYear}-${String(defaultMonth).padStart(2, "0")}`);
 
+  // URLの ?tab= で初期タブを指定可能にする（例: ダッシュボードの月次推移グラフから遷移）
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t && tabConfig.some((c) => c.key === t)) {
+      setActiveTab(t as StatementTab);
+    }
+  }, []);
+
   const [trialData, setTrialData] = useState<TrialBalanceRow[]>([]);
   const [trialLoading, setTrialLoading] = useState(false);
   const [trendData, setTrendData] = useState<MonthlyTrendRow[]>([]);
