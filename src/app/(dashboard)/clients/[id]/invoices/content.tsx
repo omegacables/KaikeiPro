@@ -131,10 +131,19 @@ export function InvoicesPageContent({
   const [searchQuery, setSearchQuery]     = useState("");
 
   // 期間フィルター（発行日ベース。年度 or 月で絞り込み）
-  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
+  // デフォルトは今月分を表示（月セレクタを空にすると全期間）
+  const initialPeriod = (() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const ld = new Date(y, m, 0).getDate();
+    const mm = String(m).padStart(2, "0");
+    return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${String(ld).padStart(2, "0")}` };
+  })();
+  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("month");
   const [fiscalYear, setFiscalYear] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialPeriod.from);
+  const [dateTo, setDateTo] = useState(initialPeriod.to);
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
   useEffect(() => {
     getClient(id)

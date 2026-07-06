@@ -505,10 +505,19 @@ export function ReceiptsPageContent({
   }, [id]);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
-  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
+  // デフォルトは今月分を表示（月セレクタを空にすると全期間）
+  const initialPeriod = (() => {
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = now.getMonth() + 1;
+    const ld = new Date(y, m, 0).getDate();
+    const mm = String(m).padStart(2, "0");
+    return { from: `${y}-${mm}-01`, to: `${y}-${mm}-${String(ld).padStart(2, "0")}` };
+  })();
+  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("month");
   const [fiscalYear, setFiscalYear] = useState("");
-  const [dateFrom, setDateFrom] = useState("");
-  const [dateTo, setDateTo] = useState("");
+  const [dateFrom, setDateFrom] = useState(initialPeriod.from);
+  const [dateTo, setDateTo] = useState(initialPeriod.to);
   // 画像URL管理（詳細パネル用）
   const [detailImageUrl, setDetailImageUrl] = useState<string | null>(null);
   const [loadingImage, setLoadingImage] = useState(false);
