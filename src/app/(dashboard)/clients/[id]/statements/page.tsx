@@ -491,7 +491,25 @@ const TREND_METRICS: { key: TrendMetric; label: string }[] = [
 
 const fmtPct = (n: number) => `${n.toFixed(1)}%`;
 
-// 依存ライブラリなしの軽量な棒グラフ
+// 金額の短縮表記（億/万）。マイナスは会計慣行の△で表す。
+function fmtCompactJPY(v: number): string {
+  const a = Math.abs(v);
+  const sign = v < 0 ? "△" : "";
+  if (a >= 1e8) return `${sign}${(a / 1e8).toFixed(a >= 1e9 ? 0 : 1)}億`;
+  if (a >= 1e4) return `${sign}${Math.round(a / 1e4).toLocaleString()}万`;
+  return `${sign}${a.toLocaleString()}`;
+}
+
+// 目盛り間隔を 1-2-5 系列の切りのよい値に丸める
+function niceStep(range: number, targetTicks = 4): number {
+  const raw = range / targetTicks;
+  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1))));
+  const norm = raw / mag;
+  const step = norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1;
+  return step * mag;
+}
+
+// 依存ライブラリなしの軽量な棒グラフ（金額目盛り・ホバーツールチップ付き）
 function MiniBarChart({
   labels,
   values,
@@ -501,37 +519,126 @@ function MiniBarChart({
   values: number[];
   colorize?: boolean;
 }) {
-  const maxAbs = Math.max(1, ...values.map((v) => Math.abs(v)));
-  const hasNeg = values.some((v) => v < 0);
-  const H = 120;
-  const zero = hasNeg ? H / 2 : H - 4;
-  const usable = (hasNeg ? H / 2 : H) - 8;
-  const barW = 26;
-  const gap = 10;
-  const W = values.length * (barW + gap) + gap;
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const W = 720;
+  const H = 200;
+  const PAD_L = 64;
+  const PAD_R = 12;
+  const PAD_T = 14;
+  const PAD_B = 24;
+
+  const max = Math.max(0, ...values);
+  const min = Math.min(0, ...values);
+  const step = niceStep(max - min || 1);
+  const top = Math.ceil(max / step) * step || step;
+  const bottom = Math.floor(min / step) * step;
+  const ticks: number[] = [];
+  for (let t = bottom; t <= top; t += step) ticks.push(t);
+
+  const y = (v: number) => PAD_T + ((top - v) / (top - bottom || 1)) * (H - PAD_T - PAD_B);
+  const band = (W - PAD_L - PAD_R) / Math.max(values.length, 1);
+  const barW = Math.min(40, band * 0.55);
+  const xCenter = (i: number) => PAD_L + band * i + band / 2;
+
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xView = ((e.clientX - rect.left) / rect.width) * W;
+    const idx = Math.floor((xView - PAD_L) / band);
+    setHoverIdx(idx >= 0 && idx < values.length ? idx : null);
+  };
+
+  const hovered = hoverIdx !== null ? values[hoverIdx] : null;
+  const tooltipLeftPct = hoverIdx !== null ? (xCenter(hoverIdx) / W) * 100 : 0;
+  const tooltipAlign =
+    tooltipLeftPct < 18 ? "translateX(0)" : tooltipLeftPct > 82 ? "translateX(-100%)" : "translateX(-50%)";
+
   return (
-    <svg width={W} height={H + 18} className="text-primary">
-      <line x1={0} y1={zero} x2={W} y2={zero} stroke="#d1d5db" />
-      {values.map((v, i) => {
-        const h = (Math.abs(v) / maxAbs) * usable;
-        const x = gap + i * (barW + gap);
-        const y = v >= 0 ? zero - h : zero;
-        const fill = colorize ? (v >= 0 ? "#16a34a" : "#dc2626") : "currentColor";
-        return <rect key={i} x={x} y={y} width={barW} height={Math.max(0, h)} fill={fill} rx={2} />;
-      })}
-      {labels.map((l, i) => (
-        <text
-          key={i}
-          x={gap + i * (barW + gap) + barW / 2}
-          y={H + 14}
-          textAnchor="middle"
-          fontSize="9"
-          fill="#9ca3af"
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full min-w-[560px]"
+        role="img"
+        aria-label="月次推移グラフ"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {/* 金額目盛り + グリッドライン */}
+        {ticks.map((t) => (
+          <g key={t}>
+            <line
+              x1={PAD_L}
+              y1={y(t)}
+              x2={W - PAD_R}
+              y2={y(t)}
+              stroke={t === 0 ? "var(--color-muted-foreground)" : "var(--color-border)"}
+              strokeWidth={t === 0 ? 1.2 : 0.6}
+            />
+            <text x={PAD_L - 6} y={y(t) + 3} textAnchor="end" fontSize="9" fill="var(--color-muted-foreground)">
+              {fmtCompactJPY(t)}
+            </text>
+          </g>
+        ))}
+
+        {/* 棒 + 金額ラベル */}
+        {values.map((v, i) => {
+          const h = Math.abs(y(v) - y(0));
+          const yPos = v >= 0 ? y(v) : y(0);
+          const fill = colorize ? (v >= 0 ? "var(--color-primary)" : "var(--color-destructive)") : "var(--color-primary)";
+          const isHover = hoverIdx === i;
+          return (
+            <g key={i}>
+              <rect
+                x={xCenter(i) - barW / 2}
+                y={yPos}
+                width={barW}
+                height={Math.max(h, v !== 0 ? 1.5 : 0)}
+                fill={fill}
+                opacity={hoverIdx === null || isHover ? 1 : 0.45}
+                rx={3}
+              />
+              {v !== 0 && (
+                <text
+                  x={xCenter(i)}
+                  y={v >= 0 ? yPos - 4 : yPos + h + 10}
+                  textAnchor="middle"
+                  fontSize="8.5"
+                  fontWeight={isHover ? "bold" : "normal"}
+                  fill={isHover ? "var(--color-foreground)" : "var(--color-muted-foreground)"}
+                >
+                  {fmtCompactJPY(v)}
+                </text>
+              )}
+              <text
+                x={xCenter(i)}
+                y={H - 8}
+                textAnchor="middle"
+                fontSize="9.5"
+                fontWeight={isHover ? "bold" : "normal"}
+                fill={isHover ? "var(--color-foreground)" : "var(--color-muted-foreground)"}
+              >
+                {labels[i]}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+
+      {/* ホバーツールチップ（正確な金額） */}
+      {hovered !== null && hoverIdx !== null && (
+        <div
+          className="pointer-events-none absolute top-0 z-10 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg whitespace-nowrap"
+          style={{ left: `${tooltipLeftPct}%`, transform: tooltipAlign }}
         >
-          {l}
-        </text>
-      ))}
-    </svg>
+          <p className="font-bold text-foreground mb-0.5">{labels[hoverIdx]}</p>
+          <p className="tabular-nums text-muted-foreground">
+            <span className={cn("font-bold", hovered < 0 ? "text-destructive" : "text-foreground")}>
+              {hovered < 0 ? "△" : ""}{formatCurrency(Math.abs(hovered))}
+            </span>
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
