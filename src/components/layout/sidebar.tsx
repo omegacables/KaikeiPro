@@ -147,10 +147,8 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
             <button
               onClick={() => toggleGroup(group.key)}
               className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm cursor-pointer",
-                hasActive && !isOpen
-                  ? "text-cream font-semibold"
-                  : "text-sage hover:bg-slate-purple/50 hover:text-cream"
+                "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm cursor-pointer text-menu-heading hover:bg-slate-purple/50",
+                hasActive && !isOpen && "font-semibold"
               )}
             >
               <group.icon className="size-4 shrink-0" />
@@ -325,7 +323,7 @@ export function Sidebar() {
             /* Super Admin: show admin-only menu */
             <>
               <div className="mt-4 mb-2 px-3">
-                <p className="text-sage/60 text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-menu-heading text-[10px] font-bold uppercase tracking-widest">
                   管理
                 </p>
               </div>
@@ -358,7 +356,7 @@ export function Sidebar() {
             /* Client user: show business menu directly (no dropdown) */
             <>
               <div className="mt-4 mb-2 px-3">
-                <p className="text-sage/60 text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-menu-heading text-[10px] font-bold uppercase tracking-widest">
                   業務メニュー
                 </p>
               </div>
@@ -369,7 +367,7 @@ export function Sidebar() {
             <>
               {/* Client Selector */}
               <div className="mt-4 mb-2 px-3 flex items-center justify-between">
-                <p className="text-sage/60 text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-menu-heading text-[10px] font-bold uppercase tracking-widest">
                   顧問先
                 </p>
                 <Link
