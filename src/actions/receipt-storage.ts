@@ -109,6 +109,23 @@ export async function uploadReceipt(formData: FormData) {
   // SHA-256ハッシュを計算（電子帳簿保存法: 真実性の確保）
   const fileHash = computeSHA256(arrayBuffer);
 
+  // 重複ガード: 同じ顧問先に同一内容のファイルが登録済みならブロックする。
+  // 証憑管理・仕訳入力・ポータルのどの経路から上げても同じ証憑・仕訳が
+  // 二重に作られるのを防ぐ（RLSバウンドで自クライアント分のみ照合）。
+  const { data: dup } = await supabase
+    .from("receipts")
+    .select("id, original_filename, uploaded_at")
+    .eq("client_id", clientId)
+    .eq("file_hash", fileHash)
+    .limit(1)
+    .maybeSingle();
+  if (dup) {
+    const when = dup.uploaded_at ? dup.uploaded_at.slice(0, 10) : "";
+    throw new Error(
+      `同じファイルが既に登録されています（${dup.original_filename ?? "登録済み証憑"}${when ? ` / ${when}` : ""}）`
+    );
+  }
+
   const { error: uploadError } = await adminSupabase.storage
     .from(BUCKET_NAME)
     .upload(storagePath, new Uint8Array(arrayBuffer), {
