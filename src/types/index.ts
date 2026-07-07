@@ -181,6 +181,8 @@ export interface OcrResult {
   amount_jpy?: number; // 円換算額
   // 書類種別
   document_type?: ReceiptDocumentType;
+  // 同一日付・同額の証憑が既に存在する場合に立てる（重複アップロードの可能性警告）
+  possible_duplicate?: boolean;
   // 明細書(statement)の種別: 銀行明細 / クレカ明細 / その他。相手勘定（普通預金 or 未払金）の自動推定に使用。
   statement_subtype?: "bank" | "card" | "other";
 }

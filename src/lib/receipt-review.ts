@@ -19,12 +19,13 @@ export function checkInvoiceNumber(num?: string): InvoiceCheck {
 // 「要確認」: インボイス番号だけでなく、OCR読取品質など複数の観点で
 // レビューが必要なものを横断的に検知する。理由は複数同時に付き得る。
 export const OCR_CONFIDENCE_THRESHOLD = 0.6;
-export type ReviewReason = "invoice" | "low_confidence" | "missing_fields" | "needs_review";
+export type ReviewReason = "invoice" | "low_confidence" | "missing_fields" | "needs_review" | "possible_duplicate";
 export const reviewReasonLabels: Record<ReviewReason, string> = {
   invoice: "インボイス番号の形式が不正（T＋13桁ではない）",
   low_confidence: "OCRの読取信頼度が低い（手書き・不鮮明など）",
   missing_fields: "必須項目（金額・日付・発行者）が未取得",
   needs_review: "AIが要確認と判定",
+  possible_duplicate: "同じ日付・金額の証憑が既に存在（重複の可能性）",
 };
 
 export interface ReviewInput {
@@ -35,6 +36,7 @@ export interface ReviewInput {
   vendor: string;
   needsReview: boolean;
   documentType?: string;
+  possibleDuplicate?: boolean;
 }
 
 export function getReviewReasons(r: ReviewInput, showInvoiceCheck: boolean): ReviewReason[] {
@@ -45,5 +47,6 @@ export function getReviewReasons(r: ReviewInput, showInvoiceCheck: boolean): Rev
   if (typeof r.ocrConfidence === "number" && r.ocrConfidence < OCR_CONFIDENCE_THRESHOLD) reasons.push("low_confidence");
   if (!r.amount || r.amount <= 0 || !r.date || !r.vendor || r.vendor === "不明") reasons.push("missing_fields");
   if (r.needsReview) reasons.push("needs_review");
+  if (r.possibleDuplicate) reasons.push("possible_duplicate");
   return reasons;
 }

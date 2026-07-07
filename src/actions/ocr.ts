@@ -290,6 +290,25 @@ payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e
         currentId = sibling.id;
       }
 
+      // 類似証憑の検知: 同一顧問先に同じ日付・同額の証憑が既にあれば
+      // 「重複の可能性」フラグを立てて要確認バッジで警告する
+      // （別撮影・別ファイルの同一レシートはファイルハッシュでは検知できないため）。
+      // 同一画像から複数レシートを起こした sibling 同士は正常なので除外する。
+      if (ocrResult.date && ocrResult.amount_total) {
+        const { data: similar } = await supabase
+          .from("receipts")
+          .select("id")
+          .eq("client_id", receipt.client_id)
+          .eq("ocr_result->>date", ocrResult.date)
+          .eq("ocr_result->>amount_total", String(ocrResult.amount_total))
+          .neq("id", currentId)
+          .neq("image_path", receipt.image_path)
+          .limit(1);
+        if (similar && similar.length > 0) {
+          ocrResult.possible_duplicate = true;
+        }
+      }
+
       const updateData: Record<string, unknown> = {
         ocr_result: ocrResult as unknown as import("@/types/database").Json,
         status: "ocr_done",

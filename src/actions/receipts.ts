@@ -90,6 +90,7 @@ export async function getReviewCountsByClient(): Promise<
           date?: string;
           issued_date?: string;
           vendor_name?: string;
+          possible_duplicate?: boolean;
         } | null;
         const direction = r.direction ?? "received";
         const reasons = getReviewReasons(
@@ -102,6 +103,7 @@ export async function getReviewCountsByClient(): Promise<
             vendor: ocr?.vendor_name ?? "不明",
             needsReview: reviewIds.has(r.id),
             documentType: r.document_type,
+            possibleDuplicate: ocr?.possible_duplicate === true,
           },
           // 受領側のみインボイス形式チェックを要確認に含める（証憑管理の挙動に一致）
           direction === "received"

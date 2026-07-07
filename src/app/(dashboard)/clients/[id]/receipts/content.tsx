@@ -112,6 +112,7 @@ interface ReceiptData {
   invoiceNumber?: string;
   documentType?: DocumentType;
   statementSubtype?: "bank" | "card" | "other";
+  possibleDuplicate?: boolean;
   ocrConfidence?: number;
   folderId?: string | null;
 }
@@ -235,6 +236,7 @@ export function ReceiptsPageContent({
             amount_jpy?: number;
             confidence?: number;
             statement_subtype?: "bank" | "card" | "other";
+            possible_duplicate?: boolean;
           } | null;
           return {
             id: r.id,
@@ -275,6 +277,7 @@ export function ReceiptsPageContent({
               return dt;
             })(),
             statementSubtype: ocr?.statement_subtype,
+            possibleDuplicate: ocr?.possible_duplicate === true,
             ocrConfidence: typeof ocr?.confidence === "number" ? ocr.confidence : undefined,
             folderId: (r as { folder_id?: string | null }).folder_id ?? null,
           };
