@@ -323,7 +323,7 @@ export function Sidebar() {
             /* Super Admin: show admin-only menu */
             <>
               <div className="mt-4 mb-2 px-3">
-                <p className="text-menu-heading text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-white text-[10px] font-bold uppercase tracking-widest">
                   管理
                 </p>
               </div>
@@ -356,7 +356,7 @@ export function Sidebar() {
             /* Client user: show business menu directly (no dropdown) */
             <>
               <div className="mt-4 mb-2 px-3">
-                <p className="text-menu-heading text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-white text-[10px] font-bold uppercase tracking-widest">
                   業務メニュー
                 </p>
               </div>
@@ -367,7 +367,7 @@ export function Sidebar() {
             <>
               {/* Client Selector */}
               <div className="mt-4 mb-2 px-3 flex items-center justify-between">
-                <p className="text-menu-heading text-[10px] font-bold uppercase tracking-widest">
+                <p className="text-white text-[10px] font-bold uppercase tracking-widest">
                   顧問先
                 </p>
                 <Link
