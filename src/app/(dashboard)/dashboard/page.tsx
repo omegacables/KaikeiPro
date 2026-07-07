@@ -34,7 +34,7 @@ function BalanceAmount({ balance, debitNormal }: { balance: number; debitNormal:
   );
 }
 
-// 月次推移の簡易ラインチャート（売上・利益）。詳細は月次推移表ページで確認する。
+// 月次推移の簡易ラインチャート（売上・利益）。ホバーで各月の金額を表示。
 function MonthlyTrendChart({ months }: { months: MonthPoint[] }) {
   const W = 560;
   const H = 170;
@@ -42,6 +42,8 @@ function MonthlyTrendChart({ months }: { months: MonthPoint[] }) {
   const PAD_R = 10;
   const PAD_T = 12;
   const PAD_B = 20;
+
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
   const values = months.flatMap((m) => [m.sales, m.profit]);
   const max = Math.max(...values, 1);
@@ -52,24 +54,85 @@ function MonthlyTrendChart({ months }: { months: MonthPoint[] }) {
   const y = (v: number) => PAD_T + (H - PAD_T - PAD_B) * (1 - (v - min) / range);
   const points = (key: "sales" | "profit") => months.map((m, i) => `${x(i)},${y(m[key])}`).join(" ");
 
+  // マウス位置から最寄りの月を求める（viewBox座標に変換）
+  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const xView = ((e.clientX - rect.left) / rect.width) * W;
+    const step = (W - PAD_L - PAD_R) / Math.max(months.length - 1, 1);
+    const idx = Math.round((xView - PAD_L) / step);
+    setHoverIdx(idx >= 0 && idx < months.length ? idx : null);
+  };
+
+  const hovered = hoverIdx !== null ? months[hoverIdx] : null;
+  // ツールチップが左右にはみ出さないよう位置を調整
+  const tooltipLeftPct = hoverIdx !== null ? (x(hoverIdx) / W) * 100 : 0;
+  const tooltipAlign =
+    tooltipLeftPct < 18 ? "translateX(0)" : tooltipLeftPct > 82 ? "translateX(-100%)" : "translateX(-50%)";
+
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" role="img" aria-label="売上・利益の月次推移">
-      {/* ゼロライン */}
-      <line x1={PAD_L} y1={y(0)} x2={W - PAD_R} y2={y(0)} stroke="var(--color-border)" strokeWidth="1" />
-      {/* 売上 */}
-      <polyline points={points("sales")} fill="none" stroke="var(--color-primary)" strokeWidth="2.5" strokeLinejoin="round" />
-      {/* 利益 */}
-      <polyline points={points("profit")} fill="none" stroke="var(--color-warning)" strokeWidth="2" strokeLinejoin="round" strokeDasharray="1 0" />
-      {months.map((m, i) => (
-        <g key={m.month}>
-          <circle cx={x(i)} cy={y(m.sales)} r="3" fill="var(--color-primary)" />
-          <circle cx={x(i)} cy={y(m.profit)} r="2.5" fill="var(--color-warning)" />
-          <text x={x(i)} y={H - 6} textAnchor="middle" fontSize="9" fill="var(--color-muted-foreground)">
-            {m.label}
-          </text>
-        </g>
-      ))}
-    </svg>
+    <div className="relative">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        role="img"
+        aria-label="売上・利益の月次推移"
+        onMouseMove={handleMouseMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        {/* ゼロライン */}
+        <line x1={PAD_L} y1={y(0)} x2={W - PAD_R} y2={y(0)} stroke="var(--color-border)" strokeWidth="1" />
+        {/* ホバー中の月のガイドライン */}
+        {hoverIdx !== null && (
+          <line
+            x1={x(hoverIdx)}
+            y1={PAD_T}
+            x2={x(hoverIdx)}
+            y2={H - PAD_B}
+            stroke="var(--color-muted-foreground)"
+            strokeWidth="1"
+            strokeDasharray="3 3"
+          />
+        )}
+        {/* 売上 */}
+        <polyline points={points("sales")} fill="none" stroke="var(--color-primary)" strokeWidth="2.5" strokeLinejoin="round" />
+        {/* 利益 */}
+        <polyline points={points("profit")} fill="none" stroke="var(--color-warning)" strokeWidth="2" strokeLinejoin="round" strokeDasharray="1 0" />
+        {months.map((m, i) => (
+          <g key={m.month}>
+            <circle cx={x(i)} cy={y(m.sales)} r={hoverIdx === i ? 4.5 : 3} fill="var(--color-primary)" />
+            <circle cx={x(i)} cy={y(m.profit)} r={hoverIdx === i ? 4 : 2.5} fill="var(--color-warning)" />
+            <text
+              x={x(i)}
+              y={H - 6}
+              textAnchor="middle"
+              fontSize="9"
+              fontWeight={hoverIdx === i ? "bold" : "normal"}
+              fill={hoverIdx === i ? "var(--color-foreground)" : "var(--color-muted-foreground)"}
+            >
+              {m.label}
+            </text>
+          </g>
+        ))}
+      </svg>
+
+      {/* ホバーツールチップ（金額表示） */}
+      {hovered && (
+        <div
+          className="pointer-events-none absolute top-0 z-10 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg whitespace-nowrap"
+          style={{ left: `${tooltipLeftPct}%`, transform: tooltipAlign }}
+        >
+          <p className="font-bold text-foreground mb-1">{hovered.label}</p>
+          <p className="flex items-center gap-1.5 text-muted-foreground tabular-nums">
+            <span className="inline-block size-2 rounded-full bg-primary" />
+            売上 <span className="font-bold text-foreground">{formatCurrency(hovered.sales)}</span>
+          </p>
+          <p className="flex items-center gap-1.5 text-muted-foreground tabular-nums">
+            <span className="inline-block size-2 rounded-full bg-warning" />
+            利益 <span className="font-bold text-foreground">{formatCurrency(hovered.profit)}</span>
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
