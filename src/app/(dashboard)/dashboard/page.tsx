@@ -453,15 +453,16 @@ export default function DashboardPage() {
 
         {/* 月次推移（クリックで月次推移表へ） */}
         <Card className="p-4 lg:col-span-2">
-          <div className="flex items-center justify-between mb-3 gap-2">
-            <div className="flex items-center gap-1.5 shrink-0">
+          <div className="mb-3">
+            <div className="flex items-center gap-1.5">
               <TrendingUp className="size-5 text-primary shrink-0" />
               <h2 className="text-lg font-bold text-foreground whitespace-nowrap">月次推移</h2>
             </div>
+            {/* 会社名（顧問先）の切替は見出しの下に配置 */}
             <select
               value={selectedClient}
               onChange={(e) => setSelectedClient(e.target.value)}
-              className="h-7 max-w-[55%] rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 h-7 w-full max-w-xs truncate rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
               {clients.length === 0 && <option value="">顧問先がありません</option>}
               {clients.map((c) => (
@@ -517,15 +518,16 @@ export default function DashboardPage() {
 
         {/* 残高サマリー（クライアント選択式） */}
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3 gap-2">
-            <div className="flex items-center gap-1.5 shrink-0">
+          <div className="mb-3">
+            <div className="flex items-center gap-1.5">
               <Wallet className="size-5 text-primary shrink-0" />
               <h2 className="text-lg font-bold text-foreground whitespace-nowrap">残高サマリー</h2>
             </div>
+            {/* 会社名（顧問先）の切替は見出しの下に配置 */}
             <select
               value={selectedClient}
               onChange={(e) => setSelectedClient(e.target.value)}
-              className="h-7 min-w-0 flex-1 max-w-[55%] truncate rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+              className="mt-2 h-7 w-full truncate rounded-md border border-border bg-background px-2 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             >
               {clients.length === 0 && <option value="">顧問先がありません</option>}
               {clients.map((c) => (
