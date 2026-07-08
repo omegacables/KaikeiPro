@@ -140,16 +140,12 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
     <div className="flex flex-col gap-0.5">
       {navGroups.map((group) => {
         const isOpen = openGroups.has(group.key);
-        const hasActive = group.key === activeGroupKey;
         return (
           <div key={group.key}>
             {/* グループトグル */}
             <button
               onClick={() => toggleGroup(group.key)}
-              className={cn(
-                "w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm cursor-pointer text-menu-heading hover:bg-slate-purple/50",
-                hasActive && !isOpen && "font-semibold"
-              )}
+              className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm cursor-pointer text-white font-bold hover:bg-slate-purple/50"
             >
               <group.icon className="size-4 shrink-0" />
               <span className="flex-1 text-left">{group.label}</span>

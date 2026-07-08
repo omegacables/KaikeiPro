@@ -38,8 +38,6 @@
   --color-sidebar-foreground: #f6f2c5;
   --color-sidebar-muted: #4e4d5c;
   --color-sidebar-accent: #6c992f;
-  /* サイドバーのメニュー見出し（ブランドの基調グリーン = primary-light と同色） */
-  --color-menu-heading: #6c992f;
 
   --font-sans: "Noto Sans JP", "Hiragino Kaku Gothic ProN", "Hiragino Sans", Meiryo, sans-serif;
 
