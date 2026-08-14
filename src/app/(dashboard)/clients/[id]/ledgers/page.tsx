@@ -15,6 +15,7 @@ import {
   Bot,
   Upload,
   Package,
+  Wallet,
   ImageIcon,
   Trash2,
   Plus,
@@ -111,7 +112,7 @@ const tabs: { key: LedgerTab; label: string }[] = [
 // Sub-components
 // ---------------------------------------------------------------------------
 
-type JournalSource = "manual" | "ai" | "import" | "raqto";
+type JournalSource = "manual" | "ai" | "import" | "raqto" | "bank" | "card" | "payment" | "closing";
 
 
 const sourceConfig: Record<JournalSource, { label: string; variant: "muted" | "success" | "warning" | "default" | "destructive" | "accent"; icon: React.ElementType }> = {
@@ -119,6 +120,10 @@ const sourceConfig: Record<JournalSource, { label: string; variant: "muted" | "s
   ai: { label: "AI", variant: "accent", icon: Bot },
   import: { label: "取込", variant: "default", icon: Upload },
   raqto: { label: "受発注", variant: "default", icon: Package },
+  bank: { label: "銀行", variant: "default", icon: Upload },
+  card: { label: "カード", variant: "default", icon: Upload },
+  payment: { label: "入金消込", variant: "success", icon: Wallet },
+  closing: { label: "決算", variant: "warning", icon: Package },
 };
 
 function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, selectedIds, onToggleSelect, onToggleSelectAll }: {

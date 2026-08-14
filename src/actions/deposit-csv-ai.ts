@@ -250,6 +250,6 @@ export async function reconcileBankDeposits(
     })
     .filter((x): x is NonNullable<typeof x> => x !== null);
 
-  if (resolved.length === 0) return { created: 0, matched: 0, errors: [] };
+  if (resolved.length === 0) return { created: 0, matched: 0, journalsCreated: 0, invoicesPaid: 0, errors: [] };
   return reconcileDeposits(clientId, resolved, { onlyWhenMatched: true });
 }

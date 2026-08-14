@@ -216,8 +216,9 @@ export default function PaymentsPage() {
         { bankAccount: selectedBankAccountId ? bankAccountLabel(selectedBankAccountId) : null }
       );
       alert(
-        `${result.created}件を入金登録し、うち${result.matched}件を自動消込しました。` +
-          (result.errors.length ? `（${result.errors.length}件エラー）` : "")
+        `${result.created}件を入金登録し、うち${result.matched}件を自動消込しました。\n` +
+          `入金仕訳 ${result.journalsCreated}件を計上、請求書 ${result.invoicesPaid}件を「入金済」に更新しました。` +
+          (result.errors.length ? `\n（${result.errors.length}件エラー）` : "")
       );
       clearImport();
       setShowImport(false);
