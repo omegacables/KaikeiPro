@@ -2,6 +2,7 @@
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
 import { fetchAllRows } from "@/lib/fetch-all";
+import { aggregateTrialBalance, CATEGORY_BY_DB_TYPE } from "@/lib/trial-balance";
 import { assertClientAccess } from "@/lib/authz";
 import type { PlClassification } from "@/types/database";
 
@@ -106,74 +107,35 @@ export async function getTrialBalance(
 
   const [accounts, lines] = await Promise.all([fetchAccounts(), linesQuery]);
 
-  // startDate より前 = 前期繰越、startDate〜endDate = 当期、を1ループで仕分け。
-  // 期首残高仕訳（期首日付・source='closing'）は当期発生ではなく前期繰越として扱う
-  // （試算表の当期合計や株主資本等変動計算書の期首残高に混入させない）。
-  const prevBalanceMap = new Map<string, number>();
-  const accountTotals = new Map<string, { debit: number; credit: number }>();
-  for (const line of lines) {
-    const entry = line.journal_entries as unknown as { entry_date: string; source?: string };
-    const isOpeningEntry = entry.entry_date === startDate && entry.source === "closing";
-    if (entry.entry_date < startDate || isOpeningEntry) {
-      const prev = prevBalanceMap.get(line.account_id) ?? 0;
-      prevBalanceMap.set(line.account_id, prev + line.debit_amount - line.credit_amount);
-    } else {
-      const existing = accountTotals.get(line.account_id) ?? { debit: 0, credit: 0 };
-      existing.debit += line.debit_amount;
-      existing.credit += line.credit_amount;
-      accountTotals.set(line.account_id, existing);
-    }
-  }
-
-  const categoryMap: Record<string, "asset" | "liability" | "equity" | "revenue" | "expense"> = {
-    assets: "asset",
-    liabilities: "liability",
-    equity: "equity",
-    revenue: "revenue",
-    expenses: "expense",
-  };
-
-  // 過年度の損益（当期首より前の収益・費用の差額 ＝ 過年度純損益）を求める。
-  // 損益科目は上記の方針で当期に繰り越さないため、その分を繰越利益剰余金へ
-  // 振り替えないと貸借が一致しない（年度締めの損益振替に相当する処理）。
-  const accountCategoryById = new Map(
-    (accounts ?? []).map((a) => [
-      a.id,
-      categoryMap[(a.account_categories as unknown as { type: string }).type] ?? "expense",
-    ])
+  // 集計は純粋関数に委譲（会計ロジックのテストは src/lib/trial-balance.test.ts）
+  const aggregatable = (accounts ?? []).map((a) => ({
+    id: a.id,
+    code: a.code,
+    name: a.name,
+    category:
+      CATEGORY_BY_DB_TYPE[(a.account_categories as unknown as { type: string }).type] ?? "expense",
+  }));
+  const aggregated = aggregateTrialBalance(
+    aggregatable,
+    lines.map((l) => ({
+      account_id: l.account_id,
+      debit_amount: l.debit_amount,
+      credit_amount: l.credit_amount,
+      entry_date: l.journal_entries.entry_date,
+      source: l.journal_entries.source ?? null,
+    })),
+    startDate,
+    endDate
   );
-  let pastNetIncome = 0;
-  for (const [accId, v] of prevBalanceMap) {
-    const c = accountCategoryById.get(accId);
-    // prevBalance は「借方 - 貸方」。収益は貸方(負)、費用は借方(正)なので
-    // 符号を反転して足し込むと純損益（利益がプラス）になる。
-    if (c === "revenue" || c === "expense") pastNetIncome -= v;
-  }
 
   const rows: TrialBalanceRow[] = [];
   for (const acct of accounts ?? []) {
-    const totals = accountTotals.get(acct.id) ?? { debit: 0, credit: 0 };
+    const agg = aggregated.get(acct.id);
+    if (!agg) continue; // 当期の動きも前期繰越も無い科目
 
     const cat = acct.account_categories as unknown as { type: string };
-    const category = categoryMap[cat.type] ?? "expense";
-
-    // 損益科目（収益・費用）は会計期間ごとに独立するため、前期の残高を当期に
-    // 繰り越さない（期末に損益振替され翌期は0から始まる）。繰り越すのは
-    // B/S科目（資産・負債・純資産）のみ。
-    const isPlAccount = category === "revenue" || category === "expense";
-    let prevBalance = isPlAccount ? 0 : prevBalanceMap.get(acct.id) ?? 0;
-
-    // 過年度純損益は繰越利益剰余金（個人事業主は元入金）に含める。
-    // 繰越利益剰余金は貸方残高なので、利益は prevBalance（借方-貸方）を減らす。
-    const isRetainedEarnings =
-      category === "equity" &&
-      (acct.code === "3310" || acct.name.includes("繰越利益剰余金") || acct.name.includes("元入金"));
-    if (isRetainedEarnings) prevBalance -= pastNetIncome;
-
-    // 当期に動きが無く前期繰越も無い科目はスキップ
-    if (totals.debit === 0 && totals.credit === 0 && prevBalance === 0) continue;
-
-    const currentBalance = prevBalance + totals.debit - totals.credit;
+    const category = CATEGORY_BY_DB_TYPE[cat.type] ?? "expense";
+    const currentBalance = agg.currentBalance;
 
     const explicit = (acct as { pl_classification?: PlClassification | null }).pl_classification ?? null;
     const plClassification =
@@ -185,9 +147,9 @@ export async function getTrialBalance(
       id: acct.id,
       code: acct.code,
       name: acct.name,
-      prevBalance,
-      debitTotal: totals.debit,
-      creditTotal: totals.credit,
+      prevBalance: agg.prevBalance,
+      debitTotal: agg.debitTotal,
+      creditTotal: agg.creditTotal,
       currentBalance,
       debitBalance: currentBalance > 0 ? currentBalance : 0,
       creditBalance: currentBalance < 0 ? -currentBalance : 0,
