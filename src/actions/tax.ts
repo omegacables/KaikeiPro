@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all";
 
 export async function getFiscalYears(clientId: string) {
   const supabase = await createServerSupabaseClient();
@@ -36,9 +37,18 @@ export async function getTaxSummary(
   const supabase = await createServerSupabaseClient();
 
   // Get all journal entry lines with their tax info for the period
-  const { data, error } = await supabase
-    .from("journal_entry_lines")
-    .select(`
+  // 1000行の取得上限で黙って打ち切られないよう全ページ取得する
+  type TaxLine = {
+    debit_amount: number;
+    credit_amount: number;
+    tax_category: string | null;
+    tax_rate: number | null;
+    journal_entries: { client_id: string; entry_date: string; status: string };
+  };
+  const data = await fetchAllRows<TaxLine>((from, to) =>
+    supabase
+      .from("journal_entry_lines")
+      .select(`
       debit_amount,
       credit_amount,
       tax_category,
@@ -49,11 +59,11 @@ export async function getTaxSummary(
         status
       )
     `)
-    .eq("journal_entries.client_id", clientId)
-    .gte("journal_entries.entry_date", startDate)
-    .lte("journal_entries.entry_date", endDate);
-
-  if (error) throw new Error(error.message);
+      .eq("journal_entries.client_id", clientId)
+      .gte("journal_entries.entry_date", startDate)
+      .lte("journal_entries.entry_date", endDate)
+      .range(from, to) as unknown as PromiseLike<{ data: TaxLine[] | null; error: { message: string } | null }>
+  );
 
   const result: TaxSummary = {
     sales10: 0,

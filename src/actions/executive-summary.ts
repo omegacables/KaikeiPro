@@ -5,6 +5,7 @@
 // 役員報酬・社員給与を1回の呼び出しでまとめて返す。
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all";
 import { assertClientAccess } from "@/lib/authz";
 import { fiscalRangeFromStartYear, currentFiscalStartYear } from "@/lib/fiscal";
 
@@ -109,13 +110,17 @@ export async function getExecutiveSummary(clientId: string): Promise<ExecutiveSu
       .select("id, name, account_categories!inner ( type )")
       .or(`client_id.eq.${clientId},is_default.eq.true`)
       .eq("is_active", true),
-    admin
-      .from("journal_entry_lines")
-      .select(
-        "account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )"
-      )
-      .eq("journal_entries.client_id", clientId)
-      .lte("journal_entries.entry_date", asOf),
+    // 1000行の取得上限で黙って打ち切られないよう全ページ取得する
+    fetchAllRows<Record<string, unknown>>((from, to) =>
+      admin
+        .from("journal_entry_lines")
+        .select(
+          "account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )"
+        )
+        .eq("journal_entries.client_id", clientId)
+        .lte("journal_entries.entry_date", asOf)
+        .range(from, to) as unknown as PromiseLike<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>
+    ),
     admin
       .from("payroll_records")
       .select("pay_month, employee_name, employee_type, gross_salary, net_pay")
@@ -125,7 +130,6 @@ export async function getExecutiveSummary(clientId: string): Promise<ExecutiveSu
       .order("pay_month"),
   ]);
   if (accountsRes.error) throw new Error(accountsRes.error.message);
-  if (linesRes.error) throw new Error(linesRes.error.message);
   if (payrollRes.error) throw new Error(payrollRes.error.message);
 
   type AcctInfo = { name: string; type: string };
@@ -148,7 +152,7 @@ export async function getExecutiveSummary(clientId: string): Promise<ExecutiveSu
   const officerFlowJournal = new Array<number>(months.length).fill(0);
   const employeeFlowJournal = new Array<number>(months.length).fill(0);
 
-  for (const line of linesRes.data ?? []) {
+  for (const line of linesRes) {
     const l = line as DbRow;
     const acct = accounts.get(l.account_id as string);
     if (!acct) continue;

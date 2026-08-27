@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all";
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 
 export interface JournalLedgerLine {
@@ -332,16 +333,26 @@ export async function getBalanceSummary(clientId: string): Promise<BalanceSummar
   const p = (n: number) => String(n).padStart(2, "0");
   const todayStr = `${today.getFullYear()}-${p(today.getMonth() + 1)}-${p(today.getDate())}`;
 
-  const { data: lines, error: lineErr } = await supabase
-    .from("journal_entry_lines")
-    .select(
-      `account_id, sub_account_id, debit_amount, credit_amount,
+  // 1000行の取得上限で黙って打ち切られないよう全ページ取得する
+  type BalLine = {
+    account_id: string;
+    sub_account_id: string | null;
+    debit_amount: number;
+    credit_amount: number;
+    journal_entries: { client_id: string; needs_review: boolean; entry_date: string };
+  };
+  const lines = await fetchAllRows<BalLine>((from, to) =>
+    supabase
+      .from("journal_entry_lines")
+      .select(
+        `account_id, sub_account_id, debit_amount, credit_amount,
        journal_entries!inner ( client_id, needs_review, entry_date )`
-    )
-    .eq("journal_entries.client_id", clientId)
-    .eq("journal_entries.needs_review", false)
-    .lte("journal_entries.entry_date", todayStr);
-  if (lineErr) throw new Error(lineErr.message);
+      )
+      .eq("journal_entries.client_id", clientId)
+      .eq("journal_entries.needs_review", false)
+      .lte("journal_entries.entry_date", todayStr)
+      .range(from, to) as unknown as PromiseLike<{ data: BalLine[] | null; error: { message: string } | null }>
+  );
 
   const acctBalance = new Map<string, number>();
   const subBalance = new Map<string, number>();

@@ -1,6 +1,7 @@
 "use server";
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all";
 import { assertClientAccess } from "@/lib/authz";
 import type { PlClassification } from "@/types/database";
 
@@ -85,17 +86,25 @@ export async function getTrialBalance(
     return noPl.data as unknown as AccRow[];
   };
 
-  // 当期＋前期繰越をまとめて1クエリで取得（endDate以前の全仕訳）。
+  // 当期＋前期繰越をまとめて取得（endDate以前の全仕訳）。
+  // 1000行の取得上限で黙って打ち切られないよう全ページ取得する。
   // 科目取得と並列実行してラウンドトリップを削減する。
-  const linesQuery = supabase
-    .from("journal_entry_lines")
-    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )`)
-    .eq("journal_entries.client_id", clientId)
-    .lte("journal_entries.entry_date", endDate);
+  type LineRow = {
+    account_id: string;
+    debit_amount: number;
+    credit_amount: number;
+    journal_entries: { client_id: string; entry_date: string; source?: string };
+  };
+  const linesQuery = fetchAllRows<LineRow>((from, to) =>
+    supabase
+      .from("journal_entry_lines")
+      .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )`)
+      .eq("journal_entries.client_id", clientId)
+      .lte("journal_entries.entry_date", endDate)
+      .range(from, to) as unknown as PromiseLike<{ data: LineRow[] | null; error: { message: string } | null }>
+  );
 
-  const [accounts, linesRes] = await Promise.all([fetchAccounts(), linesQuery]);
-  if (linesRes.error) throw new Error(linesRes.error.message);
-  const lines = linesRes.data ?? [];
+  const [accounts, lines] = await Promise.all([fetchAccounts(), linesQuery]);
 
   // startDate より前 = 前期繰越、startDate〜endDate = 当期、を1ループで仕分け。
   // 期首残高仕訳（期首日付・source='closing'）は当期発生ではなく前期繰越として扱う
