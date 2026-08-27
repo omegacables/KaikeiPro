@@ -124,16 +124,45 @@ export async function getTrialBalance(
     expenses: "expense",
   };
 
+  // 過年度の損益（当期首より前の収益・費用の差額 ＝ 過年度純損益）を求める。
+  // 損益科目は上記の方針で当期に繰り越さないため、その分を繰越利益剰余金へ
+  // 振り替えないと貸借が一致しない（年度締めの損益振替に相当する処理）。
+  const accountCategoryById = new Map(
+    (accounts ?? []).map((a) => [
+      a.id,
+      categoryMap[(a.account_categories as unknown as { type: string }).type] ?? "expense",
+    ])
+  );
+  let pastNetIncome = 0;
+  for (const [accId, v] of prevBalanceMap) {
+    const c = accountCategoryById.get(accId);
+    // prevBalance は「借方 - 貸方」。収益は貸方(負)、費用は借方(正)なので
+    // 符号を反転して足し込むと純損益（利益がプラス）になる。
+    if (c === "revenue" || c === "expense") pastNetIncome -= v;
+  }
+
   const rows: TrialBalanceRow[] = [];
   for (const acct of accounts ?? []) {
     const totals = accountTotals.get(acct.id) ?? { debit: 0, credit: 0 };
-    const prevBalance = prevBalanceMap.get(acct.id) ?? 0;
-
-    // 当期に動きが無く前期繰越も無い科目はスキップ
-    if (totals.debit === 0 && totals.credit === 0 && prevBalance === 0) continue;
 
     const cat = acct.account_categories as unknown as { type: string };
     const category = categoryMap[cat.type] ?? "expense";
+
+    // 損益科目（収益・費用）は会計期間ごとに独立するため、前期の残高を当期に
+    // 繰り越さない（期末に損益振替され翌期は0から始まる）。繰り越すのは
+    // B/S科目（資産・負債・純資産）のみ。
+    const isPlAccount = category === "revenue" || category === "expense";
+    let prevBalance = isPlAccount ? 0 : prevBalanceMap.get(acct.id) ?? 0;
+
+    // 過年度純損益は繰越利益剰余金（個人事業主は元入金）に含める。
+    // 繰越利益剰余金は貸方残高なので、利益は prevBalance（借方-貸方）を減らす。
+    const isRetainedEarnings =
+      category === "equity" &&
+      (acct.code === "3310" || acct.name.includes("繰越利益剰余金") || acct.name.includes("元入金"));
+    if (isRetainedEarnings) prevBalance -= pastNetIncome;
+
+    // 当期に動きが無く前期繰越も無い科目はスキップ
+    if (totals.debit === 0 && totals.credit === 0 && prevBalance === 0) continue;
 
     const currentBalance = prevBalance + totals.debit - totals.credit;
 

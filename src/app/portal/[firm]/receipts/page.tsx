@@ -75,7 +75,8 @@ export default function PortalReceiptsPage() {
         })
       );
     },
-    null
+    null,
+    [user?.clientId]
   );
 
   const displayReceipts = receipts ?? [];

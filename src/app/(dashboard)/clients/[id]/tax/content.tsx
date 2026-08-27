@@ -92,7 +92,8 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
       if (!selectedPeriod) return Promise.resolve(emptyTaxSummary);
       return getTaxSummary(clientId, selectedPeriod.startDate, selectedPeriod.endDate);
     }, [clientId, selectedPeriod]),
-    emptyTaxSummary
+    emptyTaxSummary,
+    [selectedPeriod]
   );
 
   const totalSalesTax = taxSummary.sales10Tax + taxSummary.sales8Tax;

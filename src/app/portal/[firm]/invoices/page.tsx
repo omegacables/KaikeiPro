@@ -48,7 +48,8 @@ export default function PortalInvoicesPage() {
         }))
       );
     },
-    null
+    null,
+    [user?.clientId]
   );
 
   const invoices = dbInvoices ?? [];

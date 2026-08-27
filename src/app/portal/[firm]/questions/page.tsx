@@ -35,7 +35,8 @@ export default function QuestionsPage() {
       if (!user?.clientId) return Promise.resolve([]);
       return getCommentsWithReplies(user.clientId);
     },
-    []
+    [],
+    [user?.clientId]
   );
 
   // New question form state

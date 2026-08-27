@@ -10,7 +10,7 @@ type AsyncFn<T> = () => Promise<T>;
  * Falls back to the provided fallback value if the fetch fails
  * (e.g., when DB is not yet set up).
  */
-export function useData<T>(fetcher: AsyncFn<T>, fallback: T) {
+export function useData<T>(fetcher: AsyncFn<T>, fallback: T, deps: unknown[] = []) {
   const [data, setData] = useState<T>(fallback);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,7 +56,7 @@ export function useData<T>(fetcher: AsyncFn<T>, fallback: T) {
     return () => {
       cancelled = true;
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
 
   return { data, loading, error, setData, refetch };
 }

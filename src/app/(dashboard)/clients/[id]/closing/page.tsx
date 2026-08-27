@@ -71,7 +71,8 @@ export default function ClosingPage() {
       if (!fiscalYear) return Promise.resolve([] as ClosingEntry[]);
       return getClosingEntries(clientId, fiscalYear.end_date);
     }, [clientId, fiscalYear]),
-    [] as ClosingEntry[]
+    [] as ClosingEntry[],
+    [fiscalYear]
   );
 
   // Fetch depreciation summary
@@ -80,7 +81,8 @@ export default function ClosingPage() {
       if (!fiscalYear) return Promise.resolve(emptyDepreciation);
       return getDepreciationSummary(clientId, fiscalYear.end_date);
     }, [clientId, fiscalYear]),
-    emptyDepreciation
+    emptyDepreciation,
+    [fiscalYear]
   );
 
   // Compute step statuses dynamically
