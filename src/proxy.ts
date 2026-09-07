@@ -14,7 +14,7 @@ function isPortalRoute(pathname: string) {
   return /^\/portal\/[^/]+/.test(pathname);
 }
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request });
 
   // Skip auth checks when Supabase is not configured
