@@ -716,6 +716,11 @@ export interface Database {
           client_id: string;
           lender_name: string;
           loan_type: "borrowing" | "officer";
+          direction: "borrow" | "lend";
+          counterparty_kind: "institution" | "officer";
+          business_partner_id: string | null;
+          repayment_terms: string | null;
+          purpose: string | null;
           principal: number;
           current_balance: number;
           interest_rate: number | null;
@@ -730,6 +735,11 @@ export interface Database {
           client_id: string;
           lender_name: string;
           loan_type?: "borrowing" | "officer";
+          direction?: "borrow" | "lend";
+          counterparty_kind?: "institution" | "officer";
+          business_partner_id?: string | null;
+          repayment_terms?: string | null;
+          purpose?: string | null;
           principal?: number;
           current_balance?: number;
           interest_rate?: number | null;
@@ -744,6 +754,11 @@ export interface Database {
           client_id?: string;
           lender_name?: string;
           loan_type?: "borrowing" | "officer";
+          direction?: "borrow" | "lend";
+          counterparty_kind?: "institution" | "officer";
+          business_partner_id?: string | null;
+          repayment_terms?: string | null;
+          purpose?: string | null;
           principal?: number;
           current_balance?: number;
           interest_rate?: number | null;
@@ -752,6 +767,114 @@ export interface Database {
           status?: "active" | "completed";
           memo?: string | null;
           created_at?: string;
+        };
+        Relationships: [];
+      };
+      loan_entries: {
+        Row: {
+          id: string;
+          loan_id: string;
+          client_id: string;
+          entry_date: string;
+          entry_type: "borrow" | "advance" | "repay" | "interest" | "adjust";
+          amount: number;
+          signed_adjustment: number | null;
+          expense_account_id: string | null;
+          payment_account_id: string | null;
+          journal_entry_id: string | null;
+          status: "draft" | "confirmed" | "journalized";
+          source: "manual" | "ai_draft";
+          ai_evidence: Json | null;
+          memo: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          loan_id: string;
+          client_id: string;
+          entry_date: string;
+          entry_type: "borrow" | "advance" | "repay" | "interest" | "adjust";
+          amount: number;
+          signed_adjustment?: number | null;
+          expense_account_id?: string | null;
+          payment_account_id?: string | null;
+          journal_entry_id?: string | null;
+          status?: "draft" | "confirmed" | "journalized";
+          source?: "manual" | "ai_draft";
+          ai_evidence?: Json | null;
+          memo?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          loan_id?: string;
+          client_id?: string;
+          entry_date?: string;
+          entry_type?: "borrow" | "advance" | "repay" | "interest" | "adjust";
+          amount?: number;
+          signed_adjustment?: number | null;
+          expense_account_id?: string | null;
+          payment_account_id?: string | null;
+          journal_entry_id?: string | null;
+          status?: "draft" | "confirmed" | "journalized";
+          source?: "manual" | "ai_draft";
+          ai_evidence?: Json | null;
+          memo?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      loan_entry_receipts: {
+        Row: {
+          id: string;
+          loan_entry_id: string;
+          receipt_id: string;
+          client_id: string;
+          source_line_no: number | null;
+          source_note: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          loan_entry_id: string;
+          receipt_id: string;
+          client_id: string;
+          source_line_no?: number | null;
+          source_note?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          loan_entry_id?: string;
+          receipt_id?: string;
+          client_id?: string;
+          source_line_no?: number | null;
+          source_note?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      statutory_interest_rates: {
+        Row: {
+          fiscal_year: number;
+          rate: number;
+          note: string | null;
+          updated_at: string;
+        };
+        Insert: {
+          fiscal_year: number;
+          rate: number;
+          note?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          fiscal_year?: number;
+          rate?: number;
+          note?: string | null;
+          updated_at?: string;
         };
         Relationships: [];
       };
@@ -858,7 +981,7 @@ export interface Database {
           entry_date: string;
           description: string | null;
           status: "draft" | "confirmed" | "locked";
-          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment";
+          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan";
           receipt_id: string | null;
           raqto_source_id: string | null;
           metadata: Json | null;
@@ -877,7 +1000,7 @@ export interface Database {
           entry_date: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
           metadata?: Json | null;
@@ -896,7 +1019,7 @@ export interface Database {
           entry_date?: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
           metadata?: Json | null;
