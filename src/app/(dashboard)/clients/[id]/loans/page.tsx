@@ -38,6 +38,7 @@ import {
 import {
   draftLoanEntriesFromText,
   draftLoanEntriesFromReceipt,
+  classifyOfficerPayment,
   commitLoanAiDrafts,
 } from "@/actions/loan-ai";
 import { getClient } from "@/actions/clients";
@@ -58,6 +59,7 @@ import type {
   CounterpartyKind,
   LoanAiDraft,
   LoanEntryReceipt,
+  OfficerPaymentClassification,
 } from "@/types/index";
 import { formatCurrency } from "@/lib/utils";
 
@@ -582,6 +584,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       {/* AI起票 */}
       <AiPanel
         clientId={id}
+        ledgers={ledgers}
         text={aiText}
         setText={setAiText}
         busy={aiBusy}
@@ -1094,6 +1097,7 @@ function LedgerRow(props: {
 
 function AiPanel(props: {
   clientId: string;
+  ledgers: LoanLedger[];
   text: string;
   setText: (s: string) => void;
   busy: boolean;
@@ -1186,6 +1190,12 @@ function AiPanel(props: {
             </Button>
           </div>
         </div>
+
+        <ClassifyPaymentSection
+          clientId={props.clientId}
+          ledgers={props.ledgers}
+          onAdopt={(draft) => props.setDrafts([...props.drafts, { ...draft, selected: true }])}
+        />
 
         {props.warnings.map((w, i) => (
           <p key={i} className="text-[17px] font-medium text-warning">
@@ -1672,5 +1682,203 @@ function AttachReceiptModal(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 曖昧な取引の判別（要件4-5）
+//
+// 役員個人の口座への送金には 役員報酬 / 借入金の返済 / 立替経費の精算 があり、
+// 通帳の摘要だけでは判別できない。役員報酬なら損金＋源泉徴収が必要、
+// 借入返済なら課税関係なしと扱いが正反対なので、確信が持てない場合は
+// 確定させず必ず確認を求める。
+// ---------------------------------------------------------------------------
+
+const OPTION_LABELS: Record<string, string> = {
+  loan_repayment: "役員借入金の返済",
+  officer_salary: "役員報酬",
+  expense_settlement: "立替経費の精算",
+  other: "その他",
+};
+
+function ClassifyPaymentSection(props: {
+  clientId: string;
+  ledgers: LoanLedger[];
+  onAdopt: (draft: LoanAiDraft) => void;
+}) {
+  const [date, setDate] = useState(today());
+  const [amount, setAmount] = useState("");
+  const [description, setDescription] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<OfficerPaymentClassification | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  // 返済先の候補は借入金台帳のみ（貸付金台帳への「返済」はありえない）
+  const borrowLedgers = props.ledgers.filter((l) => l.loan.direction === "borrow");
+  const [loanId, setLoanId] = useState("");
+
+  async function run() {
+    if (num(amount) <= 0 || !description.trim()) {
+      setError("金額と摘要を入力してください");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    setResult(null);
+    try {
+      const r = await classifyOfficerPayment(props.clientId, {
+        date,
+        amount: num(amount),
+        description: description.trim(),
+      });
+      setResult(r);
+      // AIが借入返済と判断したときは、その台帳を初期選択にする
+      setLoanId(r.draft?.loan_id ?? borrowLedgers[0]?.loan.id ?? "");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "判別に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  // 「借入金の返済」として下書きに送る。人間が選んで初めて実行される。
+  function adoptAsRepayment() {
+    const target = borrowLedgers.find((l) => l.loan.id === loanId);
+    if (!target || !result) return;
+    props.onAdopt({
+      loan_id: target.loan.id,
+      counterparty_name: target.loan.lender_name,
+      direction: "borrow",
+      entry_date: date,
+      entry_type: "repay",
+      amount: num(amount),
+      expense_account_id: null,
+      expense_account_name: null,
+      memo: description.trim(),
+      evidence: {
+        reasoning: result.reasoning,
+        confidence: result.confidence,
+        sourceText: description.trim(),
+        candidates: result.options.map((o) => ({ label: o.label, reason: o.reason })),
+      },
+      balance_after: target.balance - num(amount),
+      journal_preview: { debit: "役員借入金", credit: "普通預金", amount: num(amount) },
+    });
+    setResult(null);
+    setAmount("");
+    setDescription("");
+  }
+
+  return (
+    <details className="rounded-lg border border-border p-3">
+      <summary className="text-[17px] font-medium cursor-pointer">
+        役員個人への送金を判別する（役員報酬 / 借入返済 / 立替精算）
+      </summary>
+
+      <div className="mt-3 space-y-3">
+        <p className={bodyCls}>
+          役員報酬と借入返済では税務上の扱いが正反対になります。摘要だけで判断せず、
+          役員報酬の手取額・台帳残高・過去の分類履歴と突き合わせて確認します。
+        </p>
+
+        <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr_auto] sm:items-end">
+          <div>
+            <label className={labelCls}>日付</label>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className={inputCls + " w-auto"}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>金額</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              className={inputCls + " w-32 text-right"}
+              placeholder="100000"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>摘要（通帳の記載）</label>
+            <input
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              className={inputCls}
+              placeholder="振込 ペイペイ アンドウ　レン"
+            />
+          </div>
+          <Button variant="outline" onClick={run} disabled={busy}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            判別する
+          </Button>
+        </div>
+
+        {error && <p className="text-[17px] text-destructive">{error}</p>}
+
+        {result && (
+          <div className="space-y-3 rounded-lg border border-primary/30 bg-primary/5 p-3">
+            <p className="text-[17px] font-bold">{result.question}</p>
+
+            {result.options.length > 0 && (
+              <ul className="space-y-1">
+                {result.options.map((o) => (
+                  <li key={o.key} className={bodyCls}>
+                    <span className="font-medium">
+                      {OPTION_LABELS[o.key] ?? o.label}
+                    </span>
+                    {o.recommended && (
+                      <Badge variant="success" className="ml-1">
+                        推定
+                      </Badge>
+                    )}
+                    <span> — {o.reason}</span>
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            <p className={bodyCls}>{result.reasoning}</p>
+
+            {result.conclusion == null && (
+              <p className="text-[17px] font-medium text-warning">
+                確信が持てないため確定していません。内容を確認して選んでください。
+              </p>
+            )}
+
+            <div className="flex flex-wrap items-end gap-2">
+              <div>
+                <label className={labelCls}>返済先の台帳</label>
+                <select
+                  value={loanId}
+                  onChange={(e) => setLoanId(e.target.value)}
+                  className={inputCls + " w-auto"}
+                >
+                  <option value="">選択してください</option>
+                  {borrowLedgers.map((l) => (
+                    <option key={l.loan.id} value={l.loan.id}>
+                      {l.loan.lender_name}（残高 {formatCurrency(l.balance)}）
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <Button onClick={adoptAsRepayment} disabled={!loanId}>
+                借入金の返済として下書きに追加
+              </Button>
+              <Button variant="outline" onClick={() => setResult(null)}>
+                台帳の対象外にする
+              </Button>
+            </div>
+
+            <p className={bodyCls}>
+              役員報酬・立替経費の精算にあたる場合は、この台帳ではなく給与または
+              経費の機能で処理してください。
+            </p>
+          </div>
+        )}
+      </div>
+    </details>
   );
 }
