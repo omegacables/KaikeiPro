@@ -459,32 +459,204 @@ export type PayrollInput = Omit<
 >;
 
 // ---------------------------------------------------------------------------
-// 借入金台帳（借入金・役員借入金）
+// 借入金台帳（借入金・役員借入金・役員貸付金）
+//
+// 「1レコード＝1本の借入」ではなく「1レコード＝1相手先」とし、その下に増減明細
+// （LoanEntry）を積む。残高は明細から算出するため Loan 自体は残高を持たない。
+// 算出ロジックは src/lib/loan-ledger.ts。
 // ---------------------------------------------------------------------------
-export type LoanType = "borrowing" | "officer";
+
+/** borrow=会社が借りる（借入金・役員借入金） / lend=会社が貸す（役員貸付金） */
+export type LoanDirection = "borrow" | "lend";
+/** institution=金融機関等 / officer=役員 */
+export type CounterpartyKind = "institution" | "officer";
 export type LoanStatus = "active" | "completed";
-export type LoanRepaymentStatus = "pending" | "journalized";
+
+/** @deprecated counterparty_kind を使うこと。既存データ互換のため残置。 */
+export type LoanType = "borrowing" | "officer";
 
 export interface Loan {
   id: string;
   client_id: string;
+  /** 相手先の名称（○○銀行 / 代表取締役 ○○） */
   lender_name: string;
-  loan_type: LoanType;
-  principal: number;
-  current_balance: number;
+  direction: LoanDirection;
+  counterparty_kind: CounterpartyKind;
+  /** 年利(%)。金融機関等では必須、役員では原則不要 */
   interest_rate: number | null;
+  /** 借入開始日（明細が無い相手先の表示用） */
   borrowed_date: string | null;
+  /** 借入金/貸付金の科目。未設定なら仕訳化時に名称から解決する */
   liability_account_id: string | null;
+  /** 内訳明細書に所在地を出すための取引先マスタ参照 */
+  business_partner_id: string | null;
+  /** 返済条件（役員は「定めなし」が既定） */
+  repayment_terms: string | null;
+  /** 借入理由（内訳明細書の記載項目） */
+  purpose: string | null;
   status: LoanStatus;
   memo: string | null;
   created_at: string;
 }
 
-export type LoanInput = Omit<
-  Loan,
-  "id" | "current_balance" | "status" | "created_at"
-> & { current_balance?: number };
+export type LoanInput = Omit<Loan, "id" | "status" | "created_at"> & {
+  status?: LoanStatus;
+};
 
+// --- 増減明細 -------------------------------------------------------------
+
+/**
+ * borrow  : 元本の発生（借入／貸付）
+ * advance : 立替（現金は動かないが残高が増える）
+ * repay   : 返済／回収
+ * interest: 利息
+ * adjust  : 調整（移行時の差額など。signed_adjustment に符号付きの値を持つ）
+ */
+export type LoanEntryType = "borrow" | "advance" | "repay" | "interest" | "adjust";
+
+/** draft はAIの下書き。人間が確定するまで残高に算入しない。 */
+export type LoanEntryStatus = "draft" | "confirmed" | "journalized";
+export type LoanEntrySource = "manual" | "ai_draft";
+
+/** AIが下書きを作ったときの判断根拠（要件4-2の原則2）。 */
+export interface LoanAiEvidence {
+  /** どう解釈したか（人間が読む説明） */
+  reasoning: string;
+  /** 0〜1 */
+  confidence: number;
+  /** 解釈のもとになった証憑の記載（通帳の摘要など） */
+  sourceText?: string | null;
+  /** 判別時に検討した候補 */
+  candidates?: { label: string; reason: string }[];
+  /** 使用したモデル */
+  model?: string;
+}
+
+export interface LoanEntry {
+  id: string;
+  loan_id: string;
+  client_id: string;
+  entry_date: string;
+  entry_type: LoanEntryType;
+  /** 常に正の値。増減の符号は entry_type で決まる */
+  amount: number;
+  /** entry_type='adjust' のときのみ使う符号付きの差額 */
+  signed_adjustment: number | null;
+  /** 立替時の費用科目 */
+  expense_account_id: string | null;
+  /** 借入・返済時の相手科目（普通預金/現金） */
+  payment_account_id: string | null;
+  journal_entry_id: string | null;
+  status: LoanEntryStatus;
+  source: LoanEntrySource;
+  ai_evidence: LoanAiEvidence | null;
+  memo: string | null;
+  created_at: string;
+}
+
+export type LoanEntryInput = Omit<
+  LoanEntry,
+  "id" | "journal_entry_id" | "created_at" | "status" | "source"
+> & {
+  status?: LoanEntryStatus;
+  source?: LoanEntrySource;
+};
+
+/** 明細に紐付いた証憑。1枚の証憑が複数の明細に紐付く（通帳PDFなど）。 */
+export interface LoanEntryReceipt {
+  id: string;
+  loan_entry_id: string;
+  receipt_id: string;
+  client_id: string;
+  /** 証憑内の何行目に対応するか */
+  source_line_no: number | null;
+  source_note: string | null;
+  created_at: string;
+}
+
+/** 台帳1件分（ヘッダ＋明細＋算出済みの残高）。 */
+export interface LoanLedger {
+  loan: Loan;
+  entries: LoanEntry[];
+  /** 明細から算出した現在残高（その台帳の方向における正の値） */
+  balance: number;
+  /** 区分ごとの内訳 */
+  byType: Record<LoanEntryType, number>;
+  /** 移行時の差額調整など、要確認の明細を含むか */
+  needsAttention: boolean;
+}
+
+// --- 認定利息の利率マスタ --------------------------------------------------
+
+export interface StatutoryInterestRate {
+  fiscal_year: number;
+  /** 年利(%) */
+  rate: number;
+  note: string | null;
+}
+
+// --- 対話型AI起票（要件4章） ------------------------------------------------
+
+/**
+ * AIが生成した明細の下書き。
+ *
+ * 重要: この時点ではDBに保存しない。人間が確認画面で採用して初めて
+ * loan_entries に書き込む（要件4-2の原則1「AIは提案のみ。確定は必ず人間が行う」）。
+ */
+export interface LoanAiDraft {
+  /** 既存の台帳に紐付く場合はそのID。新規の相手先なら null */
+  loan_id: string | null;
+  /** AIが読み取った相手先名 */
+  counterparty_name: string;
+  direction: LoanDirection;
+  entry_date: string;
+  entry_type: LoanEntryType;
+  amount: number;
+  /** 立替のときの費用科目（AIは名称で返し、サーバー側でIDに解決する） */
+  expense_account_id: string | null;
+  expense_account_name: string | null;
+  memo: string | null;
+  evidence: LoanAiEvidence;
+  /** 採用した場合の起票後残高。台帳が特定できない場合は null */
+  balance_after: number | null;
+  /** 生成される仕訳のプレビュー（借方科目名 / 貸方科目名 / 金額） */
+  journal_preview: { debit: string; credit: string; amount: number } | null;
+}
+
+/** 証憑からの一括起票の結果（要件4-4）。 */
+export interface LoanAiDocumentResult {
+  candidates: LoanAiDraft[];
+  /** 台帳に無関係と判断した行。拾い漏れの確認に使うので理由を必ず添える */
+  excluded: { line: string; reason: string }[];
+  warnings: string[];
+}
+
+/** 役員個人への送金の判別結果（要件4-5）。 */
+export interface OfficerPaymentOption {
+  key: "loan_repayment" | "officer_salary" | "expense_settlement" | "other";
+  label: string;
+  /** その可能性を検討した根拠 */
+  reason: string;
+  recommended: boolean;
+}
+
+export interface OfficerPaymentClassification {
+  /** 推定した区分。確信が持てない場合は null（勝手に決めない） */
+  conclusion: OfficerPaymentOption["key"] | null;
+  confidence: number;
+  options: OfficerPaymentOption[];
+  reasoning: string;
+  /** 確認を求める文言。確定させず必ず人間に問う（要件4-2の原則4） */
+  question: string;
+  /** 採用した場合の下書き。conclusion が null なら null */
+  draft: LoanAiDraft | null;
+}
+
+// --- 旧構造（移行のため残置） ----------------------------------------------
+
+export type LoanRepaymentStatus = "pending" | "journalized";
+
+/** @deprecated LoanEntry に移行済み。040 で loan_entries へ移された。 */
 export interface LoanRepayment {
   id: string;
   loan_id: string;
@@ -499,11 +671,6 @@ export interface LoanRepayment {
   memo: string | null;
   created_at: string;
 }
-
-export type LoanRepaymentInput = Omit<
-  LoanRepayment,
-  "id" | "journal_entry_id" | "status" | "created_at"
->;
 
 // ---------------------------------------------------------------------------
 // 会社書類管理（定款・登記簿・届出控え等）
