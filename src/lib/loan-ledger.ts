@@ -478,3 +478,206 @@ export function buildJournalLines(params: {
       throw new Error("立替は借入金台帳のみで使用できます。");
   }
 }
+
+// ---------------------------------------------------------------------------
+// 返済予定表（要件3-7）
+// ---------------------------------------------------------------------------
+
+export type RepaymentMethod = "equal_principal" | "equal_payment";
+
+export type ScheduleRow = {
+  due_date: string;
+  principal_amount: number;
+  interest_amount: number;
+};
+
+/** 月を加算した日付。月末日は繰り上がらないよう、その月の末日に丸める。 */
+export function addMonths(date: string, months: number): string {
+  const [y, m, d] = date.split("-").map(Number);
+  const total = (m - 1) + months;
+  const ny = y + Math.floor(total / 12);
+  const nm = ((total % 12) + 12) % 12 + 1;
+  const maxDay = new Date(ny, nm, 0).getDate();
+  return `${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(d, maxDay)).padStart(2, "0")}`;
+}
+
+/**
+ * 返済予定表を作る。
+ *
+ *   元金均等（equal_principal）… 毎回の元金が一定。利息は残高に応じて減る
+ *   元利均等（equal_payment）  … 毎回の支払総額が一定。元金と利息の比率が変わる
+ *
+ * 端数は最終回で吸収し、元金の合計が必ず借入額と一致するようにする。
+ * （合計が合わないと、完済したのに残高が残る／マイナスになる）
+ */
+export function generateRepaymentSchedule(params: {
+  principal: number;
+  /** 年利(%) */
+  annualRatePercent: number;
+  /** 返済回数（月） */
+  termMonths: number;
+  /** 初回返済日 */
+  firstDueDate: string;
+  method: RepaymentMethod;
+}): ScheduleRow[] {
+  const { principal, annualRatePercent, termMonths, firstDueDate, method } = params;
+  if (principal <= 0 || termMonths <= 0) return [];
+
+  const monthlyRate = annualRatePercent / 100 / 12;
+  const rows: ScheduleRow[] = [];
+  let remaining = principal;
+
+  // 元利均等の毎回支払額（無利息なら単純に等分）
+  const payment =
+    method === "equal_payment" && monthlyRate > 0
+      ? (principal * monthlyRate) / (1 - Math.pow(1 + monthlyRate, -termMonths))
+      : principal / termMonths;
+
+  for (let i = 0; i < termMonths; i++) {
+    const isLast = i === termMonths - 1;
+    const interest = Math.round(remaining * monthlyRate);
+
+    let principalPart: number;
+    if (isLast) {
+      // 端数を最終回で吸収する
+      principalPart = remaining;
+    } else if (method === "equal_principal") {
+      principalPart = Math.round(principal / termMonths);
+    } else {
+      principalPart = Math.max(0, Math.round(payment - interest));
+    }
+    principalPart = Math.min(principalPart, remaining);
+
+    rows.push({
+      due_date: addMonths(firstDueDate, i),
+      principal_amount: principalPart,
+      interest_amount: interest,
+    });
+    remaining -= principalPart;
+  }
+
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
+// 整合性チェック（要件3-5 / 4-6）
+// ---------------------------------------------------------------------------
+
+/** 仕訳側の1行。借入金/貸付金の科目に付いた行だけを渡す。 */
+export type JournalLineForCheck = {
+  journalEntryId: string;
+  date: string;
+  debit: number;
+  credit: number;
+  description?: string | null;
+  source?: string | null;
+};
+
+export type ReconcileSuspect = {
+  kind: "not_journalized" | "journal_without_entry" | "draft_entry";
+  date: string;
+  amount: number;
+  label: string;
+  /** 対応する台帳明細 or 仕訳のID */
+  refId: string;
+};
+
+export type ReconcileResult = {
+  /** 台帳の明細から算出した残高 */
+  ledgerBalance: number;
+  /** 仕訳から集計した勘定残高 */
+  journalBalance: number;
+  /** 差額の絶対値 */
+  difference: number;
+  /** 差額がどちら側に大きいか */
+  largerSide: "ledger" | "journal" | "even";
+  matched: boolean;
+  /** 差額の原因と思われるもの */
+  suspects: ReconcileSuspect[];
+};
+
+/**
+ * 台帳の残高と、仕訳から集計した勘定残高を突き合わせる。
+ *
+ * 借入金（direction='borrow'）は負債なので 貸方−借方 が残高。
+ * 貸付金（direction='lend'）は資産なので 借方−貸方 が残高。
+ *
+ * 一致しない場合は、原因になりやすいものを挙げる:
+ *   - まだ仕訳にしていない明細（台帳にはあるが仕訳に無い）
+ *   - 台帳の明細と結びついていない仕訳（仕訳にはあるが台帳に無い）
+ *   - AIの下書きのまま確定していない明細
+ */
+export function reconcileLoanLedger(params: {
+  direction: LoanDirection;
+  entries: LedgerEntry[];
+  journalLines: JournalLineForCheck[];
+  /** 明細の区分名を出すために使う */
+  labelOf?: (e: LedgerEntry) => string;
+}): ReconcileResult {
+  const { direction, entries, journalLines } = params;
+  const label = params.labelOf ?? ((e: LedgerEntry) => entryTypeLabel(e.entry_type, direction));
+
+  const ledgerBalance = currentBalance(entries);
+  const journalBalance = journalLines.reduce(
+    (sum, l) => sum + (direction === "lend" ? l.debit - l.credit : l.credit - l.debit),
+    0
+  );
+
+  const diff = ledgerBalance - journalBalance;
+  const suspects: ReconcileSuspect[] = [];
+
+  // 台帳にあるが仕訳にしていない明細
+  for (const e of entries) {
+    if (e.status === "draft") {
+      suspects.push({
+        kind: "draft_entry",
+        date: e.entry_date,
+        amount: e.amount,
+        label: `${label(e)}（AIの下書きのまま。確定すると残高に入ります）`,
+        refId: e.id,
+      });
+    }
+  }
+
+  const journalIdsInLedger = new Set(
+    entries
+      .map((e) => (e as LedgerEntry & { journal_entry_id?: string | null }).journal_entry_id)
+      .filter((v): v is string => Boolean(v))
+  );
+
+  for (const e of entries) {
+    const jid = (e as LedgerEntry & { journal_entry_id?: string | null }).journal_entry_id;
+    if (!jid && e.status !== "draft") {
+      suspects.push({
+        kind: "not_journalized",
+        date: e.entry_date,
+        amount: e.amount,
+        label: `${label(e)}（まだ仕訳にしていません）`,
+        refId: e.id,
+      });
+    }
+  }
+
+  // 仕訳にあるが台帳の明細と結びついていないもの
+  const seen = new Set<string>();
+  for (const l of journalLines) {
+    if (journalIdsInLedger.has(l.journalEntryId) || seen.has(l.journalEntryId)) continue;
+    seen.add(l.journalEntryId);
+    suspects.push({
+      kind: "journal_without_entry",
+      date: l.date,
+      amount: Math.max(l.debit, l.credit),
+      label: `${l.description ?? "仕訳"}（台帳に対応する明細がありません）`,
+      refId: l.journalEntryId,
+    });
+  }
+
+  return {
+    ledgerBalance,
+    journalBalance,
+    difference: Math.abs(diff),
+    largerSide: diff > 0 ? "ledger" : diff < 0 ? "journal" : "even",
+    matched: diff === 0,
+    suspects: suspects.sort((a, b) => (a.date < b.date ? -1 : 1)),
+  };
+}

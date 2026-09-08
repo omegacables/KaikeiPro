@@ -24,6 +24,8 @@ import type {
   LoanEntryType,
   OfficerPaymentClassification,
   OfficerPaymentOption,
+  LedgerAnswer,
+  LedgerAnswerSource,
 } from "@/types/index";
 
 type DbRow = Record<string, unknown>;
@@ -661,4 +663,116 @@ export async function loanEntryTypeLabel(
   direction: LoanDirection
 ): Promise<string> {
   return entryTypeLabel(type, direction);
+}
+
+// ---------------------------------------------------------------------------
+// 4-7. 質問応答
+// ---------------------------------------------------------------------------
+
+/**
+ * 「いま役員借入金はいくら？」「この10万円は何？」といった質問に、
+ * 台帳を根拠として答える。
+ *
+ * 金額の計算はAIに任せない。残高や集計はサーバー側で確定させてから
+ * プロンプトに渡し、AIには「その事実をもとに日本語で説明する」役だけを持たせる。
+ * AIに足し算をさせると、もっともらしく間違えた金額を返すため。
+ */
+export async function askLoanLedger(
+  clientId: string,
+  question: string
+): Promise<LedgerAnswer> {
+  await assertClientAccess(clientId);
+  if (!question.trim()) throw new Error("質問を入力してください");
+
+  const supabase = await createServerSupabaseClient();
+  const ctx = await loadContext(clientId);
+
+  // 明細も根拠として渡す（直近のものに絞る）
+  const { data: entryRows } = await supabase
+    .from("loan_entries")
+    .select("*")
+    .eq("client_id", clientId)
+    .order("entry_date", { ascending: false })
+    .limit(200);
+
+  const loanNameById = new Map(ctx.loans.map((l) => [l.id, l.name]));
+  const entries = (entryRows ?? []).map((r) => {
+    const row = r as DbRow;
+    return {
+      id: row.id as string,
+      loan_id: row.loan_id as string,
+      loanName: loanNameById.get(row.loan_id as string) ?? "",
+      date: row.entry_date as string,
+      type: row.entry_type as LoanEntryType,
+      amount: (row.amount as number) ?? 0,
+      memo: (row.memo as string) ?? "",
+      status: row.status as string,
+    };
+  });
+
+  const entryLines = entries
+    .slice(0, 120)
+    .map(
+      (e) =>
+        `- id=${e.id} ${e.date} 「${e.loanName}」 ${e.type} ${e.amount}円 ${
+          e.memo ? `摘要:${e.memo}` : ""
+        }${e.status === "draft" ? " ※AIの下書き（残高に未算入）" : ""}`
+    )
+    .join("\n");
+
+  const prompt = `あなたは日本の税理士事務所の会計スタッフです。
+借入金台帳について質問に答えてください。
+
+${contextPrompt(ctx)}
+
+## 台帳の増減明細（直近）
+${entryLines || "（明細なし）"}
+
+## 守ること
+- **残高や合計は上に示した値をそのまま使い、自分で計算し直さないでください。**
+  上に無い数字を新たに作らないこと。
+- 回答の根拠にした明細の id を必ず sources に入れてください。根拠が無い回答はしないでください。
+- 台帳から答えられない質問（税額の計算、他機能の話など）は out_of_scope を true にし、
+  何なら答えられるかを添えてください。
+- 金額は円単位で、3桁区切りにしてください。
+
+## 出力形式
+JSONのみを返してください。説明文は不要です。
+{"answer":"日本語の回答","sources":[{"entry_id":"根拠にした明細のid","label":"その明細を指す短い説明"}],"out_of_scope":true/false}
+
+${INJECTION_GUARD}
+
+## 質問
+${question}`;
+
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
+  const parsed = extractJson<{
+    answer?: string;
+    sources?: { entry_id?: string; label?: string }[];
+    out_of_scope?: boolean;
+  }>(result.response.text(), "質問への回答");
+
+  const byId = new Map(entries.map((e) => [e.id, e]));
+
+  // AIが挙げた根拠のうち、実在する明細だけを残す（存在しないidを出させない）
+  const sources: LedgerAnswerSource[] = (parsed.sources ?? [])
+    .map((s): LedgerAnswerSource | null => {
+      const e = s.entry_id ? byId.get(s.entry_id) : undefined;
+      if (!e) return null;
+      return {
+        label: s.label || `${e.date} ${e.loanName} ${e.amount}円`,
+        loan_id: e.loan_id,
+        entry_id: e.id,
+        entry_date: e.date,
+        amount: e.amount,
+      };
+    })
+    .filter((s): s is LedgerAnswerSource => s !== null);
+
+  return {
+    answer: parsed.answer ?? "",
+    sources,
+    outOfScope: Boolean(parsed.out_of_scope),
+  };
 }

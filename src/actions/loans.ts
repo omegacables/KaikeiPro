@@ -8,10 +8,17 @@ import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import { fetchAllRows } from "@/lib/fetch-all";
 import {
   currentBalance,
+  balanceAsOf,
   balanceByType,
   entryTypeLabel,
   buildJournalLines,
+  generateRepaymentSchedule,
+  reconcileLoanLedger,
+  type RepaymentMethod,
+  type ReconcileResult,
+  type JournalLineForCheck,
 } from "@/lib/loan-ledger";
+import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import type { Json } from "@/types/database";
 import type {
   Loan,
@@ -24,6 +31,9 @@ import type {
   LoanEntryType,
   LoanAiEvidence,
   StatutoryInterestRate,
+  LoanRepaymentSchedule,
+  LoanBreakdownReport,
+  LoanBreakdownRow,
 } from "@/types/index";
 
 type DbRow = Record<string, unknown>;
@@ -616,4 +626,324 @@ export async function unjournalizeLoanEntry(entryId: string): Promise<void> {
     .update({ journal_entry_id: null, status: "confirmed" })
     .eq("id", entryId);
   if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------------------
+// 返済予定表（要件3-7）
+// ---------------------------------------------------------------------------
+
+function rowToSchedule(r: DbRow): LoanRepaymentSchedule {
+  return {
+    id: r.id as string,
+    loan_id: r.loan_id as string,
+    client_id: r.client_id as string,
+    due_date: (r.due_date as string) ?? "",
+    principal_amount: (r.principal_amount as number) ?? 0,
+    interest_amount: (r.interest_amount as number) ?? 0,
+    principal_entry_id: (r.principal_entry_id as string) ?? null,
+    interest_entry_id: (r.interest_entry_id as string) ?? null,
+    memo: (r.memo as string) ?? null,
+    created_at: (r.created_at as string) ?? "",
+  };
+}
+
+export async function getRepaymentSchedules(loanId: string): Promise<LoanRepaymentSchedule[]> {
+  await resolveClientIdForRecord("loans", loanId);
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("loan_repayment_schedules")
+    .select("*")
+    .eq("loan_id", loanId)
+    .order("due_date", { ascending: true });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map(rowToSchedule);
+}
+
+/**
+ * 借入条件から返済予定表を作る。既存の予定は入れ替える。
+ * 実績（消し込み済み）がある場合は、取り違えを防ぐため作り直しを拒否する。
+ */
+export async function generateSchedules(params: {
+  loanId: string;
+  principal: number;
+  annualRatePercent: number;
+  termMonths: number;
+  firstDueDate: string;
+  method: RepaymentMethod;
+}): Promise<number> {
+  const clientId = await resolveClientIdForRecord("loans", params.loanId);
+  const supabase = await createServerSupabaseClient();
+
+  const { data: existing } = await supabase
+    .from("loan_repayment_schedules")
+    .select("id, principal_entry_id, interest_entry_id")
+    .eq("loan_id", params.loanId);
+
+  const hasActual = (existing ?? []).some(
+    (r) => (r as DbRow).principal_entry_id || (r as DbRow).interest_entry_id
+  );
+  if (hasActual) {
+    throw new Error(
+      "実績のある予定表は作り直せません。個別に修正するか、実績の消し込みを取り消してください。"
+    );
+  }
+
+  const rows = generateRepaymentSchedule({
+    principal: params.principal,
+    annualRatePercent: params.annualRatePercent,
+    termMonths: params.termMonths,
+    firstDueDate: params.firstDueDate,
+    method: params.method,
+  });
+  if (rows.length === 0) throw new Error("借入額と返済回数を入力してください");
+
+  await supabase.from("loan_repayment_schedules").delete().eq("loan_id", params.loanId);
+
+  const { error } = await supabase.from("loan_repayment_schedules").insert(
+    rows.map((r) => ({
+      loan_id: params.loanId,
+      client_id: clientId,
+      due_date: r.due_date,
+      principal_amount: r.principal_amount,
+      interest_amount: r.interest_amount,
+    }))
+  );
+  if (error) throw new Error(error.message);
+  return rows.length;
+}
+
+export async function deleteSchedule(id: string): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("loan_repayment_schedules")
+    .delete()
+    .eq("id", id)
+    .select("id");
+  if (error) throw new Error(error.message);
+  if (!data || data.length === 0) {
+    throw new Error("予定が見つからないか、削除する権限がありません");
+  }
+}
+
+/**
+ * 予定を実績にする（消し込み）。
+ * 予定の元金・利息をそれぞれ増減明細として作り、予定行に結び付ける。
+ * 手入力の手間を減らすのが目的なので、金額は予定どおりで作る（違えば後から明細を直す）。
+ */
+export async function applySchedule(scheduleId: string): Promise<void> {
+  const supabase = await createServerSupabaseClient();
+  const { data: raw, error: readErr } = await supabase
+    .from("loan_repayment_schedules")
+    .select("*")
+    .eq("id", scheduleId)
+    .maybeSingle();
+  if (readErr) throw new Error(readErr.message);
+  if (!raw) throw new Error("予定が見つからないか、アクセスする権限がありません");
+  const sch = rowToSchedule(raw as DbRow);
+
+  if (sch.principal_entry_id || sch.interest_entry_id) {
+    throw new Error("この予定はすでに実績になっています");
+  }
+
+  const patch: Record<string, unknown> = {};
+
+  if (sch.principal_amount > 0) {
+    const e = await createLoanEntry({
+      loan_id: sch.loan_id,
+      client_id: sch.client_id,
+      entry_date: sch.due_date,
+      entry_type: "repay",
+      amount: sch.principal_amount,
+      signed_adjustment: null,
+      expense_account_id: null,
+      payment_account_id: null,
+      ai_evidence: null,
+      memo: `返済予定より（元金）${sch.memo ?? ""}`.trim(),
+    });
+    patch.principal_entry_id = e.id;
+  }
+
+  if (sch.interest_amount > 0) {
+    const e = await createLoanEntry({
+      loan_id: sch.loan_id,
+      client_id: sch.client_id,
+      entry_date: sch.due_date,
+      entry_type: "interest",
+      amount: sch.interest_amount,
+      signed_adjustment: null,
+      expense_account_id: null,
+      payment_account_id: null,
+      ai_evidence: null,
+      memo: `返済予定より（利息）${sch.memo ?? ""}`.trim(),
+    });
+    patch.interest_entry_id = e.id;
+  }
+
+  if (Object.keys(patch).length === 0) return;
+
+  const { error } = await supabase
+    .from("loan_repayment_schedules")
+    .update(patch)
+    .eq("id", scheduleId);
+  if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------------------
+// 整合性チェック（要件3-5 / 4-6）
+// ---------------------------------------------------------------------------
+
+/**
+ * 台帳の残高と、仕訳から集計した勘定残高を突き合わせる。
+ *
+ * 台帳は管理用の記録で、決算書に出るのは仕訳の方。両者がずれていると
+ * 「台帳では返し終わっているのに決算書には残債がある」といった事故になる。
+ */
+export async function reconcileLoan(loanId: string): Promise<ReconcileResult> {
+  const clientId = await resolveClientIdForRecord("loans", loanId);
+  const supabase = await createServerSupabaseClient();
+  const admin = createAdminSupabaseClient();
+
+  const { data: loanRaw } = await supabase.from("loans").select("*").eq("id", loanId).single();
+  if (!loanRaw) throw new Error("台帳が見つかりません");
+  const loan = rowToLoan(loanRaw as DbRow);
+
+  const { data: entryRows } = await supabase
+    .from("loan_entries")
+    .select("*")
+    .eq("loan_id", loanId);
+  const entries = (entryRows ?? []).map(rowToEntry);
+
+  // 対象となる勘定科目を決める（仕訳化に使うものと同じ解決方法）
+  const accounts = await loadAccounts(admin, clientId);
+  const ledgerAccountId =
+    loan.liability_account_id ??
+    (loan.direction === "lend"
+      ? findAccount(accounts, ["役員貸付金", "貸付金"])
+      : loan.counterparty_kind === "officer"
+        ? findAccount(accounts, ["役員借入金", "役員からの借入金"])
+        : findAccount(accounts, ["長期借入金", "短期借入金", "借入金"]));
+
+  if (!ledgerAccountId) {
+    throw new Error("対象の勘定科目が見つかりません。勘定科目に登録してください。");
+  }
+
+  // 1000行の上限に当たらないようページングして全件取得する
+  const lineRows = await fetchAllRows<DbRow>((from, to) =>
+    admin
+      .from("journal_entry_lines")
+      .select("journal_entry_id, debit_amount, credit_amount, journal_entries(client_id, entry_date, description, source)")
+      .eq("account_id", ledgerAccountId)
+      .range(from, to)
+  );
+
+  const journalLines: JournalLineForCheck[] = lineRows
+    .map((r) => {
+      const je = r.journal_entries as
+        | { client_id?: string; entry_date?: string; description?: string; source?: string }
+        | null;
+      return {
+        journalEntryId: r.journal_entry_id as string,
+        date: je?.entry_date ?? "",
+        debit: Number(r.debit_amount ?? 0),
+        credit: Number(r.credit_amount ?? 0),
+        description: je?.description ?? null,
+        source: je?.source ?? null,
+        clientId: je?.client_id ?? "",
+      };
+    })
+    // サービスロールで引いているので、顧問先が一致するものだけに絞る
+    .filter((l) => l.clientId === clientId)
+    .map(({ clientId: _omit, ...rest }) => rest);
+
+  return reconcileLoanLedger({
+    direction: loan.direction,
+    entries,
+    journalLines,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 勘定科目内訳明細書「借入金及び支払利子の内訳書」（要件3-6）
+// ---------------------------------------------------------------------------
+
+/**
+ * 期末現在高と期中の支払利子額を、指定した会計年度で集計する。
+ * 役員借入金は内訳書の記載対象になるため、残高が0でも行として残す。
+ */
+export async function getLoanBreakdownReport(
+  clientId: string,
+  fiscalStartYear: number
+): Promise<LoanBreakdownReport> {
+  await assertClientAccess(clientId);
+  const supabase = await createServerSupabaseClient();
+
+  const { data: client } = await supabase
+    .from("clients")
+    .select("name, fiscal_year_start_month")
+    .eq("id", clientId)
+    .single();
+
+  const { startDate, endDate } = fiscalRangeFromStartYear(
+    (client as DbRow | null)?.fiscal_year_start_month as number | undefined,
+    fiscalStartYear
+  );
+
+  const { data: loanRows } = await supabase
+    .from("loans")
+    .select("*, business_partners(address)")
+    .eq("client_id", clientId)
+    .eq("direction", "borrow");
+
+  const entryRows = await fetchAllRows<DbRow>((from, to) =>
+    supabase.from("loan_entries").select("*").eq("client_id", clientId).range(from, to)
+  );
+
+  const byLoan = new Map<string, LoanEntry[]>();
+  for (const r of entryRows) {
+    const e = rowToEntry(r);
+    const list = byLoan.get(e.loan_id);
+    if (list) list.push(e);
+    else byLoan.set(e.loan_id, [e]);
+  }
+
+  const rows: LoanBreakdownRow[] = (loanRows ?? []).map((raw) => {
+    const loan = rowToLoan(raw as DbRow);
+    const es = byLoan.get(loan.id) ?? [];
+    const partner = (raw as DbRow).business_partners as { address?: string } | null;
+
+    return {
+      lender_name: loan.lender_name,
+      address: partner?.address ?? null,
+      // 期末現在高＝決算日時点の残高
+      closing_balance: balanceAsOf(es, endDate),
+      // 期中の支払利子額＝当期に計上した利息の合計
+      interest_paid: es
+        .filter(
+          (e) =>
+            e.entry_type === "interest" &&
+            e.status !== "draft" &&
+            e.entry_date >= startDate &&
+            e.entry_date <= endDate
+        )
+        .reduce((s, e) => s + e.amount, 0),
+      interest_rate: loan.interest_rate,
+      purpose: loan.purpose,
+      is_officer: loan.counterparty_kind === "officer",
+    };
+  });
+
+  // 役員借入金は残高0でも記載対象。それ以外は残高も利子もなければ省く
+  const visible = rows.filter(
+    (r) => r.is_officer || r.closing_balance !== 0 || r.interest_paid !== 0
+  );
+
+  return {
+    clientName: ((client as DbRow | null)?.name as string) ?? "",
+    fiscalYear: fiscalStartYear,
+    periodStart: startDate,
+    periodEnd: endDate,
+    rows: visible,
+    totalClosingBalance: visible.reduce((s, r) => s + r.closing_balance, 0),
+    totalInterestPaid: visible.reduce((s, r) => s + r.interest_paid, 0),
+  };
 }

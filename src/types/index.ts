@@ -586,6 +586,57 @@ export interface LoanLedger {
   needsAttention: boolean;
 }
 
+// --- 返済予定表（要件3-7） --------------------------------------------------
+
+/** 金融機関等からの借入の返済予定。役員借入金では通常使わない。 */
+export interface LoanRepaymentSchedule {
+  id: string;
+  loan_id: string;
+  client_id: string;
+  due_date: string;
+  principal_amount: number;
+  interest_amount: number;
+  /** 消し込みで作られた増減明細。埋まっていれば実績あり */
+  principal_entry_id: string | null;
+  interest_entry_id: string | null;
+  memo: string | null;
+  created_at: string;
+}
+
+export type LoanRepaymentScheduleInput = Omit<
+  LoanRepaymentSchedule,
+  "id" | "principal_entry_id" | "interest_entry_id" | "created_at"
+>;
+
+// --- 勘定科目内訳明細書（要件3-6） -----------------------------------------
+
+/** 「借入金及び支払利子の内訳書」の1行 */
+export interface LoanBreakdownRow {
+  lender_name: string;
+  /** 取引先マスタから引いた所在地 */
+  address: string | null;
+  /** 期末現在高 */
+  closing_balance: number;
+  /** 期中の支払利子額 */
+  interest_paid: number;
+  /** 年利(%) */
+  interest_rate: number | null;
+  /** 借入理由 */
+  purpose: string | null;
+  /** 役員借入金かどうか（内訳書では必ず記載対象になる） */
+  is_officer: boolean;
+}
+
+export interface LoanBreakdownReport {
+  clientName: string;
+  fiscalYear: number;
+  periodStart: string;
+  periodEnd: string;
+  rows: LoanBreakdownRow[];
+  totalClosingBalance: number;
+  totalInterestPaid: number;
+}
+
 // --- 認定利息の利率マスタ --------------------------------------------------
 
 export interface StatutoryInterestRate {
@@ -651,6 +702,24 @@ export interface OfficerPaymentClassification {
   question: string;
   /** 採用した場合の下書き。conclusion が null なら null */
   draft: LoanAiDraft | null;
+}
+
+// --- 質問応答（要件4-7） ----------------------------------------------------
+
+/** 回答の根拠。必ず台帳の明細か証憑を指す（言いっぱなしにしない）。 */
+export interface LedgerAnswerSource {
+  label: string;
+  loan_id: string | null;
+  entry_id: string | null;
+  entry_date: string | null;
+  amount: number | null;
+}
+
+export interface LedgerAnswer {
+  answer: string;
+  sources: LedgerAnswerSource[];
+  /** 台帳から答えられない質問だった場合に true */
+  outOfScope: boolean;
 }
 
 // --- 旧構造（移行のため残置） ----------------------------------------------

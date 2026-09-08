@@ -857,6 +857,48 @@ export interface Database {
         };
         Relationships: [];
       };
+      loan_repayment_schedules: {
+        Row: {
+          id: string;
+          loan_id: string;
+          client_id: string;
+          due_date: string;
+          principal_amount: number;
+          interest_amount: number;
+          principal_entry_id: string | null;
+          interest_entry_id: string | null;
+          memo: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          loan_id: string;
+          client_id: string;
+          due_date: string;
+          principal_amount?: number;
+          interest_amount?: number;
+          principal_entry_id?: string | null;
+          interest_entry_id?: string | null;
+          memo?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          loan_id?: string;
+          client_id?: string;
+          due_date?: string;
+          principal_amount?: number;
+          interest_amount?: number;
+          principal_entry_id?: string | null;
+          interest_entry_id?: string | null;
+          memo?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       statutory_interest_rates: {
         Row: {
           loan_year: number;

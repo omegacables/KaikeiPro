@@ -16,6 +16,10 @@ import {
   Sparkles,
   Paperclip,
   FileText,
+  CalendarClock,
+  Scale,
+  MessageCircleQuestion,
+  Printer,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -36,12 +40,18 @@ import {
   attachReceiptToEntry,
   detachReceiptFromEntry,
   getEntryReceipts,
+  getRepaymentSchedules,
+  generateSchedules,
+  deleteSchedule,
+  applySchedule,
+  reconcileLoan,
 } from "@/actions/loans";
 import {
   draftLoanEntriesFromText,
   draftLoanEntriesFromReceipt,
   classifyOfficerPayment,
   commitLoanAiDrafts,
+  askLoanLedger,
 } from "@/actions/loan-ai";
 import { getClient } from "@/actions/clients";
 import { getAccounts } from "@/actions/accounts";
@@ -52,6 +62,7 @@ import {
   imputedInterestAlert,
   entryTypeLabel,
   type ImputedInterestAlert,
+  type ReconcileResult,
 } from "@/lib/loan-ledger";
 import type {
   LoanLedger,
@@ -62,7 +73,11 @@ import type {
   LoanAiDraft,
   LoanEntryReceipt,
   OfficerPaymentClassification,
+  LoanRepaymentSchedule,
+  LedgerAnswer,
 } from "@/types/index";
+import { currentFiscalStartYear } from "@/lib/fiscal";
+import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
 
 const num = (s: string) => Math.round(Number(s) || 0);
@@ -131,6 +146,7 @@ type EditableDraft = LoanAiDraft & { selected: boolean };
 
 export default function LoansPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
+  const router = useRouter();
 
   const [ledgers, setLedgers] = useState<LoanLedger[]>([]);
   const [expenseAccounts, setExpenseAccounts] = useState<AccountOption[]>([]);
@@ -519,10 +535,24 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           <Landmark className="size-6 text-primary" />
           <h1 className="text-xl font-bold">借入金台帳</h1>
         </div>
-        <Button onClick={openCreateLoan}>
-          <Plus className="size-4" />
-          相手先を追加
-        </Button>
+        <div className="flex items-center gap-2">
+          {/* 法人税申告に添付する「借入金及び支払利子の内訳書」（要件3-6） */}
+          <Button
+            variant="outline"
+            onClick={() =>
+              router.push(
+                `/clients/${id}/loans/breakdown/${currentFiscalStartYear(fiscalStartMonth)}`
+              )
+            }
+          >
+            <Printer className="size-4" />
+            内訳明細書を出力
+          </Button>
+          <Button onClick={openCreateLoan}>
+            <Plus className="size-4" />
+            相手先を追加
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -1067,6 +1097,14 @@ function LedgerRow(props: {
             </div>
           )}
 
+          {/* 返済予定表。金融機関等からの借入のときだけ出す（要件3-7） */}
+          {!isLend && loan.counterparty_kind === "institution" && (
+            <RepaymentScheduleSection ledger={ledger} />
+          )}
+
+          {/* 台帳と仕訳の照合（要件3-5 / 4-6） */}
+          <ReconcileSection ledger={ledger} />
+
           {/* 増減明細と残高推移 */}
           {rows.length === 0 ? (
             <p className={bodyCls}>まだ明細がありません。上のフォームから追加してください。</p>
@@ -1284,6 +1322,8 @@ function AiPanel(props: {
             </Button>
           </div>
         </div>
+
+        <AskSection clientId={props.clientId} />
 
         <ClassifyPaymentSection
           clientId={props.clientId}
@@ -1970,6 +2010,417 @@ function ClassifyPaymentSection(props: {
               役員報酬・立替経費の精算にあたる場合は、この台帳ではなく給与または
               経費の機能で処理してください。
             </p>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 返済予定表（要件3-7）
+//
+// 金融機関等からの借入は返済日ごとに元金と利息の内訳が決まっている。
+// 予定を持っておくと、期日が来たら1クリックで増減明細に落とせる。
+// 役員借入金は返済条件を定めないのが通常なので、この節は表示しない。
+// ---------------------------------------------------------------------------
+
+function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
+  const [rows, setRows] = useState<LoanRepaymentSchedule[]>([]);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const [form, setForm] = useState({
+    principal: "",
+    rate: ledger.loan.interest_rate != null ? String(ledger.loan.interest_rate) : "",
+    months: "12",
+    firstDue: today(),
+    method: "equal_principal" as "equal_principal" | "equal_payment",
+  });
+
+  const load = useCallback(async () => {
+    try {
+      setRows(await getRepaymentSchedules(ledger.loan.id));
+    } catch {
+      // 予定表が読めなくても台帳表示は妨げない
+    }
+  }, [ledger.loan.id]);
+
+  useEffect(() => {
+    if (open) load();
+  }, [open, load]);
+
+  async function handleGenerate() {
+    setBusy("gen");
+    setError(null);
+    try {
+      const n = await generateSchedules({
+        loanId: ledger.loan.id,
+        principal: num(form.principal),
+        annualRatePercent: Number(form.rate) || 0,
+        termMonths: num(form.months),
+        firstDueDate: form.firstDue,
+        method: form.method,
+      });
+      await load();
+      setError(`${n}回分の予定を作成しました。`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "作成に失敗しました");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  const totalPrincipal = rows.reduce((s, r) => s + r.principal_amount, 0);
+  const totalInterest = rows.reduce((s, r) => s + r.interest_amount, 0);
+  const done = rows.filter((r) => r.principal_entry_id || r.interest_entry_id).length;
+
+  return (
+    <details
+      className="rounded-lg border border-border p-3"
+      onToggle={(e) => setOpen((e.currentTarget as HTMLDetailsElement).open)}
+    >
+      <summary className="text-[17px] font-medium cursor-pointer flex items-center gap-2">
+        <CalendarClock className="size-4" />
+        返済予定表{rows.length > 0 && `（${rows.length}回 / 実績 ${done}回）`}
+      </summary>
+
+      <div className="mt-3 space-y-3">
+        {error && <p className="text-[17px] text-destructive">{error}</p>}
+
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto_auto] sm:items-end">
+          <div>
+            <label className={labelCls}>借入額</label>
+            <input
+              type="number"
+              value={form.principal}
+              onChange={(e) => setForm({ ...form, principal: e.target.value })}
+              className={inputCls + " text-right"}
+              placeholder="1000000"
+            />
+          </div>
+          <div>
+            <label className={labelCls}>年利(%)</label>
+            <input
+              type="number"
+              step="0.001"
+              value={form.rate}
+              onChange={(e) => setForm({ ...form, rate: e.target.value })}
+              className={inputCls + " w-24 text-right"}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>回数(月)</label>
+            <input
+              type="number"
+              value={form.months}
+              onChange={(e) => setForm({ ...form, months: e.target.value })}
+              className={inputCls + " w-24 text-right"}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>初回返済日</label>
+            <DateInput
+              value={form.firstDue}
+              onChange={(v) => setForm({ ...form, firstDue: v })}
+              className={inputCls + " w-44 pr-7"}
+            />
+          </div>
+          <div>
+            <label className={labelCls}>方式</label>
+            <select
+              value={form.method}
+              onChange={(e) =>
+                setForm({ ...form, method: e.target.value as typeof form.method })
+              }
+              className={inputCls + " w-auto"}
+            >
+              <option value="equal_principal">元金均等</option>
+              <option value="equal_payment">元利均等</option>
+            </select>
+          </div>
+          <Button variant="outline" onClick={handleGenerate} disabled={busy === "gen"}>
+            {busy === "gen" && <Loader2 className="size-4 animate-spin" />}
+            予定表を作る
+          </Button>
+        </div>
+
+        <p className={bodyCls}>
+          元金均等は毎回の元金が一定、元利均等は毎回の支払総額が一定です。
+          端数は最終回で調整し、元金の合計が借入額と必ず一致します。
+        </p>
+
+        {rows.length > 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full text-[17px]">
+              <thead>
+                <tr className="border-b border-border text-left">
+                  <th className="py-2 pr-3 font-medium">返済日</th>
+                  <th className="py-2 pr-3 font-medium text-right">元金</th>
+                  <th className="py-2 pr-3 font-medium text-right">利息</th>
+                  <th className="py-2 pr-3 font-medium text-right">合計</th>
+                  <th className="py-2 pr-3 font-medium">状態</th>
+                  <th className="py-2 font-medium text-right">操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((r) => {
+                  const applied = Boolean(r.principal_entry_id || r.interest_entry_id);
+                  return (
+                    <tr key={r.id} className="border-b border-border/60">
+                      <td className="py-2 pr-3 tabular-nums">{r.due_date}</td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {formatCurrency(r.principal_amount)}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums">
+                        {formatCurrency(r.interest_amount)}
+                      </td>
+                      <td className="py-2 pr-3 text-right tabular-nums font-medium">
+                        {formatCurrency(r.principal_amount + r.interest_amount)}
+                      </td>
+                      <td className="py-2 pr-3">
+                        {applied ? (
+                          <Badge variant="success">実績あり</Badge>
+                        ) : (
+                          <Badge variant="muted">予定</Badge>
+                        )}
+                      </td>
+                      <td className="py-2 text-right whitespace-nowrap">
+                        {busy === r.id ? (
+                          <Loader2 className="size-4 animate-spin inline" />
+                        ) : (
+                          <>
+                            {!applied && (
+                              <button
+                                onClick={async () => {
+                                  setBusy(r.id);
+                                  setError(null);
+                                  try {
+                                    await applySchedule(r.id);
+                                    await load();
+                                  } catch (e) {
+                                    setError(
+                                      e instanceof Error ? e.message : "消し込みに失敗しました"
+                                    );
+                                  } finally {
+                                    setBusy(null);
+                                  }
+                                }}
+                                className="p-1.5 rounded hover:bg-muted text-primary"
+                                title="この予定を明細にする"
+                              >
+                                <CheckCircle className="size-4" />
+                              </button>
+                            )}
+                            <button
+                              onClick={async () => {
+                                if (!confirm("この予定を削除しますか？")) return;
+                                setBusy(r.id);
+                                try {
+                                  await deleteSchedule(r.id);
+                                  await load();
+                                } catch (e) {
+                                  setError(
+                                    e instanceof Error ? e.message : "削除に失敗しました"
+                                  );
+                                } finally {
+                                  setBusy(null);
+                                }
+                              }}
+                              className="p-1.5 rounded hover:bg-muted text-destructive"
+                              title="削除"
+                            >
+                              <Trash2 className="size-4" />
+                            </button>
+                          </>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+                <tr className="font-bold">
+                  <td className="py-2 pr-3">合計</td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {formatCurrency(totalPrincipal)}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {formatCurrency(totalInterest)}
+                  </td>
+                  <td className="py-2 pr-3 text-right tabular-nums">
+                    {formatCurrency(totalPrincipal + totalInterest)}
+                  </td>
+                  <td colSpan={2} />
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </details>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 整合性チェック（要件3-5 / 4-6）
+// ---------------------------------------------------------------------------
+
+function ReconcileSection({ ledger }: { ledger: LoanLedger }) {
+  const [result, setResult] = useState<ReconcileResult | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function run() {
+    setBusy(true);
+    setError(null);
+    try {
+      setResult(await reconcileLoan(ledger.loan.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "照合に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-lg border border-border p-3 space-y-2">
+      <div className="flex flex-wrap items-center gap-3">
+        <Scale className="size-4" />
+        <span className="text-[17px] font-medium">台帳と仕訳の照合</span>
+        <Button variant="outline" onClick={run} disabled={busy}>
+          {busy && <Loader2 className="size-4 animate-spin" />}
+          照合する
+        </Button>
+      </div>
+
+      <p className={bodyCls}>
+        台帳は管理用の記録で、決算書に出るのは仕訳の方です。両者がずれていると
+        「台帳では返し終わっているのに決算書に残債がある」といった食い違いが起きます。
+      </p>
+
+      {error && <p className="text-[17px] text-destructive">{error}</p>}
+
+      {result && (
+        <div className="space-y-2">
+          <div className="flex flex-wrap gap-4 text-[17px]">
+            <span>台帳の残高 {formatCurrency(result.ledgerBalance)}</span>
+            <span>仕訳の残高 {formatCurrency(result.journalBalance)}</span>
+            {result.matched ? (
+              <Badge variant="success">一致しています</Badge>
+            ) : (
+              <Badge variant="destructive">
+                差額 {formatCurrency(result.difference)}（
+                {result.largerSide === "ledger" ? "台帳の方が多い" : "仕訳の方が多い"}）
+              </Badge>
+            )}
+          </div>
+
+          {result.suspects.length > 0 && (
+            <div>
+              <p className="text-[17px] font-medium">原因と思われるもの</p>
+              <ul className="mt-1 space-y-1">
+                {result.suspects.map((s) => (
+                  <li key={s.refId} className={bodyCls}>
+                    {s.date} ／ {formatCurrency(s.amount)} ／ {s.label}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {result.matched && result.suspects.length === 0 && (
+            <p className={bodyCls}>食い違いはありません。</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// 質問応答（要件4-7）
+// ---------------------------------------------------------------------------
+
+function AskSection({ clientId }: { clientId: string }) {
+  const [question, setQuestion] = useState("");
+  const [answer, setAnswer] = useState<LedgerAnswer | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function ask() {
+    if (!question.trim()) return;
+    setBusy(true);
+    setError(null);
+    setAnswer(null);
+    try {
+      setAnswer(await askLoanLedger(clientId, question));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "回答の取得に失敗しました");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <details className="rounded-lg border border-border p-3">
+      <summary className="text-[17px] font-medium cursor-pointer flex items-center gap-2">
+        <MessageCircleQuestion className="size-4" />
+        台帳について質問する
+      </summary>
+
+      <div className="mt-3 space-y-3">
+        <p className={bodyCls}>
+          「いま役員借入金はいくら？」「この10万円は何？」のように聞けます。
+          残高の計算はシステム側で確定させてからAIに渡すので、金額が作り話になることはありません。
+        </p>
+
+        <div className="flex gap-2">
+          <input
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !(e.nativeEvent as KeyboardEvent).isComposing) ask();
+            }}
+            className={inputCls}
+            placeholder="いま役員借入金はいくら？"
+          />
+          <Button onClick={ask} disabled={busy || !question.trim()}>
+            {busy && <Loader2 className="size-4 animate-spin" />}
+            聞く
+          </Button>
+        </div>
+
+        {error && <p className="text-[17px] text-destructive">{error}</p>}
+
+        {answer && (
+          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
+            <p className="text-[17px] whitespace-pre-wrap">{answer.answer}</p>
+
+            {answer.outOfScope && (
+              <p className="text-[17px] font-medium text-warning">
+                この質問は借入金台帳の範囲では答えられません。
+              </p>
+            )}
+
+            {answer.sources.length > 0 ? (
+              <div>
+                <p className="text-[15px] font-medium">根拠にした明細</p>
+                <ul className="mt-1 space-y-0.5">
+                  {answer.sources.map((s) => (
+                    <li key={s.entry_id} className={bodyCls}>
+                      {s.entry_date} ／ {s.amount != null ? formatCurrency(s.amount) : ""} ／{" "}
+                      {s.label}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ) : (
+              !answer.outOfScope && (
+                <p className="text-[15px] font-medium text-warning">
+                  根拠となる明細を示せていません。回答の内容は必ずご確認ください。
+                </p>
+              )
+            )}
           </div>
         )}
       </div>

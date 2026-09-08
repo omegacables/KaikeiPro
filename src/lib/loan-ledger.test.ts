@@ -14,6 +14,9 @@ import {
   buildJournalLines,
   outstandingTranches,
   TAX_EXEMPT_INTEREST_THRESHOLD,
+  addMonths,
+  generateRepaymentSchedule,
+  reconcileLoanLedger,
   type LedgerEntry,
 } from "./loan-ledger";
 
@@ -593,5 +596,197 @@ describe("認定利息の利率は貸付を行った暦年で決まる", () => {
     });
 
     expect(alert.withinTaxExemptThreshold).toBe(false);
+  });
+});
+
+describe("addMonths", () => {
+  it("月を加算する", () => {
+    expect(addMonths("2026-04-10", 1)).toBe("2026-05-10");
+    expect(addMonths("2026-04-10", 12)).toBe("2027-04-10");
+  });
+
+  it("年をまたぐ", () => {
+    expect(addMonths("2026-11-30", 2)).toBe("2027-01-30");
+  });
+
+  it("末日は繰り上がらず、その月の末日に丸める", () => {
+    // 1月31日の1か月後は「3月3日」ではなく2月末
+    expect(addMonths("2026-01-31", 1)).toBe("2026-02-28");
+    expect(addMonths("2028-01-31", 1)).toBe("2028-02-29"); // うるう年
+  });
+});
+
+describe("generateRepaymentSchedule", () => {
+  it("元金均等: 元金が一定で、利息は残高に応じて減る", () => {
+    const rows = generateRepaymentSchedule({
+      principal: 1_200_000,
+      annualRatePercent: 2.4, // 月利 0.2%
+      termMonths: 12,
+      firstDueDate: "2026-04-30",
+      method: "equal_principal",
+    });
+
+    expect(rows).toHaveLength(12);
+    expect(rows[0].principal_amount).toBe(100_000);
+    expect(rows[0].interest_amount).toBe(2_400); // 1,200,000 × 0.2%
+    // 残高が減るので利息も減る
+    expect(rows[1].interest_amount).toBeLessThan(rows[0].interest_amount);
+    expect(rows.at(-1)!.interest_amount).toBeLessThan(rows[0].interest_amount);
+  });
+
+  it("元利均等: 毎回の支払総額がほぼ一定になる", () => {
+    const rows = generateRepaymentSchedule({
+      principal: 1_200_000,
+      annualRatePercent: 2.4,
+      termMonths: 12,
+      firstDueDate: "2026-04-30",
+      method: "equal_payment",
+    });
+
+    const totals = rows.slice(0, -1).map((r) => r.principal_amount + r.interest_amount);
+    const min = Math.min(...totals);
+    const max = Math.max(...totals);
+    // 端数処理の分だけの差に収まる
+    expect(max - min).toBeLessThanOrEqual(2);
+  });
+
+  it("どちらの方式でも、元金の合計が借入額に必ず一致する", () => {
+    for (const method of ["equal_principal", "equal_payment"] as const) {
+      const rows = generateRepaymentSchedule({
+        principal: 1_000_000,
+        annualRatePercent: 1.875, // 割り切れない利率
+        termMonths: 7,            // 割り切れない回数
+        firstDueDate: "2026-04-30",
+        method,
+      });
+      const sum = rows.reduce((s, r) => s + r.principal_amount, 0);
+      expect(sum).toBe(1_000_000);
+    }
+  });
+
+  it("無利息なら利息はすべて0で、元金だけを等分する", () => {
+    const rows = generateRepaymentSchedule({
+      principal: 300_000,
+      annualRatePercent: 0,
+      termMonths: 3,
+      firstDueDate: "2026-04-30",
+      method: "equal_payment",
+    });
+    expect(rows.every((r) => r.interest_amount === 0)).toBe(true);
+    expect(rows.map((r) => r.principal_amount)).toEqual([100_000, 100_000, 100_000]);
+  });
+
+  it("返済日は初回から1か月ずつ進む", () => {
+    const rows = generateRepaymentSchedule({
+      principal: 300_000,
+      annualRatePercent: 0,
+      termMonths: 3,
+      firstDueDate: "2026-01-31",
+      method: "equal_principal",
+    });
+    expect(rows.map((r) => r.due_date)).toEqual(["2026-01-31", "2026-02-28", "2026-03-31"]);
+  });
+
+  it("借入額や回数が0以下なら予定表を作らない", () => {
+    const base = { annualRatePercent: 1, firstDueDate: "2026-04-30", method: "equal_principal" as const };
+    expect(generateRepaymentSchedule({ ...base, principal: 0, termMonths: 12 })).toEqual([]);
+    expect(generateRepaymentSchedule({ ...base, principal: 100, termMonths: 0 })).toEqual([]);
+  });
+});
+
+describe("reconcileLoanLedger（整合性チェック）", () => {
+  const j = (
+    journalEntryId: string,
+    date: string,
+    debit: number,
+    credit: number,
+    description?: string
+  ) => ({ journalEntryId, date, debit, credit, description });
+
+  it("すべて仕訳化されていれば一致する", () => {
+    const entries = [
+      { ...e("2026-04-10", "borrow", 65_000), status: "journalized" as const, journal_entry_id: "J1" },
+      { ...e("2026-05-15", "repay", 30_000), status: "journalized" as const, journal_entry_id: "J2" },
+    ];
+    const result = reconcileLoanLedger({
+      direction: "borrow",
+      entries,
+      journalLines: [j("J1", "2026-04-10", 0, 65_000), j("J2", "2026-05-15", 30_000, 0)],
+    });
+
+    expect(result.ledgerBalance).toBe(35_000);
+    expect(result.journalBalance).toBe(35_000);
+    expect(result.matched).toBe(true);
+    expect(result.suspects).toHaveLength(0);
+  });
+
+  it("仕訳にしていない明細があると、差額とその明細を挙げる", () => {
+    const entries = [
+      { ...e("2026-04-10", "borrow", 65_000), status: "journalized" as const, journal_entry_id: "J1" },
+      // まだ仕訳にしていない
+      { ...e("2026-04-20", "advance", 17_595), status: "confirmed" as const },
+    ];
+    const result = reconcileLoanLedger({
+      direction: "borrow",
+      entries,
+      journalLines: [j("J1", "2026-04-10", 0, 65_000)],
+    });
+
+    expect(result.matched).toBe(false);
+    expect(result.difference).toBe(17_595);
+    expect(result.largerSide).toBe("ledger"); // 台帳の方が大きい
+    expect(result.suspects.some((s) => s.kind === "not_journalized")).toBe(true);
+  });
+
+  it("台帳に無い仕訳があると、その仕訳を挙げる", () => {
+    const entries = [
+      { ...e("2026-04-10", "borrow", 65_000), status: "journalized" as const, journal_entry_id: "J1" },
+    ];
+    const result = reconcileLoanLedger({
+      direction: "borrow",
+      entries,
+      journalLines: [
+        j("J1", "2026-04-10", 0, 65_000),
+        // 台帳を通さず直接入力された仕訳
+        j("J9", "2026-06-01", 0, 50_000, "手入力の借入"),
+      ],
+    });
+
+    expect(result.matched).toBe(false);
+    expect(result.difference).toBe(50_000);
+    expect(result.largerSide).toBe("journal"); // 仕訳の方が大きい
+    const s = result.suspects.find((x) => x.kind === "journal_without_entry");
+    expect(s?.refId).toBe("J9");
+  });
+
+  it("AIの下書きは残高に入らないが、原因候補として挙げる", () => {
+    const entries = [
+      { ...e("2026-04-10", "borrow", 65_000), status: "journalized" as const, journal_entry_id: "J1" },
+      { ...e("2026-04-25", "borrow", 99_999), status: "draft" as const },
+    ];
+    const result = reconcileLoanLedger({
+      direction: "borrow",
+      entries,
+      journalLines: [j("J1", "2026-04-10", 0, 65_000)],
+    });
+
+    expect(result.ledgerBalance).toBe(65_000); // 下書きは含まない
+    expect(result.matched).toBe(true);
+    expect(result.suspects.some((s) => s.kind === "draft_entry")).toBe(true);
+  });
+
+  it("貸付金は借方・貸方が逆になる", () => {
+    const entries = [
+      { ...e("2026-04-01", "borrow", 500_000), status: "journalized" as const, journal_entry_id: "J1" },
+    ];
+    const result = reconcileLoanLedger({
+      direction: "lend",
+      entries,
+      // 貸付は 借方 役員貸付金 / 貸方 普通預金
+      journalLines: [j("J1", "2026-04-01", 500_000, 0)],
+    });
+
+    expect(result.journalBalance).toBe(500_000);
+    expect(result.matched).toBe(true);
   });
 });
