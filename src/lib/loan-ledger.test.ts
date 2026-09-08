@@ -12,6 +12,8 @@ import {
   imputedInterestAlert,
   entryTypeLabel,
   buildJournalLines,
+  outstandingTranches,
+  TAX_EXEMPT_INTEREST_THRESHOLD,
   type LedgerEntry,
 } from "./loan-ledger";
 
@@ -274,14 +276,14 @@ describe("daysBetween / imputedInterest", () => {
 describe("imputedInterestAlert", () => {
   // 3月決算（期首4月）を前提にする
   const MARCH_CLOSING = 4;
-  const rates = { 2025: 0.9, 2026: 0.9 };
+  const rates = { 2025: 0.9, 2026: 1.3 };
 
   it("貸付金の残高が無ければ none", () => {
     const alert = imputedInterestAlert({
       entries: [],
       fiscalStartMonth: MARCH_CLOSING,
       today: "2026-09-08",
-      rateByFiscalYear: rates,
+      rateByLoanYear: rates,
     });
 
     expect(alert.level).toBe("none");
@@ -294,7 +296,7 @@ describe("imputedInterestAlert", () => {
       entries: [e("2026-05-01", "borrow", 1_000_000)],
       fiscalStartMonth: MARCH_CLOSING,
       today: "2026-09-08",
-      rateByFiscalYear: rates,
+      rateByLoanYear: rates,
     });
 
     expect(alert.level).toBe("warning");
@@ -310,14 +312,14 @@ describe("imputedInterestAlert", () => {
       entries: [e("2025-06-01", "borrow", 1_000_000)],
       fiscalStartMonth: MARCH_CLOSING,
       today: "2026-09-08",
-      rateByFiscalYear: rates,
+      rateByLoanYear: rates,
     });
 
     expect(alert.level).toBe("required");
     expect(alert.priorFiscalYearEnd).toBe("2026-03-31");
     expect(alert.balanceAtPriorYearEnd).toBe(1_000_000);
     // 前期末→当期末の 365 日分を試算
-    expect(alert.rate).toBe(0.9);
+    expect(alert.breakdown[0].rate).toBe(0.9);
     expect(alert.estimatedInterest).toBe(
       imputedInterest(1_000_000, 0.9, daysBetween("2026-03-31", "2027-03-31"))
     );
@@ -331,7 +333,7 @@ describe("imputedInterestAlert", () => {
       ],
       fiscalStartMonth: MARCH_CLOSING,
       today: "2026-09-08",
-      rateByFiscalYear: rates,
+      rateByLoanYear: rates,
     });
 
     expect(alert.balanceAtPriorYearEnd).toBe(0);
@@ -343,11 +345,11 @@ describe("imputedInterestAlert", () => {
       entries: [e("2025-06-01", "borrow", 1_000_000)],
       fiscalStartMonth: MARCH_CLOSING,
       today: "2026-09-08",
-      rateByFiscalYear: {}, // 2026年度の利率が未登録
+      rateByLoanYear: {}, // 2026年度の利率が未登録
     });
 
     expect(alert.level).toBe("required");
-    expect(alert.rate).toBeNull();
+    expect(alert.missingRateYears).toEqual([2025]);
     expect(alert.estimatedInterest).toBeNull();
   });
 
@@ -356,7 +358,7 @@ describe("imputedInterestAlert", () => {
       entries: [e("2026-02-01", "borrow", 500_000)],
       fiscalStartMonth: 1,
       today: "2026-09-08",
-      rateByFiscalYear: { 2026: 0.9 },
+      rateByLoanYear: { 2026: 0.9 },
     });
 
     expect(alert.fiscalYearEnd).toBe("2026-12-31");
@@ -475,5 +477,121 @@ describe("buildJournalLines", () => {
     expect(() =>
       buildJournalLines({ ...base, direction: "borrow", entryType: "adjust" })
     ).toThrow(/調整/);
+  });
+});
+
+describe("outstandingTranches（貸付年ごとの残高）", () => {
+  it("貸付を実行順にトランシェとして積む", () => {
+    const t = outstandingTranches(
+      [e("2024-06-01", "borrow", 300_000), e("2026-02-01", "borrow", 500_000)],
+      "2026-12-31"
+    );
+    expect(t).toEqual([
+      { loanYear: 2024, date: "2024-06-01", outstanding: 300_000 },
+      { loanYear: 2026, date: "2026-02-01", outstanding: 500_000 },
+    ]);
+  });
+
+  it("返済は古い貸付から充当する（FIFO）", () => {
+    const t = outstandingTranches(
+      [
+        e("2024-06-01", "borrow", 300_000),
+        e("2026-02-01", "borrow", 500_000),
+        e("2026-03-01", "repay", 400_000),
+      ],
+      "2026-12-31"
+    );
+    // 2024年分は完済し、2026年分が400,000残る
+    expect(t).toEqual([{ loanYear: 2026, date: "2026-02-01", outstanding: 400_000 }]);
+  });
+
+  it("指定日より後の明細は含めない", () => {
+    const t = outstandingTranches(
+      [e("2024-06-01", "borrow", 300_000), e("2026-02-01", "borrow", 500_000)],
+      "2025-12-31"
+    );
+    expect(t).toHaveLength(1);
+    expect(t[0].loanYear).toBe(2024);
+  });
+
+  it("完済すればトランシェが残らない", () => {
+    const t = outstandingTranches(
+      [e("2024-06-01", "borrow", 300_000), e("2025-01-01", "repay", 300_000)],
+      "2026-12-31"
+    );
+    expect(t).toEqual([]);
+  });
+});
+
+describe("認定利息の利率は貸付を行った暦年で決まる", () => {
+  // 国税庁 タックスアンサー No.2606 の公表値
+  const OFFICIAL = { 2021: 1.0, 2022: 0.9, 2023: 0.9, 2024: 0.9, 2025: 0.9, 2026: 1.3 };
+
+  it("古い貸付には当時の利率が、新しい貸付には新しい利率が適用される", () => {
+    const alert = imputedInterestAlert({
+      entries: [
+        e("2024-06-01", "borrow", 1_000_000), // 2024年の貸付 → 0.9%
+        e("2026-02-01", "borrow", 1_000_000), // 2026年の貸付 → 1.3%
+      ],
+      fiscalStartMonth: 4, // 3月決算
+      today: "2026-09-08",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    expect(alert.level).toBe("required");
+    const rates = alert.breakdown.map((b) => ({ year: b.loanYear, rate: b.rate }));
+    expect(rates).toEqual([
+      { year: 2024, rate: 0.9 },
+      { year: 2026, rate: 1.3 },
+    ]);
+  });
+
+  it("年が変わっても既存の貸付の利率は変わらない（当年の利率で上書きしない）", () => {
+    const alert = imputedInterestAlert({
+      entries: [e("2022-05-01", "borrow", 1_000_000)],
+      fiscalStartMonth: 4,
+      today: "2026-09-08",
+      rateByLoanYear: OFFICIAL,
+    });
+    // 2026年時点でも2022年の 0.9% が適用される（1.3% にはならない）
+    expect(alert.breakdown[0].rate).toBe(0.9);
+  });
+
+  it("利率が未登録の貸付年が1つでもあれば合計を出さない", () => {
+    const alert = imputedInterestAlert({
+      entries: [
+        e("2024-06-01", "borrow", 1_000_000),
+        e("2019-06-01", "borrow", 1_000_000), // 利率未登録
+      ],
+      fiscalStartMonth: 4,
+      today: "2026-09-08",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    expect(alert.missingRateYears).toEqual([2019]);
+    expect(alert.estimatedInterest).toBeNull();
+  });
+
+  it("試算額が年5,000円以下なら給与課税の例外の目安を立てる", () => {
+    const alert = imputedInterestAlert({
+      entries: [e("2024-06-01", "borrow", 300_000)], // 300,000 × 0.9% ≒ 2,700円
+      fiscalStartMonth: 4,
+      today: "2026-09-08",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    expect(alert.estimatedInterest).toBeLessThanOrEqual(TAX_EXEMPT_INTEREST_THRESHOLD);
+    expect(alert.withinTaxExemptThreshold).toBe(true);
+  });
+
+  it("試算額が5,000円を超えれば例外の目安は立たない", () => {
+    const alert = imputedInterestAlert({
+      entries: [e("2024-06-01", "borrow", 5_000_000)],
+      fiscalStartMonth: 4,
+      today: "2026-09-08",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    expect(alert.withinTaxExemptThreshold).toBe(false);
   });
 });

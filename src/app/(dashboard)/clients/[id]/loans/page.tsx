@@ -180,7 +180,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           })
           .map((a) => ({ id: a.id as string, name: a.name as string }))
       );
-      setRates(Object.fromEntries(rateRows.map((r) => [r.fiscal_year, r.rate])));
+      setRates(Object.fromEntries(rateRows.map((r) => [r.loan_year, r.rate])));
     } catch (e) {
       setError(e instanceof Error ? e.message : "読み込みに失敗しました");
     } finally {
@@ -236,7 +236,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         alert: imputedInterestAlert({
           entries: l.entries,
           fiscalStartMonth,
-          rateByFiscalYear: rates,
+          rateByLoanYear: rates,
         }),
       }))
       .filter((a) => a.alert.level !== "none");
@@ -762,20 +762,38 @@ function ImputedInterestBanner({ alert }: { alert: ImputedInterestAlert }) {
               </>
             )}
           </p>
-          <p className={bodyCls}>
+          <div className={bodyCls}>
             {alert.estimatedInterest == null ? (
               <span className="font-medium text-destructive">
-                {new Date(alert.fiscalYearEnd).getFullYear()}年度の利率が未設定のため、
+                {alert.missingRateYears.join("・")}年に行った貸付の利率が未登録のため、
                 認定利息を試算できません。利率マスタを設定してください。
               </span>
             ) : (
               <>
-                認定利息の試算額:{" "}
-                <span className="font-bold">{formatCurrency(alert.estimatedInterest)}</span>
-                （年利 {alert.rate}%）
+                <p>
+                  認定利息の試算額:{" "}
+                  <span className="font-bold">{formatCurrency(alert.estimatedInterest)}</span>
+                </p>
+                {/* 利率は貸付を行った年で固定されるため、貸付年ごとに内訳を出す */}
+                {alert.breakdown.length > 0 && (
+                  <ul className="mt-1 space-y-0.5">
+                    {alert.breakdown.map((b, i) => (
+                      <li key={i}>
+                        {b.loanYear}年の貸付 {formatCurrency(b.outstanding)} × 年利 {b.rate}% ×{" "}
+                        {b.days}日 = {formatCurrency(b.interest ?? 0)}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                {alert.withinTaxExemptThreshold && (
+                  <p className="mt-1">
+                    試算額が年5,000円以下です。実際に支払われた利息との差額が年5,000円以下であれば、
+                    給与課税の対象外となる例外に該当する可能性があります（要確認）。
+                  </p>
+                )}
               </>
             )}
-          </p>
+          </div>
         </div>
       </div>
     </div>

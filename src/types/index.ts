@@ -589,7 +589,8 @@ export interface LoanLedger {
 // --- 認定利息の利率マスタ --------------------------------------------------
 
 export interface StatutoryInterestRate {
-  fiscal_year: number;
+  /** 貸付けを行った日の属する年（暦年）。会計年度ではない */
+  loan_year: number;
   /** 年利(%) */
   rate: number;
   note: string | null;

@@ -859,19 +859,19 @@ export interface Database {
       };
       statutory_interest_rates: {
         Row: {
-          fiscal_year: number;
+          loan_year: number;
           rate: number;
           note: string | null;
           updated_at: string;
         };
         Insert: {
-          fiscal_year: number;
+          loan_year: number;
           rate: number;
           note?: string | null;
           updated_at?: string;
         };
         Update: {
-          fiscal_year?: number;
+          loan_year?: number;
           rate?: number;
           note?: string | null;
           updated_at?: string;

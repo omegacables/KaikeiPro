@@ -182,14 +182,71 @@ export function netByCounterparty(
 
 // ---------------------------------------------------------------------------
 // 認定利息（要件3-4）
+//
+// 適用利率は「貸付けを行った日の属する年（暦年）」で決まり、その後の年が変わっても
+// その貸付に対する利率は変わらない（所得税基本通達36-49 / タックスアンサー No.2606）。
+// 会計年度ではなく暦年である点に注意。
+//
+// したがって残高を1つの数字として扱うと利率を決められない。貸付の実行ごとに
+// 「トランシェ」として利率を保持し、返済は古い貸付から順に（FIFO）充当する。
 // ---------------------------------------------------------------------------
 
 const DAYS_PER_YEAR = 365;
+
+/**
+ * 給与課税されない差額の上限（年）。
+ * 所定利率で計算した利息と実際に支払われた利息の差額が年5,000円以下であれば
+ * 給与として課税されない（タックスアンサー No.2606 の例外規定）。
+ */
+export const TAX_EXEMPT_INTEREST_THRESHOLD = 5000;
 
 /** 日数の差（end - start）。両端の日付は YYYY-MM-DD。 */
 export function daysBetween(start: string, end: string): number {
   const ms = Date.parse(`${end}T00:00:00Z`) - Date.parse(`${start}T00:00:00Z`);
   return Math.round(ms / 86_400_000);
+}
+
+/** 貸付1本ぶんの残高。利率はこの貸付を行った暦年で固定される。 */
+export type Tranche = {
+  /** 貸付けを行った日の属する年（暦年） */
+  loanYear: number;
+  date: string;
+  outstanding: number;
+};
+
+/**
+ * 指定日時点で残っている貸付をトランシェ単位で返す。
+ * 返済は古い貸付から順に充当する（FIFO）。どの貸付が残っているかで利率が変わるため、
+ * 残高を1つに合算せずに保持する。
+ */
+export function outstandingTranches(entries: LedgerEntry[], asOf: string): Tranche[] {
+  const tranches: Tranche[] = [];
+
+  const consume = (amount: number) => {
+    let rest = amount;
+    for (const t of tranches) {
+      if (rest <= 0) break;
+      const used = Math.min(t.outstanding, rest);
+      t.outstanding -= used;
+      rest -= used;
+    }
+  };
+
+  for (const e of sortEntries(entries).filter(isCountable)) {
+    if (e.entry_date > asOf) break;
+    const delta = deltaOf(e);
+    if (delta > 0) {
+      tranches.push({
+        loanYear: Number(e.entry_date.slice(0, 4)),
+        date: e.entry_date,
+        outstanding: delta,
+      });
+    } else if (delta < 0) {
+      consume(-delta);
+    }
+  }
+
+  return tranches.filter((t) => t.outstanding > 0);
 }
 
 /**
@@ -206,6 +263,15 @@ export function imputedInterest(
   return Math.round((balance * (ratePercent / 100) * days) / DAYS_PER_YEAR);
 }
 
+export type InterestBreakdown = {
+  loanYear: number;
+  outstanding: number;
+  /** その貸付年に適用される年利(%)。未登録なら null */
+  rate: number | null;
+  days: number;
+  interest: number | null;
+};
+
 export type ImputedInterestAlert = {
   /** none=貸付金なし / warning=期末前 / required=期末をまたいだ（計上義務あり） */
   level: "none" | "warning" | "required";
@@ -219,10 +285,17 @@ export type ImputedInterestAlert = {
   priorFiscalYearEnd: string;
   /** 直前の決算日時点の残高 */
   balanceAtPriorYearEnd: number;
-  /** 適用した年利(%)。未設定なら null */
-  rate: number | null;
-  /** 認定利息の試算額。利率未設定なら null */
+  /** 貸付年ごとの内訳（利率が貸付年で決まるため合算できない） */
+  breakdown: InterestBreakdown[];
+  /** 利率が未登録の貸付年。空でなければ試算は行わない */
+  missingRateYears: number[];
+  /** 認定利息の試算額。利率が未登録の貸付年があれば null */
   estimatedInterest: number | null;
+  /**
+   * 試算額が年5,000円以下で、給与課税の例外に該当しうるか。
+   * 実際に支払われた利息との差額で判定されるため、あくまで目安。
+   */
+  withinTaxExemptThreshold: boolean;
 };
 
 /**
@@ -233,14 +306,15 @@ export type ImputedInterestAlert = {
  * 認定利息の計上義務が生じ、常態化すると役員賞与と認定される。
  *
  * 決算日は fiscalRangeFromStartYear() の endDate をそのまま使う（再計算しない）。
+ * 利率は貸付を行った暦年で引く（会計年度ではない）。
  */
 export function imputedInterestAlert(params: {
   entries: LedgerEntry[];
   fiscalStartMonth: number | null | undefined;
   /** 判定基準日。既定は今日 */
   today?: string;
-  /** 会計年度の開始年 → 年利(%) */
-  rateByFiscalYear?: Record<number, number>;
+  /** 貸付けを行った暦年 → 年利(%) */
+  rateByLoanYear?: Record<number, number>;
 }): ImputedInterestAlert {
   const today = params.today ?? new Date().toISOString().slice(0, 10);
   const [y, m] = today.split("-").map(Number);
@@ -256,8 +330,6 @@ export function imputedInterestAlert(params: {
   const balanceAtPriorYearEnd = balanceAsOf(params.entries, priorFiscalYearEnd);
   const daysUntilFiscalYearEnd = daysBetween(today, fiscalYearEnd);
 
-  const rate = params.rateByFiscalYear?.[period.startYear] ?? null;
-
   // 期末をまたいで残高が残っている＝認定利息の計上義務が発生している
   const crossed = balanceAtPriorYearEnd > 0;
 
@@ -267,10 +339,32 @@ export function imputedInterestAlert(params: {
   else level = "none";
 
   // 計上義務が生じている場合は「前期末から当期末まで」を試算期間とする
-  const interestDays = crossed
-    ? daysBetween(priorFiscalYearEnd, fiscalYearEnd)
-    : daysBetween(today, fiscalYearEnd);
-  const interestBase = crossed ? balanceAtPriorYearEnd : balance;
+  const from = crossed ? priorFiscalYearEnd : today;
+  const days = Math.max(0, daysBetween(from, fiscalYearEnd));
+  const tranches = level === "none" ? [] : outstandingTranches(params.entries, from);
+
+  const breakdown: InterestBreakdown[] = tranches.map((t) => {
+    const rate = params.rateByLoanYear?.[t.loanYear] ?? null;
+    return {
+      loanYear: t.loanYear,
+      outstanding: t.outstanding,
+      rate,
+      days,
+      interest: imputedInterest(t.outstanding, rate, days),
+    };
+  });
+
+  const missingRateYears = [
+    ...new Set(breakdown.filter((b) => b.rate == null).map((b) => b.loanYear)),
+  ].sort();
+
+  // 利率が1年でも欠けていれば合計は出さない（推測しない）
+  const estimatedInterest =
+    level === "none"
+      ? 0
+      : missingRateYears.length > 0
+        ? null
+        : breakdown.reduce((sum, b) => sum + (b.interest ?? 0), 0);
 
   return {
     level,
@@ -279,9 +373,13 @@ export function imputedInterestAlert(params: {
     daysUntilFiscalYearEnd,
     priorFiscalYearEnd,
     balanceAtPriorYearEnd,
-    rate,
-    estimatedInterest:
-      level === "none" ? 0 : imputedInterest(interestBase, rate, interestDays),
+    breakdown,
+    missingRateYears,
+    estimatedInterest,
+    withinTaxExemptThreshold:
+      estimatedInterest != null &&
+      estimatedInterest > 0 &&
+      estimatedInterest <= TAX_EXEMPT_INTEREST_THRESHOLD,
   };
 }
 

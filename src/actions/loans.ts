@@ -122,16 +122,19 @@ export async function getLoanLedgers(clientId: string): Promise<LoanLedger[]> {
   });
 }
 
-/** 認定利息の利率マスタ（年度 → 年利%）。未登録の年度は含まれない。 */
+/**
+ * 認定利息の利率マスタ（貸付けを行った暦年 → 年利%）。
+ * 利率は貸付を行った年で固定されるため、会計年度ではなく暦年で引く。
+ */
 export async function getStatutoryInterestRates(): Promise<StatutoryInterestRate[]> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("statutory_interest_rates")
     .select("*")
-    .order("fiscal_year", { ascending: false });
+    .order("loan_year", { ascending: false });
   if (error) throw new Error(error.message);
   return (data ?? []).map((r) => ({
-    fiscal_year: (r as DbRow).fiscal_year as number,
+    loan_year: (r as DbRow).loan_year as number,
     rate: Number((r as DbRow).rate ?? 0),
     note: ((r as DbRow).note as string) ?? null,
   }));
