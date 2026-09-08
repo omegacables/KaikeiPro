@@ -60,8 +60,12 @@ describe("parseDateInput", () => {
     expect(parseDateInput("   ", BASE)).toBeNull();
     expect(parseDateInput("あああ", BASE)).toBeNull();
     expect(parseDateInput("2026年4月10日", BASE)).toBeNull();
-    expect(parseDateInput("123", BASE)).toBeNull(); // 3桁は曖昧なので受け付けない
     expect(parseDateInput("123456789", BASE)).toBeNull();
+  });
+
+  it("3桁の数字は MDD として読む（会計ソフトでよくある打ち方）", () => {
+    expect(parseDateInput("410", BASE)).toBe("2026-04-10");
+    expect(parseDateInput("101", BASE)).toBe("2026-01-01");
   });
 
   it("前後の空白は無視する", () => {

@@ -77,6 +77,11 @@ export function parseDateInput(raw: string, base: { y: number; m: number; d: num
       const m = Math.min(Math.max(Number(digits.slice(0, 2)), 1), 12);
       return format(base.y, m, clampDay(base.y, m, Number(digits.slice(2, 4))));
     }
+    case 3: {
+      // 会計ソフトでよくある「410 = 4月10日」の打ち方
+      const m = Math.min(Math.max(Number(digits.slice(0, 1)), 1), 12);
+      return format(base.y, m, clampDay(base.y, m, Number(digits.slice(1, 3))));
+    }
     case 1:
     case 2:
       return format(base.y, base.m, clampDay(base.y, base.m, Number(digits)));
@@ -116,9 +121,15 @@ export const DateInput = memo(function DateInput({
 
   // カーソルのある区画: 0=年, 1=月, 2=日
   const getSegment = (): number => {
-    const pos = innerRef.current?.selectionStart ?? 0;
-    if (pos <= 4) return 0;
-    if (pos <= 7) return 1;
+    const el = innerRef.current;
+    if (!el) return 2;
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? start;
+    // 全選択中（フォーカス直後の既定）は「日」として扱う。
+    // 上下キーで最も動かしたいのは日のため。
+    if (start === 0 && end >= display.length) return 2;
+    if (start <= 4) return 0;
+    if (start <= 7) return 1;
     return 2;
   };
 
@@ -234,9 +245,11 @@ export const DateInput = memo(function DateInput({
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => commitDraft()}
-        onFocus={() => {
-          // 打ち込み中でなければ日の区画を選択状態にする（上下キーですぐ調整できる）
-          if (draft === null) selectSegment(2);
+        onFocus={(e) => {
+          // 全体を選択しておく。こうしないと「日」の部分にだけ文字が挿し込まれ、
+          // 20260410 のようにフルの日付を打ったときに壊れた文字列になる。
+          // 全選択中でも上下キーは日の増減として働く（getSegment 参照）。
+          e.currentTarget.select();
         }}
         className={className}
       />
@@ -258,9 +271,13 @@ export const DateInput = memo(function DateInput({
         onClick={() => {
           const el = pickerRef.current;
           if (!el) return;
-          // showPicker が使えないブラウザでは、隠し入力にフォーカスして標準UIに委ねる
-          if (typeof el.showPicker === "function") el.showPicker();
-          else el.focus();
+          // showPicker はブラウザや表示状態によっては例外を投げるため保護する
+          try {
+            if (typeof el.showPicker === "function") el.showPicker();
+            else el.focus();
+          } catch {
+            el.focus();
+          }
         }}
         className="absolute right-1 p-1 rounded text-foreground/70 hover:text-foreground hover:bg-muted"
       >
