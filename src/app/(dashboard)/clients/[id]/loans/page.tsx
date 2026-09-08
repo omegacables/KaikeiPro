@@ -984,7 +984,7 @@ function LedgerRow(props: {
                 onChange={(v) => setEntryForm({ ...entryForm, entry_date: v })}
                 inputRef={(el) => setCellRef(0, el)}
                 onKeyDown={(e) => handleCellKeyDown(0, e)}
-                className={inputCls + " w-40 pr-8"}
+                className={inputCls + " w-44 pr-7"}
               />
             </div>
             <div>

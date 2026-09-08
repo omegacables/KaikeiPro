@@ -279,9 +279,9 @@ export const DateInput = memo(function DateInput({
             el.focus();
           }
         }}
-        className="absolute right-1 p-1 rounded text-foreground/70 hover:text-foreground hover:bg-muted"
+        className="absolute right-0.5 p-0.5 rounded text-foreground/70 hover:text-foreground hover:bg-muted"
       >
-        <CalendarDays className="size-4" />
+        <CalendarDays className="size-3.5" />
       </button>
     </div>
   );

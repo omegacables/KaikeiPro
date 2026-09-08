@@ -1472,7 +1472,7 @@ export default function JournalsPage() {
                 <table className="w-full text-sm min-w-[640px]">
                   <thead>
                     <tr className="border-b-2 border-border">
-                      <th rowSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground border-r border-border w-[120px]">日付</th>
+                      <th rowSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground border-r border-border w-[150px]">日付</th>
                       <th colSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground border-r border-border bg-blue-50/50 dark:bg-blue-950/20">借方</th>
                       <th colSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground border-r border-border bg-red-50/50 dark:bg-red-950/20">貸方</th>
                       <th rowSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground">摘要</th>
@@ -1498,7 +1498,7 @@ export default function JournalsPage() {
                                 onChange={(v) => setNewEntry({ ...newEntry, date: v })}
                                 inputRef={(el) => setGridRef(idx, 0, el)}
                                 onKeyDown={(e) => { if (e.key === "Enter") handleGridKeyDown(idx, 0, e); }}
-                                className="w-full bg-card border border-border rounded px-2 py-1.5 pr-8 text-sm"
+                                className="w-full bg-card border border-border rounded px-2 py-1.5 pr-7 text-sm"
                               />
                             </td>
                           ) : null}
