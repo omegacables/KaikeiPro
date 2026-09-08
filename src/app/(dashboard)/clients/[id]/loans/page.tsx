@@ -1030,6 +1030,8 @@ function LedgerRow(props: {
             <span>利息計 {formatCurrency(ledger.byType.interest)}</span>
           </div>
 
+          <p className="text-[17px] font-bold">明細を追加する</p>
+
           {/* 明細の入力
               仕訳入力と同じキー操作にそろえている:
                 Enter / → で次の欄へ、← で前の欄へ、最後の欄からは「追加」ボタンへ
@@ -1150,6 +1152,9 @@ function LedgerRow(props: {
           <ReconcileSection ledger={ledger} />
 
           {/* 増減明細と残高推移 */}
+          {/* 見出しが無いと、どの表を指しているのか会話で伝わらない */}
+          <p className="text-[17px] font-bold">増減明細（{rows.length}件）</p>
+
           {rows.length === 0 ? (
             <p className={bodyCls}>まだ明細がありません。上のフォームから追加してください。</p>
           ) : (
