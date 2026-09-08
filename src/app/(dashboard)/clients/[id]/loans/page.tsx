@@ -61,6 +61,7 @@ import {
   netByCounterparty,
   imputedInterestAlert,
   entryTypeLabel,
+  interestTotals,
   type ImputedInterestAlert,
   type ReconcileResult,
 } from "@/lib/loan-ledger";
@@ -899,6 +900,7 @@ function LedgerRow(props: {
   const { loan } = ledger;
   const isLend = loan.direction === "lend";
   const rows = runningBalances(ledger.entries);
+  const interests = interestTotals(ledger.entries);
 
   // --- キーボードでの入力移動（仕訳入力と同じ流儀にそろえる） -----------------
   // 欄の並び: 0=日付 1=区分 2=金額 3=費用科目（立替のときだけ表示） 4=摘要
@@ -1029,7 +1031,11 @@ function LedgerRow(props: {
             <span>
               {isLend ? "回収" : "返済"}計 {formatCurrency(ledger.byType.repay)}
             </span>
-            <span>利息計 {formatCurrency(ledger.byType.interest)}</span>
+            {/* 支払った利息と、元本に積んだ利息は性質が違うので分けて出す */}
+            <span>支払利息計 {formatCurrency(interests.paid)}</span>
+            {interests.accrued > 0 && (
+              <span>元本に加算した利息 {formatCurrency(interests.accrued)}</span>
+            )}
           </div>
 
           <p className="text-[17px] font-bold">明細を追加する</p>

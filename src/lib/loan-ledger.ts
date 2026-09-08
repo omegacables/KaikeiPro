@@ -118,6 +118,38 @@ export function balanceAsOf(entries: LedgerEntry[], date: string): number {
 
 export type BalanceByType = Record<LoanEntryType, number>;
 
+export type InterestTotals = {
+  /** 元本に加算した未払利息（entry_type='interest'）。残高を増やす */
+  accrued: number;
+  /** 返済と同時に支払った利息（repay の interest_amount）。残高は動かさない */
+  paid: number;
+  /** 合計 */
+  total: number;
+};
+
+/**
+ * 利息の集計。「元本に積んだ利息」と「現金で払った利息」は性質が違うので分けて返す。
+ *
+ * 勘定科目内訳明細書の「期中の支払利子額」に載るのは paid（実際に支払った額）。
+ * 集計を entry_type='interest' だけで数えると、銀行返済のように
+ * 元金と同時に利息を払う形では常に0になってしまう。
+ */
+export function interestTotals(
+  entries: LedgerEntry[],
+  range?: { from: string; to: string }
+): InterestTotals {
+  const inRange = (e: LedgerEntry) =>
+    !range || (e.entry_date >= range.from && e.entry_date <= range.to);
+
+  let accrued = 0;
+  let paid = 0;
+  for (const e of entries.filter(isCountable).filter(inRange)) {
+    if (e.entry_type === "interest") accrued += Math.round(e.amount ?? 0);
+    if (e.entry_type === "repay") paid += Math.round(e.interest_amount ?? 0);
+  }
+  return { accrued, paid, total: accrued + paid };
+}
+
 /**
  * 区分ごとの内訳。決算時に「現金の貸付」と「未精算の立替」で説明が分かれるため、
  * 区分別の累計を出せるようにしておく（要件3-1）。

@@ -6,6 +6,7 @@ import {
   currentBalance,
   balanceAsOf,
   balanceByType,
+  interestTotals,
   netByCounterparty,
   daysBetween,
   imputedInterest,
@@ -925,5 +926,50 @@ describe("返済日の決め方（月末 / 同じ日にち）", () => {
       dueDateMode: "month_end",
     });
     expect(rows.map((r) => r.due_date)).toEqual(["2026-04-30", "2026-05-31", "2026-06-30"]);
+  });
+});
+
+describe("interestTotals（利息の集計）", () => {
+  it("返済と同時に払った利息を数える（銀行返済で0にならないこと）", () => {
+    const entries = [
+      e("2026-04-01", "borrow", 1_200_000),
+      { ...e("2026-04-30", "repay", 100_000), interest_amount: 2_400 },
+      { ...e("2026-05-31", "repay", 100_000), interest_amount: 2_200 },
+    ];
+    const t = interestTotals(entries);
+
+    expect(t.paid).toBe(4_600);
+    expect(t.accrued).toBe(0);
+    expect(t.total).toBe(4_600);
+  });
+
+  it("元本に加算した利息と、支払った利息を分けて数える", () => {
+    const entries = [
+      { ...e("2026-04-30", "repay", 100_000), interest_amount: 2_400 },
+      e("2026-06-30", "interest", 500), // 未払利息を元本に加算
+    ];
+    const t = interestTotals(entries);
+
+    expect(t.paid).toBe(2_400);
+    expect(t.accrued).toBe(500);
+    expect(t.total).toBe(2_900);
+  });
+
+  it("期間を指定するとその期間だけを数える（内訳明細書の期中集計に使う）", () => {
+    const entries = [
+      { ...e("2026-03-31", "repay", 100_000), interest_amount: 9_999 }, // 前期
+      { ...e("2026-04-30", "repay", 100_000), interest_amount: 2_400 },
+      { ...e("2027-04-30", "repay", 100_000), interest_amount: 1_111 }, // 翌期
+    ];
+    const t = interestTotals(entries, { from: "2026-04-01", to: "2027-03-31" });
+
+    expect(t.total).toBe(2_400);
+  });
+
+  it("AIの下書きは数えない", () => {
+    const entries = [
+      { ...e("2026-04-30", "repay", 100_000), interest_amount: 2_400, status: "draft" as const },
+    ];
+    expect(interestTotals(entries).paid).toBe(0);
   });
 });

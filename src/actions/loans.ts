@@ -10,6 +10,7 @@ import {
   currentBalance,
   balanceAsOf,
   balanceByType,
+  interestTotals,
   entryTypeLabel,
   buildJournalLines,
   generateRepaymentSchedule,
@@ -914,16 +915,10 @@ export async function getLoanBreakdownReport(
       address: partner?.address ?? null,
       // 期末現在高＝決算日時点の残高
       closing_balance: balanceAsOf(es, endDate),
-      // 期中の支払利子額＝当期に計上した利息の合計
-      interest_paid: es
-        .filter(
-          (e) =>
-            e.entry_type === "interest" &&
-            e.status !== "draft" &&
-            e.entry_date >= startDate &&
-            e.entry_date <= endDate
-        )
-        .reduce((s, e) => s + e.amount, 0),
+      // 期中の支払利子額。返済と同時に支払った利息（repay の interest_amount）と、
+      // 元本に加算した未払利息（entry_type='interest'）の両方を数える。
+      // 前者を数え漏らすと、銀行返済では常に0になってしまう。
+      interest_paid: interestTotals(es, { from: startDate, to: endDate }).total,
       interest_rate: loan.interest_rate,
       purpose: loan.purpose,
       is_officer: loan.counterparty_kind === "officer",
