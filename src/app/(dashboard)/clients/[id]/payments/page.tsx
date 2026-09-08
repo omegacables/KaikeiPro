@@ -30,6 +30,7 @@ import { getUnpaidInvoices } from "@/actions/invoices";
 import { getBankAccounts, createBankAccount } from "@/actions/bank";
 import { BankSelectModal } from "@/components/bank-select-modal";
 import type { JapanBank } from "@/lib/japan-banks";
+import { DateInput } from "@/components/ui/date-input";
 
 type UnmatchedPayment = {
   id: string;
@@ -384,7 +385,7 @@ export default function PaymentsPage() {
           <form onSubmit={handleCreatePayment} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">入金日 *</label>
-              <input type="date" required value={newPayment.payment_date} onChange={(e) => setNewPayment({ ...newPayment, payment_date: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              <DateInput allowEmpty value={newPayment.payment_date} onChange={(v) => setNewPayment({ ...newPayment, payment_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">金額 *</label>
@@ -542,12 +543,9 @@ export default function PaymentsPage() {
                           />
                         </td>
                         <td className="px-2 py-1">
-                          <input
-                            type="date"
-                            value={d.date}
-                            onChange={(e) => setDeposits((prev) => prev.map((x) => (x.rowIdx === d.rowIdx ? { ...x, date: e.target.value } : x)))}
-                            className="bg-transparent border-0 text-xs w-28"
-                          />
+                          <DateInput allowEmpty value={d.date}
+                            onChange={(v) => setDeposits((prev) => prev.map((x) => (x.rowIdx === d.rowIdx ? { ...x, date: v } : x)))}
+                            className="bg-transparent border-0 text-xs w-28 pr-7" />
                         </td>
                         <td className="px-2 py-1 text-right font-mono">{formatCurrency(d.amount)}</td>
                         <td className="px-2 py-1">{d.payer || "—"}</td>

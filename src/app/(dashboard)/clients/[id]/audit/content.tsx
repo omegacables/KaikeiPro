@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { getAuditLogs, type AuditLogFilters } from "@/actions/audit";
 import type { Database } from "@/types/database";
+import { DateInput } from "@/components/ui/date-input";
 
 type AuditLogRow = Database["public"]["Tables"]["audit_logs"]["Row"];
 
@@ -166,19 +167,13 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
             <div className="flex items-center gap-2">
               <Calendar className="size-4 text-muted-foreground" />
               <label className="text-xs text-muted-foreground font-bold">期間:</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-              />
+              <DateInput allowEmpty value={dateFrom}
+                onChange={(v) => setDateFrom(v)}
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
               <span className="text-muted-foreground">〜</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-              />
+              <DateInput allowEmpty value={dateTo}
+                onChange={(v) => setDateTo(v)}
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
             </div>
             <select
               value={tableName}

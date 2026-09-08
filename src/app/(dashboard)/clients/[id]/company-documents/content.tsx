@@ -26,6 +26,7 @@ import {
   deleteCompanyDocument,
 } from "@/actions/company-documents";
 import type { CompanyDocument, CompanyDocType } from "@/types/index";
+import { DateInput } from "@/components/ui/date-input";
 
 const docTypeLabel: Record<CompanyDocType, string> = {
   articles: "定款",
@@ -358,12 +359,9 @@ export function CompanyDocumentsPageContent({ hideHeader = false }: { hideHeader
                   <label className="block text-xs font-medium text-muted-foreground mb-1">
                     作成日・取得日
                   </label>
-                  <input
-                    type="date"
-                    value={issuedDate}
-                    onChange={(e) => setIssuedDate(e.target.value)}
-                    className={inputCls}
-                  />
+                  <DateInput allowEmpty value={issuedDate}
+                    onChange={(v) => setIssuedDate(v)}
+                    className={inputCls} />
                 </div>
               </div>
               <div>

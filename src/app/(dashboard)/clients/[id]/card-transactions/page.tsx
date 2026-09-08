@@ -29,6 +29,7 @@ import {
   autoCreateJournalsFromCardTransactions,
 } from "@/actions/ai-journal";
 import { formatCurrency } from "@/lib/utils";
+import { DateInput } from "@/components/ui/date-input";
 
 type CardAccountInfo = {
   id: string;
@@ -322,12 +323,9 @@ export default function CardTransactionsPage({
             </div>
             <div>
               <label className="text-xs text-muted-foreground font-bold block mb-1">支払日</label>
-              <input
-                type="date"
-                value={paymentDate}
-                onChange={(e) => setPaymentDate(e.target.value)}
-                className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-              />
+              <DateInput allowEmpty value={paymentDate}
+                onChange={(v) => setPaymentDate(v)}
+                className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
             </div>
           </div>
           <div className="flex gap-2 justify-end">

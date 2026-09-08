@@ -39,6 +39,7 @@ import {
 import { getClient } from "@/actions/clients";
 import { getFiscalPeriod } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
+import { DateInput } from "@/components/ui/date-input";
 
 type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 
@@ -1016,12 +1017,9 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
               return (
                 <tr key={row.id ?? `draft-${idx}`} className="border-b border-neutral-200">
                   <td className="px-3 py-1.5">
-                    <input
-                      type="date"
-                      value={row.count_date}
-                      onChange={(e) => setField(idx, { count_date: e.target.value })}
-                      className={inputCls}
-                    />
+                    <DateInput allowEmpty value={row.count_date}
+                      onChange={(v) => setField(idx, { count_date: v })}
+                      className={inputCls} />
                   </td>
                   <td className="px-3 py-1.5">
                     <input

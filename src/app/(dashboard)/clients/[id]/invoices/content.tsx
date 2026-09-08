@@ -32,6 +32,7 @@ import { getPartners } from "@/actions/partners";
 import { getClient } from "@/actions/clients";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { importRaqtoSalesOrders, exportRaqtoPaymentStatus, type RaqtoSyncResult } from "@/actions/raqto-sync";
+import { DateInput } from "@/components/ui/date-input";
 
 // ---------------------------------------------------------------------------
 // Types & config
@@ -536,17 +537,15 @@ export function InvoicesPageContent({
                 <label className="block text-sm font-medium text-foreground mb-1">
                   {newInvoice.direction === "purchase" ? "受領日" : "発行日"}
                 </label>
-                <input type="date" value={newInvoice.issued_date}
-                  onChange={(e) => setNewInvoice({ ...newInvoice, issued_date: e.target.value })}
-                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
-                />
+                <DateInput allowEmpty value={newInvoice.issued_date}
+                  onChange={(v) => setNewInvoice({ ...newInvoice, issued_date: v })}
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm pr-7" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">支払期限</label>
-                <input type="date" value={newInvoice.due_date}
-                  onChange={(e) => setNewInvoice({ ...newInvoice, due_date: e.target.value })}
-                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
-                />
+                <DateInput allowEmpty value={newInvoice.due_date}
+                  onChange={(v) => setNewInvoice({ ...newInvoice, due_date: v })}
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm pr-7" />
               </div>
             </div>
 
@@ -567,10 +566,9 @@ export function InvoicesPageContent({
                 {newItems.map((item, idx) => (
                   <tr key={idx} className="border-b border-border/50">
                     <td className="py-2 pr-2">
-                      <input type="date" value={item.transaction_date}
-                        onChange={(e) => updateItem(idx, "transaction_date", e.target.value)}
-                        className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
-                      />
+                      <DateInput allowEmpty value={item.transaction_date}
+                        onChange={(v) => updateItem(idx, "transaction_date", v)}
+                        className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm pr-7" />
                     </td>
                     <td className="py-2 pr-2">
                       <input type="text" value={item.description}

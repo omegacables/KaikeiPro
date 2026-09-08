@@ -54,6 +54,7 @@ import {
   createJournalsFromStatementLines,
 } from "@/actions/statement-lines";
 import type { StatementLine } from "@/types/index";
+import { DateInput } from "@/components/ui/date-input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1275,12 +1276,9 @@ export function ReceiptsPageContent({
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">日付</label>
-                    <input
-                      type="date"
-                      className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background"
+                    <DateInput allowEmpty className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background pr-7"
                       value={editForm.date}
-                      onChange={(e) => setEditForm((f) => ({ ...f, date: e.target.value }))}
-                    />
+                      onChange={(v) => setEditForm((f) => ({ ...f, date: v }))} />
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">通貨</label>

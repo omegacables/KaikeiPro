@@ -26,6 +26,7 @@ import {
   type BatchAllocationRow,
   type AllocationReportRow,
 } from "@/actions/allocations";
+import { DateInput } from "@/components/ui/date-input";
 
 interface Draft {
   ratio: string;
@@ -501,7 +502,7 @@ export default function AllocationsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">日付</label>
-                <input type="date" value={jDate} onChange={(e) => setJDate(e.target.value)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+                <DateInput allowEmpty value={jDate} onChange={(v) => setJDate(v)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">費用科目</label>

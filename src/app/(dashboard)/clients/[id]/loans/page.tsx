@@ -24,7 +24,6 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DateInput } from "@/components/ui/date-input";
 import { useFieldNav } from "@/components/ui/use-field-nav";
 import { AccountLookup, type AccountOption } from "@/components/ui/account-lookup";
 import {
@@ -81,6 +80,7 @@ import type {
 import { currentFiscalStartYear } from "@/lib/fiscal";
 import { useRouter } from "next/navigation";
 import { formatCurrency } from "@/lib/utils";
+import { DateInput } from "@/components/ui/date-input";
 
 const num = (s: string) => Math.round(Number(s) || 0);
 

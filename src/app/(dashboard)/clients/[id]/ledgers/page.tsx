@@ -61,6 +61,7 @@ import {
   type AgingReportRow,
   type AgingBuckets,
 } from "@/actions/invoices";
+import { DateInput } from "@/components/ui/date-input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1415,19 +1416,13 @@ export default function LedgersPage() {
             <div className="flex items-center gap-4">
               <Calendar className="size-4 text-muted-foreground" />
               <label className="text-xs text-muted-foreground font-bold">期間:</label>
-              <input
-                type="date"
-                value={dateFrom}
-                onChange={(e) => setDateFrom(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-              />
+              <DateInput allowEmpty value={dateFrom}
+                onChange={(v) => setDateFrom(v)}
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
               <span className="text-muted-foreground">〜</span>
-              <input
-                type="date"
-                value={dateTo}
-                onChange={(e) => setDateTo(e.target.value)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-              />
+              <DateInput allowEmpty value={dateTo}
+                onChange={(v) => setDateTo(v)}
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
               <div className="flex items-center gap-1 ml-4">
                 {presets.map((preset) => (
                   <button
@@ -1683,12 +1678,9 @@ export default function LedgersPage() {
                 <div className="space-y-4">
                   <div>
                     <label className="text-xs text-muted-foreground font-bold">日付</label>
-                    <input
-                      type="date"
-                      value={editDate}
-                      onChange={(e) => setEditDate(e.target.value)}
-                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-                    />
+                    <DateInput allowEmpty value={editDate}
+                      onChange={(v) => setEditDate(v)}
+                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground font-bold">摘要</label>

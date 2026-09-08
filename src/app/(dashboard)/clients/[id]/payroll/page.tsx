@@ -26,6 +26,7 @@ import {
 } from "@/actions/payroll";
 import type { PayrollRecord, EmployeeType } from "@/types/index";
 import { formatCurrency } from "@/lib/utils";
+import { DateInput } from "@/components/ui/date-input";
 
 function currentMonth(): string {
   const d = new Date();
@@ -484,12 +485,9 @@ export default function PayrollPage({
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">支給日</label>
-                  <input
-                    type="date"
-                    value={form.pay_date}
-                    onChange={(e) => setForm({ ...form, pay_date: e.target.value })}
-                    className={inputCls}
-                  />
+                  <DateInput allowEmpty value={form.pay_date}
+                    onChange={(v) => setForm({ ...form, pay_date: v })}
+                    className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">総支給額</label>

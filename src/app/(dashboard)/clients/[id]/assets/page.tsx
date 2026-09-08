@@ -21,6 +21,7 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
 import { getAssets, createAsset } from "@/actions/assets";
+import { DateInput } from "@/components/ui/date-input";
 
 type AssetCategory = "all" | "building" | "vehicle" | "equipment" | "software";
 
@@ -183,7 +184,7 @@ export default function AssetsPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取得日 *</label>
-              <input type="date" required value={newAsset.acquisition_date} onChange={(e) => setNewAsset({ ...newAsset, acquisition_date: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              <DateInput allowEmpty value={newAsset.acquisition_date} onChange={(v) => setNewAsset({ ...newAsset, acquisition_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取得金額 *</label>

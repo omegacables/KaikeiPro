@@ -22,7 +22,6 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AccountLookup } from "@/components/ui/account-lookup";
-import { DateInput } from "@/components/ui/date-input";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   createJournalEntry,
@@ -47,6 +46,7 @@ import { uploadReceipt } from "@/actions/receipt-storage";
 import { processReceiptOcr } from "@/actions/ocr";
 import { useAuth } from "@/components/providers/auth-provider";
 import Link from "next/link";
+import { DateInput } from "@/components/ui/date-input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1068,12 +1068,9 @@ export default function JournalsPage() {
                         />
                       </td>
                       <td className="px-2 py-1">
-                        <input
-                          type="date"
-                          value={s.date}
-                          onChange={(e) => updateImportSuggestion(s.rowIdx, { date: e.target.value })}
-                          className="bg-transparent border-0 text-xs w-28"
-                        />
+                        <DateInput allowEmpty value={s.date}
+                          onChange={(v) => updateImportSuggestion(s.rowIdx, { date: v })}
+                          className="bg-transparent border-0 text-xs w-28 pr-7" />
                       </td>
                       <td className="px-2 py-1">
                         <input
@@ -1338,12 +1335,9 @@ export default function JournalsPage() {
                         />
                       </td>
                       <td className="px-2 py-1">
-                        <input
-                          type="date"
-                          value={s.date}
-                          onChange={(e) => updateSuggestion(s.rowIdx, { date: e.target.value })}
-                          className="bg-transparent border-0 text-xs w-28"
-                        />
+                        <DateInput allowEmpty value={s.date}
+                          onChange={(v) => updateSuggestion(s.rowIdx, { date: v })}
+                          className="bg-transparent border-0 text-xs w-28 pr-7" />
                       </td>
                       <td className="px-2 py-1">
                         <input
