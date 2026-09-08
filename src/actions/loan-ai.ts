@@ -11,6 +11,7 @@ import {
   normalizeConfidence,
   INJECTION_GUARD,
   GEMINI_MODELS,
+  callGemini,
 } from "@/lib/gemini";
 import { currentBalance, entryTypeLabel } from "@/lib/loan-ledger";
 import { downloadReceiptImage } from "@/actions/receipt-storage";
@@ -315,7 +316,7 @@ ${INJECTION_GUARD}
 ${text}`;
 
   const model = getGeminiModel("text");
-  const result = await model.generateContent(prompt);
+  const result = await callGemini(() => model.generateContent(prompt));
   const parsed = extractJson<{ entries?: RawDraft[] }>(
     result.response.text(),
     "AI起票の結果"
@@ -391,15 +392,17 @@ JSONのみを返してください。説明文は不要です。
 ${INJECTION_GUARD}`;
 
   const model = getGeminiModel("vision");
-  const result = await model.generateContent([
-    {
-      inlineData: {
-        mimeType: mimeType as "image/jpeg" | "image/png" | "application/pdf",
-        data: base64,
+  const result = await callGemini(() =>
+    model.generateContent([
+      {
+        inlineData: {
+          mimeType: mimeType as "image/jpeg" | "image/png" | "application/pdf",
+          data: base64,
+        },
       },
-    },
-    { text: prompt },
-  ]);
+      { text: prompt },
+    ])
+  );
 
   const parsed = extractJson<{
     candidates?: RawDraft[];
@@ -518,7 +521,7 @@ JSONのみを返してください。説明文は不要です。
 ${INJECTION_GUARD}`;
 
   const model = getGeminiModel("text");
-  const result = await model.generateContent(prompt);
+  const result = await callGemini(() => model.generateContent(prompt));
   const parsed = extractJson<{
     conclusion?: string | null;
     confidence?: number;
