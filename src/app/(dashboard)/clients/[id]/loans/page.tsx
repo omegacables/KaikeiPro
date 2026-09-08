@@ -2063,6 +2063,7 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
     months: "12",
     firstDue: today(),
     method: "equal_principal" as "equal_principal" | "equal_payment",
+    dueDateMode: "same_day" as "same_day" | "month_end",
   });
 
   const load = useCallback(async () => {
@@ -2088,6 +2089,7 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
         termMonths: num(form.months),
         firstDueDate: form.firstDue,
         method: form.method,
+        dueDateMode: form.dueDateMode,
       });
       await load();
       setError(`${n}回分の予定を作成しました。`);
@@ -2115,7 +2117,7 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
       <div className="mt-3 space-y-3">
         {error && <p className="text-[17px] text-destructive">{error}</p>}
 
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto_auto] sm:items-end">
+        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto_auto_auto] sm:items-end">
           <div>
             <label className={labelCls}>借入額</label>
             <input
@@ -2166,6 +2168,19 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
               <option value="equal_payment">元利均等</option>
             </select>
           </div>
+          <div>
+            <label className={labelCls}>返済日</label>
+            <select
+              value={form.dueDateMode}
+              onChange={(e) =>
+                setForm({ ...form, dueDateMode: e.target.value as typeof form.dueDateMode })
+              }
+              className={inputCls + " w-auto"}
+            >
+              <option value="same_day">同じ日にち</option>
+              <option value="month_end">毎月末日</option>
+            </select>
+          </div>
           <Button variant="outline" onClick={handleGenerate} disabled={busy === "gen"}>
             {busy === "gen" && <Loader2 className="size-4 animate-spin" />}
             予定表を作る
@@ -2175,6 +2190,8 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
         <p className={bodyCls}>
           元金均等は毎回の元金が一定、元利均等は毎回の支払総額が一定です。
           端数は最終回で調整し、元金の合計が借入額と必ず一致します。
+          返済日は「同じ日にち」なら初回の日にちで揃え（4/30 起算なら 5/30, 6/30…）、
+          「毎月末日」なら各月の末日にします（5/31, 6/30, 7/31…）。銀行融資は末日の契約が多くあります。
         </p>
 
         {rows.length > 0 && (

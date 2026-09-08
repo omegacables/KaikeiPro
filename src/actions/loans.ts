@@ -15,6 +15,7 @@ import {
   generateRepaymentSchedule,
   reconcileLoanLedger,
   type RepaymentMethod,
+  type DueDateMode,
   type ReconcileResult,
   type JournalLineForCheck,
 } from "@/lib/loan-ledger";
@@ -678,6 +679,7 @@ export async function generateSchedules(params: {
   termMonths: number;
   firstDueDate: string;
   method: RepaymentMethod;
+  dueDateMode?: DueDateMode;
 }): Promise<number> {
   const clientId = await resolveClientIdForRecord("loans", params.loanId);
   const supabase = await createServerSupabaseClient();
@@ -702,6 +704,7 @@ export async function generateSchedules(params: {
     termMonths: params.termMonths,
     firstDueDate: params.firstDueDate,
     method: params.method,
+    dueDateMode: params.dueDateMode,
   });
   if (rows.length === 0) throw new Error("借入額と返済回数を入力してください");
 

@@ -506,11 +506,26 @@ export function buildJournalLines(params: {
 
 export type RepaymentMethod = "equal_principal" | "equal_payment";
 
+/**
+ * 返済日の決め方。
+ *   same_day  … 初回と同じ日にちで毎月（4/30 起算なら 5/30, 6/30…）
+ *   month_end … 毎月の末日（4/30 起算なら 5/31, 6/30, 7/31…）
+ * 銀行融資は「毎月末日」の契約が多い一方、給与日に合わせて日を固定する場合もある。
+ */
+export type DueDateMode = "same_day" | "month_end";
+
 export type ScheduleRow = {
   due_date: string;
   principal_amount: number;
   interest_amount: number;
 };
+
+/** その月の末日 */
+export function endOfMonth(date: string): string {
+  const [y, m] = date.split("-").map(Number);
+  const last = new Date(y, m, 0).getDate();
+  return `${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`;
+}
 
 /** 月を加算した日付。月末日は繰り上がらないよう、その月の末日に丸める。 */
 export function addMonths(date: string, months: number): string {
@@ -540,8 +555,11 @@ export function generateRepaymentSchedule(params: {
   /** 初回返済日 */
   firstDueDate: string;
   method: RepaymentMethod;
+  /** 返済日の決め方。既定は初回と同じ日にち */
+  dueDateMode?: DueDateMode;
 }): ScheduleRow[] {
   const { principal, annualRatePercent, termMonths, firstDueDate, method } = params;
+  const dueDateMode = params.dueDateMode ?? "same_day";
   if (principal <= 0 || termMonths <= 0) return [];
 
   const monthlyRate = annualRatePercent / 100 / 12;
@@ -569,8 +587,9 @@ export function generateRepaymentSchedule(params: {
     }
     principalPart = Math.min(principalPart, remaining);
 
+    const nth = addMonths(firstDueDate, i);
     rows.push({
-      due_date: addMonths(firstDueDate, i),
+      due_date: dueDateMode === "month_end" ? endOfMonth(nth) : nth,
       principal_amount: principalPart,
       interest_amount: interest,
     });

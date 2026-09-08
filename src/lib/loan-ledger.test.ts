@@ -15,6 +15,7 @@ import {
   outstandingTranches,
   TAX_EXEMPT_INTEREST_THRESHOLD,
   addMonths,
+  endOfMonth,
   generateRepaymentSchedule,
   reconcileLoanLedger,
   type LedgerEntry,
@@ -868,5 +869,61 @@ describe("返済と同時に支払う利息（銀行返済）", () => {
   it("未払利息の計上（entry_type=interest）は従来どおり残高を増やす", () => {
     const entries = [e("2026-04-01", "borrow", 100_000), e("2026-04-30", "interest", 500)];
     expect(currentBalance(entries)).toBe(100_500);
+  });
+});
+
+describe("返済日の決め方（月末 / 同じ日にち）", () => {
+  const base = {
+    principal: 1_200_000,
+    annualRatePercent: 0,
+    termMonths: 12,
+    firstDueDate: "2026-04-30",
+    method: "equal_principal" as const,
+  };
+
+  it("endOfMonth はその月の末日を返す", () => {
+    expect(endOfMonth("2026-05-01")).toBe("2026-05-31");
+    expect(endOfMonth("2026-02-10")).toBe("2026-02-28");
+    expect(endOfMonth("2028-02-10")).toBe("2028-02-29"); // うるう年
+  });
+
+  it("月末を選ぶと、各月の末日になる", () => {
+    const rows = generateRepaymentSchedule({ ...base, dueDateMode: "month_end" });
+    expect(rows.map((r) => r.due_date).slice(0, 4)).toEqual([
+      "2026-04-30",
+      "2026-05-31", // 30日ではなく末日
+      "2026-06-30",
+      "2026-07-31",
+    ]);
+    // 2月も末日になる
+    expect(rows.map((r) => r.due_date)).toContain("2027-02-28");
+    expect(rows.at(-1)!.due_date).toBe("2027-03-31");
+  });
+
+  it("同じ日にちを選ぶと、初回の日にちで揃う", () => {
+    const rows = generateRepaymentSchedule({ ...base, dueDateMode: "same_day" });
+    expect(rows.map((r) => r.due_date).slice(0, 3)).toEqual([
+      "2026-04-30",
+      "2026-05-30",
+      "2026-06-30",
+    ]);
+    // 2月は28日に丸めるが、翌月は元の日にちに戻る（ずれを蓄積させない）
+    expect(rows.map((r) => r.due_date)).toContain("2027-02-28");
+    expect(rows.at(-1)!.due_date).toBe("2027-03-30");
+  });
+
+  it("指定しなければ従来どおり「同じ日にち」で動く", () => {
+    const rows = generateRepaymentSchedule(base);
+    expect(rows[1].due_date).toBe("2026-05-30");
+  });
+
+  it("25日など月中の日でも、月末を選べば末日になる", () => {
+    const rows = generateRepaymentSchedule({
+      ...base,
+      termMonths: 3,
+      firstDueDate: "2026-04-25",
+      dueDateMode: "month_end",
+    });
+    expect(rows.map((r) => r.due_date)).toEqual(["2026-04-30", "2026-05-31", "2026-06-30"]);
   });
 });
