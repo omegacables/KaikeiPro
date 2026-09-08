@@ -1012,18 +1012,18 @@ function LedgerRow(props: {
                 Enter / → で次の欄へ、← で前の欄へ、最後の欄からは「追加」ボタンへ
                 日付欄の ↑↓ は年月日の増減（DateInput 側で処理）
                 IME変換中の Enter では移動しない */}
-          <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr_1fr_auto] sm:items-end">
-            <div>
+          <div className="flex flex-wrap items-end gap-2">
+            <div className="w-44">
               <label className={labelCls}>日付</label>
               <DateInput
                 value={entryForm.entry_date}
                 onChange={(v) => setEntryForm({ ...entryForm, entry_date: v })}
                 inputRef={(el) => setCellRef(0, el)}
                 onKeyDown={(e) => handleCellKeyDown(0, e)}
-                className={inputCls + " w-44 pr-7"}
+                className={inputCls + " pr-7"}
               />
             </div>
-            <div>
+            <div className="w-32">
               <label className={labelCls}>区分</label>
               <select
                 ref={(el) => setCellRef(1, el)}
@@ -1032,7 +1032,7 @@ function LedgerRow(props: {
                   setEntryForm({ ...entryForm, entry_type: e.target.value as LoanEntryType })
                 }
                 onKeyDown={(e) => handleCellKeyDown(1, e)}
-                className={inputCls + " w-auto"}
+                className={inputCls}
               >
                 {ENTRY_TYPES.filter((t) => !(isLend && t === "advance")).map((t) => (
                   <option key={t} value={t}>
@@ -1041,7 +1041,7 @@ function LedgerRow(props: {
                 ))}
               </select>
             </div>
-            <div>
+            <div className="w-40">
               <label className={labelCls}>金額</label>
               <input
                 ref={(el) => setCellRef(2, el)}
@@ -1054,7 +1054,7 @@ function LedgerRow(props: {
               />
             </div>
             {entryForm.entry_type === "repay" && (
-              <div>
+              <div className="w-36">
                 <label className={labelCls}>同時に払う利息</label>
                 <input
                   type="number"
@@ -1068,7 +1068,7 @@ function LedgerRow(props: {
                 />
               </div>
             )}
-            <div>
+            <div className="min-w-[16rem] flex-1">
               <label className={labelCls}>摘要</label>
               <input
                 ref={(el) => setCellRef(4, el)}
@@ -2117,65 +2117,67 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
       <div className="mt-3 space-y-3">
         {error && <p className="text-[17px] text-destructive">{error}</p>}
 
-        <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto_auto_auto_auto] sm:items-end">
-          <div>
+        {/* 欄ごとに必要な幅を与えて折り返す。
+            列固定のグリッドだと、欄が増えたときに金額欄が潰れて桁が読めなくなる。 */}
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="w-44">
             <label className={labelCls}>借入額</label>
             <input
               type="number"
               value={form.principal}
               onChange={(e) => setForm({ ...form, principal: e.target.value })}
               className={inputCls + " text-right"}
-              placeholder="1000000"
+              placeholder="1200000"
             />
           </div>
-          <div>
+          <div className="w-24">
             <label className={labelCls}>年利(%)</label>
             <input
               type="number"
               step="0.001"
               value={form.rate}
               onChange={(e) => setForm({ ...form, rate: e.target.value })}
-              className={inputCls + " w-24 text-right"}
+              className={inputCls + " text-right"}
             />
           </div>
-          <div>
+          <div className="w-24">
             <label className={labelCls}>回数(月)</label>
             <input
               type="number"
               value={form.months}
               onChange={(e) => setForm({ ...form, months: e.target.value })}
-              className={inputCls + " w-24 text-right"}
+              className={inputCls + " text-right"}
             />
           </div>
-          <div>
+          <div className="w-44">
             <label className={labelCls}>初回返済日</label>
             <DateInput
               value={form.firstDue}
               onChange={(v) => setForm({ ...form, firstDue: v })}
-              className={inputCls + " w-44 pr-7"}
+              className={inputCls + " pr-7"}
             />
           </div>
-          <div>
+          <div className="w-32">
             <label className={labelCls}>方式</label>
             <select
               value={form.method}
               onChange={(e) =>
                 setForm({ ...form, method: e.target.value as typeof form.method })
               }
-              className={inputCls + " w-auto"}
+              className={inputCls}
             >
               <option value="equal_principal">元金均等</option>
               <option value="equal_payment">元利均等</option>
             </select>
           </div>
-          <div>
+          <div className="w-36">
             <label className={labelCls}>返済日</label>
             <select
               value={form.dueDateMode}
               onChange={(e) =>
                 setForm({ ...form, dueDateMode: e.target.value as typeof form.dueDateMode })
               }
-              className={inputCls + " w-auto"}
+              className={inputCls}
             >
               <option value="same_day">同じ日にち</option>
               <option value="month_end">毎月末日</option>
