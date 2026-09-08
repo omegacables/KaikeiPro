@@ -173,6 +173,11 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   const [receiptLinks, setReceiptLinks] = useState<Record<string, LoanEntryReceipt[]>>({});
   const [attachTarget, setAttachTarget] = useState<LoanEntry | null>(null);
 
+  // 追加できたことを短く知らせる（画面が下に伸びるため、成功したか分かりにくい）
+  const [notice, setNotice] = useState<string | null>(null);
+  // 二重送信の防止。setBusy は反映が非同期なので、連打には ref で即座に蓋をする
+  const submittingRef = useRef(false);
+
   // AI
   const [aiText, setAiText] = useState("");
   const [aiBusy, setAiBusy] = useState(false);
@@ -386,6 +391,9 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   }
 
   async function handleSaveEntry(ledger: LoanLedger) {
+    // 連打による二重登録を防ぐ。会計データでは同じ明細が2件入ると残高が狂う
+    if (submittingRef.current) return;
+
     const amount = num(entryForm.amount);
     if (amount <= 0) {
       setError("金額を入力してください");
@@ -395,8 +403,10 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       setError("立替には費用科目を選んでください");
       return;
     }
+    submittingRef.current = true;
     setBusy("entry-" + ledger.loan.id);
     setError(null);
+    setNotice(null);
     try {
       const payload = {
         loan_id: ledger.loan.id,
@@ -415,12 +425,19 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       };
       if (editingEntryId) await updateLoanEntry(editingEntryId, payload);
       else await createLoanEntry(payload);
+      setNotice(
+        `${editingEntryId ? "更新" : "追加"}しました: ${entryForm.entry_date} ${entryTypeLabel(
+          entryForm.entry_type,
+          ledger.loan.direction
+        )} ${formatCurrency(amount)}`
+      );
       setEntryForm(emptyEntryForm());
       setEditingEntryId(null);
       await fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : "登録に失敗しました");
     } finally {
+      submittingRef.current = false;
       setBusy(null);
     }
   }
@@ -564,6 +581,12 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       {error && (
         <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-[17px] text-destructive">
           {error}
+        </div>
+      )}
+
+      {notice && (
+        <div className="p-3 rounded-lg bg-primary/10 border border-primary/20 text-[17px] text-foreground">
+          {notice}
         </div>
       )}
 
