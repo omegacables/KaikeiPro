@@ -1372,15 +1372,14 @@ function AiPanel(props: {
                         />
                       </td>
                       <td className="py-2 pr-2">
-                        <input
-                          type="date"
+                        <DateInput
                           value={d.entry_date}
-                          onChange={(e) => {
+                          onChange={(v) => {
                             const next = [...props.drafts];
-                            next[i] = { ...d, entry_date: e.target.value };
+                            next[i] = { ...d, entry_date: v };
                             props.setDrafts(next);
                           }}
-                          className="px-2 py-1 rounded border border-border bg-background text-[17px]"
+                          className="w-36 px-2 py-1 pr-7 rounded border border-border bg-background text-[17px]"
                         />
                       </td>
                       <td className="py-2 pr-2">
@@ -1619,11 +1618,11 @@ function LoanFormModal(props: {
             )}
             <div>
               <label className={labelCls}>開始日</label>
-              <input
-                type="date"
+              <DateInput
                 value={form.borrowed_date}
-                onChange={(e) => setForm({ ...form, borrowed_date: e.target.value })}
-                className={inputCls}
+                onChange={(v) => setForm({ ...form, borrowed_date: v })}
+                allowEmpty
+                className={inputCls + " pr-7"}
               />
             </div>
           </div>
@@ -1918,11 +1917,10 @@ function ClassifyPaymentSection(props: {
         <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr_auto] sm:items-end">
           <div>
             <label className={labelCls}>日付</label>
-            <input
-              type="date"
+            <DateInput
               value={date}
-              onChange={(e) => setDate(e.target.value)}
-              className={inputCls + " w-auto"}
+              onChange={setDate}
+              className={inputCls + " w-44 pr-7"}
             />
           </div>
           <div>

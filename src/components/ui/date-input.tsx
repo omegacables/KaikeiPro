@@ -9,6 +9,9 @@ interface DateInputProps {
   inputRef?: (el: HTMLInputElement | null) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
   className?: string;
+  /** 未入力を許す欄（任意項目）では true。既定は false で、空にすると元の値に戻る */
+  allowEmpty?: boolean;
+  placeholder?: string;
 }
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
@@ -106,18 +109,24 @@ export const DateInput = memo(function DateInput({
   inputRef,
   onKeyDown,
   className,
+  allowEmpty = false,
+  placeholder,
 }: DateInputProps) {
   const innerRef = useRef<HTMLInputElement | null>(null);
   const pickerRef = useRef<HTMLInputElement | null>(null);
   // 打ち込み途中の文字列。null なら確定値を表示している
   const [draft, setDraft] = useState<string | null>(null);
 
+  // 値が未設定・不正な形式のときは「空欄」として扱う。
+  // 任意項目（借入の開始日など）で、入っていない日付を勝手に表示しないため。
+  const isEmpty = !/^\d{4}-\d{2}-\d{2}$/.test(value);
+  const nowRef = new Date();
   const parts = value.split("-");
-  const year = Number(parts[0]) || new Date().getFullYear();
-  const month = Number(parts[1]) || 1;
-  const day = Number(parts[2]) || 1;
+  const year = isEmpty ? nowRef.getFullYear() : Number(parts[0]);
+  const month = isEmpty ? nowRef.getMonth() + 1 : Number(parts[1]);
+  const day = isEmpty ? nowRef.getDate() : Number(parts[2]);
 
-  const display = draft ?? `${year}/${pad2(month)}/${pad2(day)}`;
+  const display = draft ?? (isEmpty ? "" : `${year}/${pad2(month)}/${pad2(day)}`);
 
   // カーソルのある区画: 0=年, 1=月, 2=日
   const getSegment = (): number => {
@@ -148,6 +157,12 @@ export const DateInput = memo(function DateInput({
   /** 打ち込み中の文字列を確定する。解釈できなければ元の値に戻す。 */
   const commitDraft = useCallback((): boolean => {
     if (draft === null) return false;
+    // 任意項目なら、空にして確定＝未入力に戻す操作として受け付ける
+    if (allowEmpty && draft.trim() === "") {
+      setDraft(null);
+      if (value !== "") onChange("");
+      return true;
+    }
     const parsed = parseDateInput(draft, { y: year, m: month, d: day });
     setDraft(null);
     if (parsed && parsed !== value) {
@@ -155,7 +170,7 @@ export const DateInput = memo(function DateInput({
       return true;
     }
     return false;
-  }, [draft, year, month, day, value, onChange]);
+  }, [draft, year, month, day, value, onChange, allowEmpty]);
 
   const adjust = useCallback(
     (delta: number) => {
@@ -242,6 +257,7 @@ export const DateInput = memo(function DateInput({
         type="text"
         inputMode="numeric"
         value={display}
+        placeholder={placeholder ?? (allowEmpty ? "未入力" : "YYYY/MM/DD")}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={handleKeyDown}
         onBlur={() => commitDraft()}
@@ -258,7 +274,7 @@ export const DateInput = memo(function DateInput({
       <input
         ref={pickerRef}
         type="date"
-        value={value}
+        value={isEmpty ? "" : value}
         tabIndex={-1}
         aria-hidden
         onChange={(e) => e.target.value && onChange(e.target.value)}

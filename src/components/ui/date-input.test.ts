@@ -78,3 +78,19 @@ describe("parseDateInput", () => {
     expect(parseDateInput("1/5", BASE)).toBe("2026-01-05");
   });
 });
+
+describe("空欄の扱い", () => {
+  // DateInput は value が YYYY-MM-DD 形式でなければ「空欄」として扱う。
+  // ここでは判定に使っている正規表現と同じ条件を確認する。
+  const isEmpty = (v: string) => !/^\d{4}-\d{2}-\d{2}$/.test(v);
+
+  it("未入力・不正な形式は空欄として扱う", () => {
+    expect(isEmpty("")).toBe(true);
+    expect(isEmpty("2026-4-1")).toBe(true);
+    expect(isEmpty("2026/04/01")).toBe(true);
+  });
+
+  it("正しい形式は空欄ではない", () => {
+    expect(isEmpty("2026-04-01")).toBe(false);
+  });
+});
