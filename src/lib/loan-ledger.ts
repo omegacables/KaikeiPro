@@ -27,6 +27,11 @@ export type LedgerEntry = {
   amount: number;
   /** entry_type='adjust' のときのみ使う符号付きの差額 */
   signed_adjustment?: number | null;
+  /**
+   * entry_type='repay' のときに同時に支払った利息。
+   * 費用として仕訳には載るが、借入金の残高は動かさない。
+   */
+  interest_amount?: number | null;
   status?: LoanEntryStatus;
   created_at?: string;
 };
@@ -437,8 +442,11 @@ export function buildJournalLines(params: {
   paymentAccountId: string | null;
   expenseAccountId: string | null;
   interestAccountId: string | null;
+  /** 返済と同時に支払った利息。残高は動かさず、仕訳にだけ載る */
+  paidInterest?: number;
 }): JournalLine[] {
   const { direction, entryType, amount, ledgerAccountId } = params;
+  const paidInterest = Math.max(0, Math.round(params.paidInterest ?? 0));
 
   const pair = (debitId: string, creditId: string): JournalLine[] => [
     { accountId: debitId, debit: amount, credit: 0 },
@@ -460,9 +468,22 @@ export function buildJournalLines(params: {
       case "advance":
         // 現金は動かさない。費用の計上と債務の計上が同時に立つ
         return pair(need(params.expenseAccountId, "立替の費用科目"), ledgerAccountId);
-      case "repay":
-        return pair(ledgerAccountId, need(params.paymentAccountId, "支払元の科目"));
+      case "repay": {
+        const payment = need(params.paymentAccountId, "支払元の科目");
+        if (paidInterest === 0) return pair(ledgerAccountId, payment);
+        // 元金と利息を同時に支払う。利息は費用で、借入金残高は元金分しか減らない
+        return [
+          { accountId: ledgerAccountId, debit: amount, credit: 0 },
+          {
+            accountId: need(params.interestAccountId, "「支払利息」科目"),
+            debit: paidInterest,
+            credit: 0,
+          },
+          { accountId: payment, debit: 0, credit: amount + paidInterest },
+        ];
+      }
       case "interest":
+        // 未払利息を元本に加算する計上（支払済みの利息とは別物）
         return pair(need(params.interestAccountId, "「支払利息」科目"), ledgerAccountId);
     }
   }

@@ -126,6 +126,8 @@ type EntryFormState = {
   entry_date: string;
   entry_type: LoanEntryType;
   amount: string;
+  /** 返済と同時に支払う利息。残高は動かさず仕訳にだけ載る */
+  interest_amount: string;
   expense_account_id: string;
   memo: string;
 };
@@ -135,6 +137,7 @@ function emptyEntryForm(): EntryFormState {
     entry_date: today(),
     entry_type: "borrow",
     amount: "",
+    interest_amount: "",
     expense_account_id: "",
     memo: "",
   };
@@ -376,6 +379,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       entry_date: entry.entry_date,
       entry_type: entry.entry_type === "adjust" ? "borrow" : entry.entry_type,
       amount: String(entry.amount || ""),
+      interest_amount: String(entry.interest_amount || ""),
       expense_account_id: entry.expense_account_id ?? "",
       memo: entry.memo ?? "",
     });
@@ -400,6 +404,8 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         entry_date: entryForm.entry_date || today(),
         entry_type: entryForm.entry_type,
         amount,
+        interest_amount:
+          entryForm.entry_type === "repay" ? num(entryForm.interest_amount) : 0,
         signed_adjustment: null,
         expense_account_id:
           entryForm.entry_type === "advance" ? entryForm.expense_account_id : null,
@@ -1047,6 +1053,21 @@ function LedgerRow(props: {
                 placeholder="0"
               />
             </div>
+            {entryForm.entry_type === "repay" && (
+              <div>
+                <label className={labelCls}>同時に払う利息</label>
+                <input
+                  type="number"
+                  value={entryForm.interest_amount}
+                  onChange={(e) =>
+                    setEntryForm({ ...entryForm, interest_amount: e.target.value })
+                  }
+                  onKeyDown={(e) => handleCellKeyDown(3, e)}
+                  className={inputCls + " text-right"}
+                  placeholder="0"
+                />
+              </div>
+            )}
             <div>
               <label className={labelCls}>摘要</label>
               <input
@@ -1116,6 +1137,7 @@ function LedgerRow(props: {
                     <th className="py-2 pr-3 font-medium">日付</th>
                     <th className="py-2 pr-3 font-medium">区分</th>
                     <th className="py-2 pr-3 font-medium text-right">増減</th>
+                    <th className="py-2 pr-3 font-medium text-right">利息</th>
                     <th className="py-2 pr-3 font-medium text-right">残高</th>
                     <th className="py-2 pr-3 font-medium">摘要</th>
                     <th className="py-2 pr-3 font-medium">証憑</th>
@@ -1142,6 +1164,12 @@ function LedgerRow(props: {
                         <td className="py-2 pr-3 text-right tabular-nums">
                           {delta >= 0 ? "+" : "−"}
                           {formatCurrency(Math.abs(delta))}
+                        </td>
+                        {/* 支払済みの利息。費用として仕訳に載るが残高は動かさない */}
+                        <td className="py-2 pr-3 text-right tabular-nums">
+                          {entry.interest_amount > 0
+                            ? formatCurrency(entry.interest_amount)
+                            : ""}
                         </td>
                         <td className="py-2 pr-3 text-right tabular-nums font-medium">
                           {formatCurrency(balanceAfter)}

@@ -66,6 +66,7 @@ function rowToEntry(r: DbRow): LoanEntry {
     entry_type: (r.entry_type as LoanEntryType) ?? "borrow",
     amount: (r.amount as number) ?? 0,
     signed_adjustment: (r.signed_adjustment as number) ?? null,
+    interest_amount: (r.interest_amount as number) ?? 0,
     expense_account_id: (r.expense_account_id as string) ?? null,
     payment_account_id: (r.payment_account_id as string) ?? null,
     journal_entry_id: (r.journal_entry_id as string) ?? null,
@@ -298,6 +299,9 @@ export async function createLoanEntry(input: LoanEntryInput): Promise<LoanEntry>
       amount: Math.round(input.amount ?? 0),
       signed_adjustment:
         input.entry_type === "adjust" ? Math.round(input.signed_adjustment ?? 0) : null,
+      // 利息は返済のときだけ意味を持つ（残高は動かさず仕訳にだけ載る）
+      interest_amount:
+        input.entry_type === "repay" ? Math.max(0, Math.round(input.interest_amount ?? 0)) : 0,
       expense_account_id: input.expense_account_id,
       payment_account_id: input.payment_account_id,
       status: input.status ?? "confirmed",
@@ -333,6 +337,9 @@ export async function updateLoanEntry(
     if (input[k] !== undefined) patch[k] = input[k];
   }
   if (input.amount !== undefined) patch.amount = Math.round(input.amount);
+  if (input.interest_amount !== undefined) {
+    patch.interest_amount = Math.max(0, Math.round(input.interest_amount));
+  }
   if (input.signed_adjustment !== undefined) {
     patch.signed_adjustment =
       input.signed_adjustment == null ? null : Math.round(input.signed_adjustment);
@@ -553,6 +560,7 @@ export async function journalizeLoanEntry(entryId: string): Promise<string> {
     paymentAccountId:
       entry.payment_account_id ?? findAccount(accounts, ["普通預金", "当座預金", "現金"]),
     expenseAccountId: entry.expense_account_id,
+    paidInterest: entry.interest_amount,
     interestAccountId:
       loan.direction === "lend"
         ? findAccount(accounts, ["受取利息"])
@@ -745,41 +753,28 @@ export async function applySchedule(scheduleId: string): Promise<void> {
     throw new Error("この予定はすでに実績になっています");
   }
 
-  const patch: Record<string, unknown> = {};
+  // 元金と利息は1件の返済明細にまとめる。
+  // 別々の明細にすると利息が残高を増やしてしまい、会計上おかしくなる。
+  if (sch.principal_amount <= 0 && sch.interest_amount <= 0) return;
 
-  if (sch.principal_amount > 0) {
-    const e = await createLoanEntry({
-      loan_id: sch.loan_id,
-      client_id: sch.client_id,
-      entry_date: sch.due_date,
-      entry_type: "repay",
-      amount: sch.principal_amount,
-      signed_adjustment: null,
-      expense_account_id: null,
-      payment_account_id: null,
-      ai_evidence: null,
-      memo: `返済予定より（元金）${sch.memo ?? ""}`.trim(),
-    });
-    patch.principal_entry_id = e.id;
-  }
+  const entry = await createLoanEntry({
+    loan_id: sch.loan_id,
+    client_id: sch.client_id,
+    entry_date: sch.due_date,
+    entry_type: "repay",
+    amount: sch.principal_amount,
+    interest_amount: sch.interest_amount,
+    signed_adjustment: null,
+    expense_account_id: null,
+    payment_account_id: null,
+    ai_evidence: null,
+    memo: `返済予定より${sch.memo ? ` ${sch.memo}` : ""}`,
+  });
 
-  if (sch.interest_amount > 0) {
-    const e = await createLoanEntry({
-      loan_id: sch.loan_id,
-      client_id: sch.client_id,
-      entry_date: sch.due_date,
-      entry_type: "interest",
-      amount: sch.interest_amount,
-      signed_adjustment: null,
-      expense_account_id: null,
-      payment_account_id: null,
-      ai_evidence: null,
-      memo: `返済予定より（利息）${sch.memo ?? ""}`.trim(),
-    });
-    patch.interest_entry_id = e.id;
-  }
-
-  if (Object.keys(patch).length === 0) return;
+  const patch: Record<string, unknown> = {
+    principal_entry_id: entry.id,
+    interest_entry_id: sch.interest_amount > 0 ? entry.id : null,
+  };
 
   const { error } = await supabase
     .from("loan_repayment_schedules")

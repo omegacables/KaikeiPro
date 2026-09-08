@@ -542,6 +542,11 @@ export interface LoanEntry {
   amount: number;
   /** entry_type='adjust' のときのみ使う符号付きの差額 */
   signed_adjustment: number | null;
+  /**
+   * entry_type='repay' のときに同時に支払った利息。
+   * 費用として仕訳に載るが、借入金の残高は動かさない。
+   */
+  interest_amount: number;
   /** 立替時の費用科目 */
   expense_account_id: string | null;
   /** 借入・返済時の相手科目（普通預金/現金） */
@@ -556,8 +561,10 @@ export interface LoanEntry {
 
 export type LoanEntryInput = Omit<
   LoanEntry,
-  "id" | "journal_entry_id" | "created_at" | "status" | "source"
+  "id" | "journal_entry_id" | "created_at" | "status" | "source" | "interest_amount"
 > & {
+  /** 返済と同時に支払った利息（任意） */
+  interest_amount?: number;
   status?: LoanEntryStatus;
   source?: LoanEntrySource;
 };

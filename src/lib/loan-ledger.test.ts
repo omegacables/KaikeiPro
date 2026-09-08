@@ -790,3 +790,83 @@ describe("reconcileLoanLedger（整合性チェック）", () => {
     expect(result.matched).toBe(true);
   });
 });
+
+describe("返済と同時に支払う利息（銀行返済）", () => {
+  const base = {
+    ledgerAccountId: "LOAN",
+    paymentAccountId: "BANK",
+    expenseAccountId: "EXPENSE",
+    interestAccountId: "INTEREST",
+  };
+
+  it("元金と利息を同時に払うと、貸方は合計額の1行になる", () => {
+    const lines = buildJournalLines({
+      ...base,
+      direction: "borrow",
+      entryType: "repay",
+      amount: 100_000,
+      paidInterest: 2_400,
+    });
+
+    expect(lines).toEqual([
+      { accountId: "LOAN", debit: 100_000, credit: 0 },
+      { accountId: "INTEREST", debit: 2_400, credit: 0 },
+      { accountId: "BANK", debit: 0, credit: 102_400 },
+    ]);
+  });
+
+  it("利息を払っても、借入金が減るのは元金の分だけ", () => {
+    const lines = buildJournalLines({
+      ...base,
+      direction: "borrow",
+      entryType: "repay",
+      amount: 100_000,
+      paidInterest: 2_400,
+    });
+    const loanLine = lines.find((l) => l.accountId === "LOAN")!;
+    // 借入金の借方は元金のみ。利息分だけ借入金が動いてはいけない
+    expect(loanLine.debit).toBe(100_000);
+    expect(lines.filter((l) => l.accountId === "LOAN")).toHaveLength(1);
+  });
+
+  it("利息が0なら2行のままにする", () => {
+    const lines = buildJournalLines({
+      ...base,
+      direction: "borrow",
+      entryType: "repay",
+      amount: 100_000,
+      paidInterest: 0,
+    });
+    expect(lines).toHaveLength(2);
+    expect(lines.some((l) => l.accountId === "INTEREST")).toBe(false);
+  });
+
+  it("利息があっても貸借は一致する", () => {
+    const lines = buildJournalLines({
+      ...base,
+      direction: "borrow",
+      entryType: "repay",
+      amount: 100_000,
+      paidInterest: 2_400,
+    });
+    expect(lines.reduce((s, l) => s + l.debit, 0)).toBe(
+      lines.reduce((s, l) => s + l.credit, 0)
+    );
+  });
+
+  it("支払済みの利息は残高を動かさない（未払利息の計上とは別物）", () => {
+    const repayWithInterest = {
+      ...e("2026-04-30", "repay", 100_000),
+      interest_amount: 2_400,
+    };
+    const entries = [e("2026-04-01", "borrow", 1_200_000), repayWithInterest];
+
+    // 1,200,000 − 100,000 = 1,100,000。利息の2,400は残高に影響しない
+    expect(currentBalance(entries)).toBe(1_100_000);
+  });
+
+  it("未払利息の計上（entry_type=interest）は従来どおり残高を増やす", () => {
+    const entries = [e("2026-04-01", "borrow", 100_000), e("2026-04-30", "interest", 500)];
+    expect(currentBalance(entries)).toBe(100_500);
+  });
+});

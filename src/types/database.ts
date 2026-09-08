@@ -779,6 +779,7 @@ export interface Database {
           entry_type: "borrow" | "advance" | "repay" | "interest" | "adjust";
           amount: number;
           signed_adjustment: number | null;
+          interest_amount: number;
           expense_account_id: string | null;
           payment_account_id: string | null;
           journal_entry_id: string | null;
@@ -797,6 +798,7 @@ export interface Database {
           entry_type: "borrow" | "advance" | "repay" | "interest" | "adjust";
           amount: number;
           signed_adjustment?: number | null;
+          interest_amount?: number;
           expense_account_id?: string | null;
           payment_account_id?: string | null;
           journal_entry_id?: string | null;
@@ -815,6 +817,7 @@ export interface Database {
           entry_type?: "borrow" | "advance" | "repay" | "interest" | "adjust";
           amount?: number;
           signed_adjustment?: number | null;
+          interest_amount?: number;
           expense_account_id?: string | null;
           payment_account_id?: string | null;
           journal_entry_id?: string | null;
