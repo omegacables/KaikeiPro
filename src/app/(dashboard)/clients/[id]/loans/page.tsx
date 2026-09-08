@@ -2051,7 +2051,7 @@ function RepaymentScheduleSection({
   const { setCellRef, handleKeyDown, submitRef, handleSubmitKeyDown } = useFieldNav(5, [0, 1, 2]);
 
   const [form, setForm] = useState({
-    principal: "",
+    principal: "0",
     rate: ledger.loan.interest_rate != null ? String(ledger.loan.interest_rate) : "",
     months: "12",
     firstDue: today(),

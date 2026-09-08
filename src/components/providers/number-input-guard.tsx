@@ -39,13 +39,27 @@ export function NumberInputGuard() {
       }
     };
 
+    // フォーカスしたら全選択する。
+    // 0 などの初期値が入った欄に打ち込むと "01200000" のように連結され、
+    // カーソル位置によっては桁を1つ間違える。打ち込みで丸ごと置き換わるようにする。
+    const onFocusIn = (e: FocusEvent) => {
+      const el = e.target;
+      if (!isNumberInput(el)) return;
+      // 値の選択はレンダリング後に行う必要がある
+      requestAnimationFrame(() => {
+        if (document.activeElement === el) el.select();
+      });
+    };
+
     // passive: false にしないと preventDefault 系の制御が効かないブラウザがあるため明示する
     document.addEventListener("wheel", onWheel, { passive: true });
     document.addEventListener("keydown", onKeyDown);
+    document.addEventListener("focusin", onFocusIn);
 
     return () => {
       document.removeEventListener("wheel", onWheel);
       document.removeEventListener("keydown", onKeyDown);
+      document.removeEventListener("focusin", onFocusIn);
     };
   }, []);
 
