@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { AuthProvider } from "@/components/providers/auth-provider";
+import { NumberInputGuard } from "@/components/providers/number-input-guard";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -22,6 +23,7 @@ export default function RootLayout({
         />
       </head>
       <body className="antialiased" suppressHydrationWarning>
+        <NumberInputGuard />
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

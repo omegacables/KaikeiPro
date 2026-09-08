@@ -84,6 +84,51 @@ html[data-theme="dark"] {
   }
 }
 
+/* ---------------------------------------------------------------------------
+   フォーム部品の見た目の調整（全画面共通）
+   --------------------------------------------------------------------------- */
+
+/* 数値入力の上下ボタン（スピナー）を消す。
+   金額欄でうっかり押すと1円ずつ動いてしまい、会計データでは事故のもとになる。
+   キーボードの上下キーでの増減は残る。 */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
+
+/* ブラウザ標準の部品（日付ピッカー、セレクトの矢印、スクロールバー等）を
+   テーマの明暗に合わせて描画させる。これでダークテーマでも
+   カレンダーアイコンが白く描画され、暗い背景に埋もれなくなる。 */
+html {
+  color-scheme: light;
+}
+html[data-theme="dark"] {
+  color-scheme: dark;
+}
+
+/* カレンダーアイコンのコントラストを上げる。
+   標準だと薄すぎてクリックできると気づきにくい。 */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="month"]::-webkit-calendar-picker-indicator {
+  opacity: 0.7;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 3px;
+}
+input[type="date"]::-webkit-calendar-picker-indicator:hover,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator:hover,
+input[type="month"]::-webkit-calendar-picker-indicator:hover {
+  opacity: 1;
+  background-color: var(--color-muted);
+}
+
 /* Scrollbar */
 ::-webkit-scrollbar {
   width: 6px;
