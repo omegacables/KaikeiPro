@@ -716,6 +716,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
                     await detachReceiptFromEntry(linkId);
                     await loadReceiptLinks(l.loan.id);
                   }}
+                  onRefresh={fetchAll}
                 />
               ))}
             </div>
@@ -892,6 +893,7 @@ function LedgerRow(props: {
   onUnjournalize: (e: LoanEntry) => void;
   onAttach: (e: LoanEntry) => void;
   onDetach: (linkId: string) => void;
+  onRefresh: () => Promise<void> | void;
 }) {
   const { ledger, expanded, busy, entryForm, setEntryForm, expenseAccounts } = props;
   const { loan } = ledger;
@@ -1145,7 +1147,7 @@ function LedgerRow(props: {
 
           {/* 返済予定表。金融機関等からの借入のときだけ出す（要件3-7） */}
           {!isLend && loan.counterparty_kind === "institution" && (
-            <RepaymentScheduleSection ledger={ledger} />
+            <RepaymentScheduleSection ledger={ledger} onChanged={props.onRefresh} />
           )}
 
           {/* 台帳と仕訳の照合（要件3-5 / 4-6） */}
@@ -2079,7 +2081,14 @@ function ClassifyPaymentSection(props: {
 // 役員借入金は返済条件を定めないのが通常なので、この節は表示しない。
 // ---------------------------------------------------------------------------
 
-function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
+function RepaymentScheduleSection({
+  ledger,
+  onChanged,
+}: {
+  ledger: LoanLedger;
+  /** 明細が増減したときに台帳側も読み直してもらう */
+  onChanged: () => Promise<void> | void;
+}) {
   const [rows, setRows] = useState<LoanRepaymentSchedule[]>([]);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
@@ -2271,7 +2280,8 @@ function RepaymentScheduleSection({ ledger }: { ledger: LoanLedger }) {
                                   setError(null);
                                   try {
                                     await applySchedule(r.id);
-                                    await load();
+                                    // 明細が1件増えるので、増減明細と残高も読み直す
+                                    await Promise.all([load(), onChanged()]);
                                   } catch (e) {
                                     setError(
                                       e instanceof Error ? e.message : "消し込みに失敗しました"
