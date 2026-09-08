@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, use } from "react";
-import { Printer, Loader2, ArrowLeft } from "lucide-react";
+import { Printer, Loader2, ArrowLeft, ChevronLeft, ChevronRight } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { getLoanBreakdownReport } from "@/actions/loans";
@@ -83,6 +83,31 @@ export default function LoanBreakdownPage({
           <ArrowLeft className="size-4" />
           借入金台帳に戻る
         </Button>
+
+        {/* 内訳書が要るのは決算後で、そのとき作るのは「終わったばかりの前期」分。
+            事業年度を選べないと前期の書類が作れないため、前後に移動できるようにする。 */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/clients/${id}/loans/breakdown/${Number(year) - 1}`)}
+            title="前の事業年度"
+          >
+            <ChevronLeft className="size-4" />
+            前期
+          </Button>
+          <span className="text-[17px] font-medium tabular-nums">
+            {report.periodStart} 〜 {report.periodEnd}
+          </span>
+          <Button
+            variant="outline"
+            onClick={() => router.push(`/clients/${id}/loans/breakdown/${Number(year) + 1}`)}
+            title="次の事業年度"
+          >
+            翌期
+            <ChevronRight className="size-4" />
+          </Button>
+        </div>
+
         <Button onClick={printPage}>
           <Printer className="size-4" />
           印刷 / PDF保存
@@ -91,7 +116,8 @@ export default function LoanBreakdownPage({
 
       {report.rows.length === 0 && (
         <p className="no-print text-[17px] text-foreground">
-          この事業年度に記載対象となる借入金がありません。
+          この事業年度（{report.periodStart} 〜 {report.periodEnd}）に記載対象となる借入金がありません。
+          別の年度は「前期」「翌期」で切り替えられます。
         </p>
       )}
 
@@ -184,8 +210,10 @@ export default function LoanBreakdownPage({
           </table>
 
           <p className="mt-4 text-[12px] leading-relaxed">
-            ※ 期末現在高は決算日時点の増減明細の積み上げ、支払利子額は当該事業年度に
-            計上した利息の合計です。役員からの借入金は残高が無い場合も記載対象として表示しています。
+            ※ 期末現在高は決算日（{report.periodEnd}）時点の増減明細の積み上げ、
+            支払利子額は当該事業年度（{report.periodStart} 〜 {report.periodEnd}）に
+            支払った利息と元本に加算した利息の合計です。
+            役員からの借入金は残高が無い場合も記載対象として表示しています。
           </p>
         </div>
       </div>
