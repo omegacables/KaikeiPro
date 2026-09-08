@@ -25,6 +25,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DateInput } from "@/components/ui/date-input";
+import { useFieldNav } from "@/components/ui/use-field-nav";
 import { AccountLookup, type AccountOption } from "@/components/ui/account-lookup";
 import {
   getLoanLedgers,
@@ -902,62 +903,11 @@ function LedgerRow(props: {
   const rows = runningBalances(ledger.entries);
   const interests = interestTotals(ledger.entries);
 
-  // --- キーボードでの入力移動（仕訳入力と同じ流儀にそろえる） -----------------
-  // 欄の並び: 0=日付 1=区分 2=金額 3=費用科目（立替のときだけ表示） 4=摘要
-  // Enter / → で次へ、← で前へ、最後の欄からは「追加」ボタンへ移る。
-  // 表示されていない欄（立替以外のときの費用科目）は自動で読み飛ばす。
-  const cellRefs = useRef<(HTMLElement | null)[]>([]);
-  const submitRef = useRef<HTMLButtonElement | null>(null);
-  const LAST_CELL = 4;
-
-  const setCellRef = useCallback((col: number, el: HTMLElement | null) => {
-    cellRefs.current[col] = el;
-  }, []);
-
-  /** dir 方向にある、実際に表示されている欄へ移る。無ければ false を返す */
-  const focusCell = useCallback((from: number, dir: 1 | -1): boolean => {
-    for (let c = from + dir; c >= 0 && c <= LAST_CELL; c += dir) {
-      const el = cellRefs.current[c];
-      if (el) {
-        el.focus();
-        return true;
-      }
-    }
-    return false;
-  }, []);
-
-  const handleCellKeyDown = useCallback(
-    (col: number, e: React.KeyboardEvent) => {
-      // IME変換中のEnterは「確定」の意味なので移動しない
-      if ((e.nativeEvent as KeyboardEvent).isComposing) return;
-      // 上下キーは各欄の本来の動作（日付の増減・プルダウンの選択）に任せる
-      if (e.key === "ArrowUp" || e.key === "ArrowDown") return;
-
-      if (e.key === "Enter" || e.key === "ArrowRight") {
-        // 金額欄で右キーはカーソル移動に使いたいので、Enterのときだけ進む
-        if (e.key === "ArrowRight" && col === 2) return;
-        e.preventDefault();
-        if (!focusCell(col, 1)) submitRef.current?.focus();
-        return;
-      }
-      if (e.key === "ArrowLeft") {
-        if (col === 2) return; // 金額欄の左キーはカーソル移動
-        e.preventDefault();
-        focusCell(col, -1);
-      }
-    },
-    [focusCell]
-  );
-
-  /** 「追加」ボタン上での ← は最後の入力欄へ戻す（Enter/Spaceでの実行は標準動作のまま） */
-  const handleSubmitKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key !== "ArrowLeft") return;
-      e.preventDefault();
-      focusCell(LAST_CELL + 1, -1);
-    },
-    [focusCell]
-  );
+  // キーボードでの入力移動（仕訳入力と同じ流儀）。
+  // 欄の並び: 0=日付 1=区分 2=金額 3=利息/費用科目 4=摘要
+  // 金額と利息は ←→ を文字カーソルの移動に使う
+  const { setCellRef, handleKeyDown: handleCellKeyDown, submitRef, handleSubmitKeyDown } =
+    useFieldNav(4, [2, 3]);
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -2100,6 +2050,10 @@ function RepaymentScheduleSection({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
+  // 欄の並び: 0=借入額 1=年利 2=回数 3=初回返済日 4=方式 5=返済日
+  // 数値欄は ←→ を文字カーソルの移動に使う
+  const { setCellRef, handleKeyDown, submitRef, handleSubmitKeyDown } = useFieldNav(5, [0, 1, 2]);
+
   const [form, setForm] = useState({
     principal: "",
     rate: ledger.loan.interest_rate != null ? String(ledger.loan.interest_rate) : "",
@@ -2167,10 +2121,12 @@ function RepaymentScheduleSection({
             <label className={labelCls}>借入額</label>
             <input
               type="number"
+              ref={(el) => setCellRef(0, el)}
               value={form.principal}
               onChange={(e) => setForm({ ...form, principal: e.target.value })}
               className={inputCls + " text-right"}
               placeholder="1200000"
+              onKeyDown={(e) => handleKeyDown(0, e)}
             />
           </div>
           <div className="w-24">
@@ -2178,18 +2134,22 @@ function RepaymentScheduleSection({
             <input
               type="number"
               step="0.001"
+              ref={(el) => setCellRef(1, el)}
               value={form.rate}
               onChange={(e) => setForm({ ...form, rate: e.target.value })}
               className={inputCls + " text-right"}
+              onKeyDown={(e) => handleKeyDown(1, e)}
             />
           </div>
           <div className="w-24">
             <label className={labelCls}>回数(月)</label>
             <input
               type="number"
+              ref={(el) => setCellRef(2, el)}
               value={form.months}
               onChange={(e) => setForm({ ...form, months: e.target.value })}
               className={inputCls + " text-right"}
+              onKeyDown={(e) => handleKeyDown(2, e)}
             />
           </div>
           <div className="w-44">
@@ -2197,16 +2157,20 @@ function RepaymentScheduleSection({
             <DateInput
               value={form.firstDue}
               onChange={(v) => setForm({ ...form, firstDue: v })}
+              inputRef={(el) => setCellRef(3, el)}
+              onKeyDown={(e) => handleKeyDown(3, e)}
               className={inputCls + " pr-7"}
             />
           </div>
           <div className="w-32">
             <label className={labelCls}>方式</label>
             <select
+              ref={(el) => setCellRef(4, el)}
               value={form.method}
               onChange={(e) =>
                 setForm({ ...form, method: e.target.value as typeof form.method })
               }
+              onKeyDown={(e) => handleKeyDown(4, e)}
               className={inputCls}
             >
               <option value="equal_principal">元金均等</option>
@@ -2216,17 +2180,25 @@ function RepaymentScheduleSection({
           <div className="w-36">
             <label className={labelCls}>返済日</label>
             <select
+              ref={(el) => setCellRef(5, el)}
               value={form.dueDateMode}
               onChange={(e) =>
                 setForm({ ...form, dueDateMode: e.target.value as typeof form.dueDateMode })
               }
+              onKeyDown={(e) => handleKeyDown(5, e)}
               className={inputCls}
             >
               <option value="same_day">同じ日にち</option>
               <option value="month_end">毎月末日</option>
             </select>
           </div>
-          <Button variant="outline" onClick={handleGenerate} disabled={busy === "gen"}>
+          <Button
+            ref={submitRef}
+            variant="outline"
+            onClick={handleGenerate}
+            onKeyDown={handleSubmitKeyDown}
+            disabled={busy === "gen"}
+          >
             {busy === "gen" && <Loader2 className="size-4 animate-spin" />}
             予定表を作る
           </Button>
