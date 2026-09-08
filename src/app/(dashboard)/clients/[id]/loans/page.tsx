@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, use, useMemo } from "react";
+import { useState, useEffect, useCallback, use, useMemo, useRef } from "react";
 import {
   Landmark,
   Plus,
@@ -20,6 +20,8 @@ import {
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { DateInput } from "@/components/ui/date-input";
+import { AccountLookup, type AccountOption } from "@/components/ui/account-lookup";
 import {
   getLoanLedgers,
   getStatutoryInterestRates,
@@ -131,7 +133,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   const { id } = use(params);
 
   const [ledgers, setLedgers] = useState<LoanLedger[]>([]);
-  const [expenseAccounts, setExpenseAccounts] = useState<{ id: string; name: string }[]>([]);
+  const [expenseAccounts, setExpenseAccounts] = useState<AccountOption[]>([]);
   const [rates, setRates] = useState<Record<number, number>>({});
   const [fiscalStartMonth, setFiscalStartMonth] = useState<number>(4);
   const [loading, setLoading] = useState(true);
@@ -174,11 +176,18 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       if (client?.fiscal_year_start_month) setFiscalStartMonth(client.fiscal_year_start_month);
       setExpenseAccounts(
         (accounts ?? [])
-          .filter((a) => {
-            const cat = (a as { account_categories?: { type?: string } }).account_categories;
-            return cat?.type === "expenses";
+          .map((a) => {
+            const cat = a.account_categories as unknown as { type: string; name: string };
+            return {
+              id: a.id as string,
+              code: a.code as string,
+              name: a.name as string,
+              categoryType: cat?.type ?? "",
+              categoryName: cat?.name ?? "",
+            };
           })
-          .map((a) => ({ id: a.id as string, name: a.name as string }))
+          // 立替の相手科目になるのは費用科目のみ
+          .filter((a) => a.categoryType === "expenses")
       );
       setRates(Object.fromEntries(rateRows.map((r) => [r.loan_year, r.rate])));
     } catch (e) {
@@ -812,7 +821,7 @@ function LedgerRow(props: {
   setEntryForm: (f: EntryFormState) => void;
   editingEntryId: string | null;
   cancelEdit: () => void;
-  expenseAccounts: { id: string; name: string }[];
+  expenseAccounts: AccountOption[];
   receiptLinks: LoanEntryReceipt[];
   onToggle: () => void;
   onEditLoan: () => void;
@@ -829,6 +838,63 @@ function LedgerRow(props: {
   const { loan } = ledger;
   const isLend = loan.direction === "lend";
   const rows = runningBalances(ledger.entries);
+
+  // --- キーボードでの入力移動（仕訳入力と同じ流儀にそろえる） -----------------
+  // 欄の並び: 0=日付 1=区分 2=金額 3=費用科目（立替のときだけ表示） 4=摘要
+  // Enter / → で次へ、← で前へ、最後の欄からは「追加」ボタンへ移る。
+  // 表示されていない欄（立替以外のときの費用科目）は自動で読み飛ばす。
+  const cellRefs = useRef<(HTMLElement | null)[]>([]);
+  const submitRef = useRef<HTMLButtonElement | null>(null);
+  const LAST_CELL = 4;
+
+  const setCellRef = useCallback((col: number, el: HTMLElement | null) => {
+    cellRefs.current[col] = el;
+  }, []);
+
+  /** dir 方向にある、実際に表示されている欄へ移る。無ければ false を返す */
+  const focusCell = useCallback((from: number, dir: 1 | -1): boolean => {
+    for (let c = from + dir; c >= 0 && c <= LAST_CELL; c += dir) {
+      const el = cellRefs.current[c];
+      if (el) {
+        el.focus();
+        return true;
+      }
+    }
+    return false;
+  }, []);
+
+  const handleCellKeyDown = useCallback(
+    (col: number, e: React.KeyboardEvent) => {
+      // IME変換中のEnterは「確定」の意味なので移動しない
+      if ((e.nativeEvent as KeyboardEvent).isComposing) return;
+      // 上下キーは各欄の本来の動作（日付の増減・プルダウンの選択）に任せる
+      if (e.key === "ArrowUp" || e.key === "ArrowDown") return;
+
+      if (e.key === "Enter" || e.key === "ArrowRight") {
+        // 金額欄で右キーはカーソル移動に使いたいので、Enterのときだけ進む
+        if (e.key === "ArrowRight" && col === 2) return;
+        e.preventDefault();
+        if (!focusCell(col, 1)) submitRef.current?.focus();
+        return;
+      }
+      if (e.key === "ArrowLeft") {
+        if (col === 2) return; // 金額欄の左キーはカーソル移動
+        e.preventDefault();
+        focusCell(col, -1);
+      }
+    },
+    [focusCell]
+  );
+
+  /** 「追加」ボタン上での ← は最後の入力欄へ戻す（Enter/Spaceでの実行は標準動作のまま） */
+  const handleSubmitKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key !== "ArrowLeft") return;
+      e.preventDefault();
+      focusCell(LAST_CELL + 1, -1);
+    },
+    [focusCell]
+  );
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
@@ -905,24 +971,31 @@ function LedgerRow(props: {
             <span>利息計 {formatCurrency(ledger.byType.interest)}</span>
           </div>
 
-          {/* 明細の入力 */}
+          {/* 明細の入力
+              仕訳入力と同じキー操作にそろえている:
+                Enter / → で次の欄へ、← で前の欄へ、最後の欄からは「追加」ボタンへ
+                日付欄の ↑↓ は年月日の増減（DateInput 側で処理）
+                IME変換中の Enter では移動しない */}
           <div className="grid gap-2 sm:grid-cols-[auto_auto_1fr_1fr_auto] sm:items-end">
             <div>
               <label className={labelCls}>日付</label>
-              <input
-                type="date"
+              <DateInput
                 value={entryForm.entry_date}
-                onChange={(e) => setEntryForm({ ...entryForm, entry_date: e.target.value })}
-                className={inputCls + " w-auto"}
+                onChange={(v) => setEntryForm({ ...entryForm, entry_date: v })}
+                inputRef={(el) => setCellRef(0, el)}
+                onKeyDown={(e) => handleCellKeyDown(0, e)}
+                className={inputCls + " w-40 pr-8"}
               />
             </div>
             <div>
               <label className={labelCls}>区分</label>
               <select
+                ref={(el) => setCellRef(1, el)}
                 value={entryForm.entry_type}
                 onChange={(e) =>
                   setEntryForm({ ...entryForm, entry_type: e.target.value as LoanEntryType })
                 }
+                onKeyDown={(e) => handleCellKeyDown(1, e)}
                 className={inputCls + " w-auto"}
               >
                 {ENTRY_TYPES.filter((t) => !(isLend && t === "advance")).map((t) => (
@@ -935,9 +1008,11 @@ function LedgerRow(props: {
             <div>
               <label className={labelCls}>金額</label>
               <input
+                ref={(el) => setCellRef(2, el)}
                 type="number"
                 value={entryForm.amount}
                 onChange={(e) => setEntryForm({ ...entryForm, amount: e.target.value })}
+                onKeyDown={(e) => handleCellKeyDown(2, e)}
                 className={inputCls + " text-right"}
                 placeholder="0"
               />
@@ -945,14 +1020,21 @@ function LedgerRow(props: {
             <div>
               <label className={labelCls}>摘要</label>
               <input
+                ref={(el) => setCellRef(4, el)}
                 value={entryForm.memo}
                 onChange={(e) => setEntryForm({ ...entryForm, memo: e.target.value })}
+                onKeyDown={(e) => handleCellKeyDown(4, e)}
                 className={inputCls}
                 placeholder="（任意）"
               />
             </div>
             <div className="flex gap-2">
-              <Button onClick={props.onSaveEntry} disabled={busy === "entry-" + loan.id}>
+              <Button
+                ref={submitRef}
+                onClick={props.onSaveEntry}
+                onKeyDown={handleSubmitKeyDown}
+                disabled={busy === "entry-" + loan.id}
+              >
                 {busy === "entry-" + loan.id && <Loader2 className="size-4 animate-spin" />}
                 {props.editingEntryId ? "更新" : "追加"}
               </Button>
@@ -964,26 +1046,20 @@ function LedgerRow(props: {
             </div>
           </div>
 
-          {/* 立替のときだけ費用科目を出す（現金は動かないが債務が増える取引） */}
+          {/* 立替のときだけ費用科目を出す（現金は動かないが債務が増える取引）。
+              科目の選び方は仕訳入力と同じ AccountLookup にそろえている（コード・読みで検索できる） */}
           {entryForm.entry_type === "advance" && (
             <div className="max-w-sm">
               <label className={labelCls}>
                 費用科目<span className="text-destructive">（必須）</span>
               </label>
-              <select
+              <AccountLookup
+                accounts={expenseAccounts}
                 value={entryForm.expense_account_id}
-                onChange={(e) =>
-                  setEntryForm({ ...entryForm, expense_account_id: e.target.value })
-                }
-                className={inputCls}
-              >
-                <option value="">選択してください</option>
-                {expenseAccounts.map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
+                onChange={(v) => setEntryForm({ ...entryForm, expense_account_id: v })}
+                inputRef={(el) => setCellRef(3, el)}
+                onKeyDown={(e) => handleCellKeyDown(3, e)}
+              />
               <p className="mt-1 text-[15px] text-foreground">
                 役員が会社の経費を個人資金で負担した取引です。現金は動かず、
                 費用の計上と{isLend ? "債権" : "債務"}の計上が同時に行われます。
@@ -1123,7 +1199,7 @@ function AiPanel(props: {
   setDrafts: (d: EditableDraft[]) => void;
   excluded: { line: string; reason: string }[];
   warnings: string[];
-  expenseAccounts: { id: string; name: string }[];
+  expenseAccounts: AccountOption[];
   onRunText: () => void;
   onRunDocument: (receiptId: string) => void;
   onCommit: () => void;

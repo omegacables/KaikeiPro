@@ -22,6 +22,7 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AccountLookup } from "@/components/ui/account-lookup";
+import { DateInput } from "@/components/ui/date-input";
 import { cn, formatCurrency } from "@/lib/utils";
 import {
   createJournalEntry,
@@ -1492,16 +1493,12 @@ export default function JournalsPage() {
                         <tr key={idx} className="border-b border-border/50">
                           {idx === 0 ? (
                             <td rowSpan={maxRows} className="py-1.5 px-1 border-r border-border align-top">
-                              <input
-                                ref={(el) => setGridRef(idx, 0, el)}
-                                type="date"
+                              <DateInput
                                 value={newEntry.date}
-                                onChange={(e) => {
-                                  setNewEntry({ ...newEntry, date: e.target.value });
-                                  e.target.focus();
-                                }}
+                                onChange={(v) => setNewEntry({ ...newEntry, date: v })}
+                                inputRef={(el) => setGridRef(idx, 0, el)}
                                 onKeyDown={(e) => { if (e.key === "Enter") handleGridKeyDown(idx, 0, e); }}
-                                className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
+                                className="w-full bg-card border border-border rounded px-2 py-1.5 pr-8 text-sm"
                               />
                             </td>
                           ) : null}
