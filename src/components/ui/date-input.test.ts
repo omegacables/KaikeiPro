@@ -47,12 +47,34 @@ describe("parseDateInput", () => {
     expect(parseDateInput("20280231", BASE)).toBe("2028-02-29");
   });
 
-  it("13月のような月は12月に丸める", () => {
-    expect(parseDateInput("20261310", BASE)).toBe("2026-12-10");
+  it("存在しない月は受け付けない（勝手に12月へ丸めない）", () => {
+    // 丸めると「もっともらしいが全く違う日付」が入り、打ち間違いに気づけない
+    expect(parseDateInput("20261310", BASE)).toBeNull();
+    expect(parseDateInput("20260010", BASE)).toBeNull();
   });
 
-  it("0日は1日に丸める", () => {
-    expect(parseDateInput("20260400", BASE)).toBe("2026-04-01");
+  it("0日は受け付けない", () => {
+    expect(parseDateInput("20260400", BASE)).toBeNull();
+  });
+
+  it("年だけを打った状態では確定しない", () => {
+    // 「2026」を 20月26日 と読んで 12月26日 にしてしまう事故を防ぐ
+    expect(parseDateInput("2026", BASE)).toBeNull();
+  });
+
+  it("4桁でも先頭2桁が月として成立しなければ受け付けない", () => {
+    expect(parseDateInput("2030", BASE)).toBeNull(); // 20月30日 → 拒否
+    expect(parseDateInput("1330", BASE)).toBeNull(); // 13月30日 → 拒否
+    expect(parseDateInput("1230", BASE)).toBe("2026-12-30"); // 12月30日 は正しい
+  });
+
+  it("区切りつきでも範囲外の月は受け付けない", () => {
+    expect(parseDateInput("2026/13/01", BASE)).toBeNull();
+    expect(parseDateInput("13/1", BASE)).toBeNull();
+  });
+
+  it("極端な年は受け付けない", () => {
+    expect(parseDateInput("00010101", BASE)).toBeNull();
   });
 
   it("解釈できない入力は null を返す（元の値を保つため）", () => {

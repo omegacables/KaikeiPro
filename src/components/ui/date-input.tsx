@@ -16,10 +16,9 @@ interface DateInputProps {
 
 const pad2 = (n: number) => String(n).padStart(2, "0");
 
-/** その年月に存在する日に丸める（2月31日のような値を作らない） */
-function clampDay(y: number, m: number, d: number) {
-  const maxDay = new Date(y, m, 0).getDate();
-  return Math.min(Math.max(d, 1), maxDay);
+/** その月に存在する日に丸める（2月31日 → 2月28日）。月末を狙った入力を救うため。 */
+function clampDayToMonthEnd(y: number, m: number, d: number) {
+  return Math.min(d, new Date(y, m, 0).getDate());
 }
 
 function format(y: number, m: number, d: number) {
@@ -32,12 +31,28 @@ function toHalfWidth(v: string) {
 }
 
 /**
+ * 年月日を組み立てる。月が範囲外・日が0以下なら解釈できないものとして null を返す。
+ *
+ * 範囲外の値を黙って丸めてはいけない。たとえば "2030" を「20月30日」と読んで
+ * 12月に丸めると 12月30日 という**もっともらしいが全く違う日付**が入り、
+ * 打ち間違いに気づけない。日だけは月末に丸める（2/31 → 2/28）。
+ * これは「月末」を狙った入力を救うためで、意味が変わらない範囲に限る。
+ */
+function build(y: number, m: number, d: number): string | null {
+  if (!Number.isFinite(y) || !Number.isFinite(m) || !Number.isFinite(d)) return null;
+  if (y < 1900 || y > 2200) return null;
+  if (m < 1 || m > 12) return null;
+  if (d < 1) return null;
+  return format(y, m, clampDayToMonthEnd(y, m, d));
+}
+
+/**
  * 打ち込まれた文字列を日付として解釈する。
  * 会計ソフトの日付入力と同じく、区切りなしの数字だけでも入力できるようにする。
  *
  *   20260410 / 2026-04-10 / 2026.4.10 → 2026-04-10
  *   260410                            → 2026-04-10
- *   0410 / 4/10                       → 基準日の年の 4月10日
+ *   0410 / 410 / 4/10                 → 基準日の年の 4月10日
  *   10                                → 基準日の年月の 10日
  *
  * 解釈できなければ null を返し、呼び出し側は元の値を保つ。
@@ -49,16 +64,13 @@ export function parseDateInput(raw: string, base: { y: number; m: number; d: num
   // 区切り文字がある場合はそれで分解する
   if (/[/\-.]/.test(s)) {
     const parts = s.split(/[/\-.]/).filter((p) => p !== "");
-    const nums = parts.map((p) => Number(p));
-    if (nums.some((n) => !Number.isFinite(n))) return null;
+    if (!parts.every((p) => /^\d{1,4}$/.test(p))) return null;
+    const nums = parts.map(Number);
     if (nums.length === 3) {
       const y = nums[0] < 100 ? 2000 + nums[0] : nums[0];
-      return format(y, Math.min(Math.max(nums[1], 1), 12), clampDay(y, nums[1], nums[2]));
+      return build(y, nums[1], nums[2]);
     }
-    if (nums.length === 2) {
-      const m = Math.min(Math.max(nums[0], 1), 12);
-      return format(base.y, m, clampDay(base.y, m, nums[1]));
-    }
+    if (nums.length === 2) return build(base.y, nums[0], nums[1]);
     return null;
   }
 
@@ -66,28 +78,28 @@ export function parseDateInput(raw: string, base: { y: number; m: number; d: num
   if (digits.length !== s.length) return null;
 
   switch (digits.length) {
-    case 8: {
-      const y = Number(digits.slice(0, 4));
-      const m = Math.min(Math.max(Number(digits.slice(4, 6)), 1), 12);
-      return format(y, m, clampDay(y, m, Number(digits.slice(6, 8))));
-    }
-    case 6: {
-      const y = 2000 + Number(digits.slice(0, 2));
-      const m = Math.min(Math.max(Number(digits.slice(2, 4)), 1), 12);
-      return format(y, m, clampDay(y, m, Number(digits.slice(4, 6))));
-    }
-    case 4: {
-      const m = Math.min(Math.max(Number(digits.slice(0, 2)), 1), 12);
-      return format(base.y, m, clampDay(base.y, m, Number(digits.slice(2, 4))));
-    }
-    case 3: {
+    case 8:
+      return build(
+        Number(digits.slice(0, 4)),
+        Number(digits.slice(4, 6)),
+        Number(digits.slice(6, 8))
+      );
+    case 6:
+      return build(
+        2000 + Number(digits.slice(0, 2)),
+        Number(digits.slice(2, 4)),
+        Number(digits.slice(4, 6))
+      );
+    case 4:
+      // MMDD として読む。先頭2桁が月として成立しなければ受け付けない
+      // （"2026" を「20月26日」と読んで12月に丸めるような事故を防ぐ）
+      return build(base.y, Number(digits.slice(0, 2)), Number(digits.slice(2, 4)));
+    case 3:
       // 会計ソフトでよくある「410 = 4月10日」の打ち方
-      const m = Math.min(Math.max(Number(digits.slice(0, 1)), 1), 12);
-      return format(base.y, m, clampDay(base.y, m, Number(digits.slice(1, 3))));
-    }
+      return build(base.y, Number(digits.slice(0, 1)), Number(digits.slice(1, 3)));
     case 1:
     case 2:
-      return format(base.y, base.m, clampDay(base.y, base.m, Number(digits)));
+      return build(base.y, base.m, Number(digits));
     default:
       return null;
   }
@@ -116,6 +128,8 @@ export const DateInput = memo(function DateInput({
   const pickerRef = useRef<HTMLInputElement | null>(null);
   // 打ち込み途中の文字列。null なら確定値を表示している
   const [draft, setDraft] = useState<string | null>(null);
+  // 日付として読み取れなかったときの目印。黙って元に戻すと理由が分からないため
+  const [invalid, setInvalid] = useState(false);
 
   // 値が未設定・不正な形式のときは「空欄」として扱う。
   // 任意項目（借入の開始日など）で、入っていない日付を勝手に表示しないため。
@@ -160,12 +174,19 @@ export const DateInput = memo(function DateInput({
     // 任意項目なら、空にして確定＝未入力に戻す操作として受け付ける
     if (allowEmpty && draft.trim() === "") {
       setDraft(null);
+      setInvalid(false);
       if (value !== "") onChange("");
       return true;
     }
     const parsed = parseDateInput(draft, { y: year, m: month, d: day });
+    if (!parsed) {
+      // 打った内容は残したまま印だけ付ける。直せるようにするため
+      setInvalid(true);
+      return false;
+    }
     setDraft(null);
-    if (parsed && parsed !== value) {
+    setInvalid(false);
+    if (parsed !== value) {
       onChange(parsed);
       return true;
     }
@@ -193,7 +214,7 @@ export const DateInput = memo(function DateInput({
           break;
         }
       }
-      d = clampDay(y, m, d);
+      d = clampDayToMonthEnd(y, m, d);
       onChange(format(y, m, d));
       selectSegment(seg);
     },
@@ -258,16 +279,30 @@ export const DateInput = memo(function DateInput({
         inputMode="numeric"
         value={display}
         placeholder={placeholder ?? (allowEmpty ? "未入力" : "YYYY/MM/DD")}
-        onChange={(e) => setDraft(e.target.value)}
+        onChange={(e) => {
+          setDraft(e.target.value);
+          setInvalid(false);
+        }}
         onKeyDown={handleKeyDown}
-        onBlur={() => commitDraft()}
+        onBlur={() => {
+          // 読み取れないまま欄を離れたら、元の値に戻す（中途半端な表示を残さない）
+          if (!commitDraft()) {
+            setDraft(null);
+            setInvalid(false);
+          }
+        }}
         onFocus={(e) => {
           // 全体を選択しておく。こうしないと「日」の部分にだけ文字が挿し込まれ、
           // 20260410 のようにフルの日付を打ったときに壊れた文字列になる。
           // 全選択中でも上下キーは日の増減として働く（getSegment 参照）。
           e.currentTarget.select();
         }}
-        className={className}
+        aria-invalid={invalid || undefined}
+        title={invalid ? "日付として読み取れません。20260430 / 0430 / 4/30 のように入力してください" : undefined}
+        className={
+          (className ?? "") +
+          (invalid ? " !border-destructive ring-2 ring-destructive/40" : "")
+        }
       />
 
       {/* カレンダーから選ぶ経路。ネイティブの日付ピッカーを呼び出すだけの隠し入力を使う */}
