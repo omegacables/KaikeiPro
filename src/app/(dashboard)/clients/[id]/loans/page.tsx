@@ -1033,7 +1033,6 @@ function LedgerRow(props: {
                 onChange={(e) => setEntryForm({ ...entryForm, amount: e.target.value })}
                 onKeyDown={(e) => handleCellKeyDown(2, e)}
                 className={inputCls + " text-right"}
-                placeholder="0"
               />
             </div>
             {entryForm.entry_type === "repay" && (
@@ -1047,7 +1046,6 @@ function LedgerRow(props: {
                   }
                   onKeyDown={(e) => handleCellKeyDown(3, e)}
                   className={inputCls + " text-right"}
-                  placeholder="0"
                 />
               </div>
             )}
@@ -1626,7 +1624,6 @@ function LoanFormModal(props: {
                   value={form.interest_rate}
                   onChange={(e) => setForm({ ...form, interest_rate: e.target.value })}
                   className={inputCls + " text-right"}
-                  placeholder="1.500"
                 />
               </div>
             )}
@@ -1944,7 +1941,6 @@ function ClassifyPaymentSection(props: {
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               className={inputCls + " w-32 text-right"}
-              placeholder="100000"
             />
           </div>
           <div>
@@ -2125,7 +2121,6 @@ function RepaymentScheduleSection({
               value={form.principal}
               onChange={(e) => setForm({ ...form, principal: e.target.value })}
               className={inputCls + " text-right"}
-              placeholder="1200000"
               onKeyDown={(e) => handleKeyDown(0, e)}
             />
           </div>
