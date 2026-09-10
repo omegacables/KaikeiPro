@@ -724,6 +724,7 @@ export interface Database {
           counterparty_kind: "institution" | "officer";
           business_partner_id: string | null;
           repayment_terms: string | null;
+          aliases: string[];
           purpose: string | null;
           principal: number;
           current_balance: number;
@@ -744,6 +745,7 @@ export interface Database {
           counterparty_kind?: "institution" | "officer";
           business_partner_id?: string | null;
           repayment_terms?: string | null;
+          aliases?: string[];
           purpose?: string | null;
           principal?: number;
           current_balance?: number;
@@ -763,6 +765,7 @@ export interface Database {
           counterparty_kind?: "institution" | "officer";
           business_partner_id?: string | null;
           repayment_terms?: string | null;
+          aliases?: string[];
           purpose?: string | null;
           principal?: number;
           current_balance?: number;

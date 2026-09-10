@@ -42,6 +42,7 @@ import {
   attachReceiptToEntry,
   detachReceiptFromEntry,
   getEntryReceipts,
+  addLoanAlias,
   getRepaymentSchedules,
   generateSchedules,
   deleteSchedule,
@@ -123,6 +124,8 @@ type LoanFormState = {
   repayment_terms: string;
   purpose: string;
   memo: string;
+  /** 通帳での表記。カンマ区切りで複数 */
+  aliases: string;
 };
 
 const emptyLoanForm: LoanFormState = {
@@ -133,6 +136,7 @@ const emptyLoanForm: LoanFormState = {
   repayment_terms: "",
   purpose: "",
   memo: "",
+  aliases: "",
 };
 
 type EntryFormState = {
@@ -161,6 +165,8 @@ type EditableDraft = LoanAiDraft & {
   /** 役員個人への送金の判別結果。押されるまでは未取得 */
   classification?: OfficerPaymentClassification | null;
   classifying?: boolean;
+  /** 台帳を選んだ直後に、この読み取り名を別名として登録するか尋ねる */
+  aliasSuggestion?: string | null;
 };
 
 /** 判別の選択肢の表示名 */
@@ -369,6 +375,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       counterparty_kind: l.loan.counterparty_kind,
       interest_rate: l.loan.interest_rate != null ? String(l.loan.interest_rate) : "",
       repayment_terms: l.loan.repayment_terms ?? "",
+      aliases: (l.loan.aliases ?? []).join(", "),
       purpose: l.loan.purpose ?? "",
       memo: l.loan.memo ?? "",
     });
@@ -399,6 +406,10 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         liability_account_id: null,
         business_partner_id: null,
         repayment_terms: loanForm.repayment_terms.trim() || null,
+        aliases: loanForm.aliases
+          .split(",")
+          .map((v) => v.trim())
+          .filter(Boolean),
         purpose: loanForm.purpose.trim() || null,
         memo: loanForm.memo.trim() || null,
       };
@@ -623,6 +634,22 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     );
   }
 
+  /** 読み取った名前を、選んだ台帳の別名として登録する */
+  async function handleLearnAlias(index: number) {
+    const d = drafts[index];
+    if (!d?.loan_id || !d.aliasSuggestion) return;
+    try {
+      await addLoanAlias(d.loan_id, d.aliasSuggestion);
+      setDrafts((prev) =>
+        prev.map((x, i) => (i === index ? { ...x, aliasSuggestion: null } : x))
+      );
+      setNotice(`「${d.aliasSuggestion}」を ${d.counterparty_name} の通帳での表記として登録しました。`);
+      await fetchAll();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "登録に失敗しました");
+    }
+  }
+
   async function handleCommitDrafts() {
     // 元の並びでの位置を覚えておく。失敗した下書きだけを残すために使う
     const chosenIdx = drafts.map((d, i) => (d.selected ? i : -1)).filter((i) => i >= 0);
@@ -818,6 +845,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           setAiWarnings([]);
         }}
         onClassify={handleClassifyDraft}
+        onLearnAlias={handleLearnAlias}
         onResolveClassify={handleResolveClassify}
         onCreateLoan={(name) => {
           setEditingLoanId(null);
@@ -1444,6 +1472,8 @@ function AiPanel(props: {
   onClassify: (index: number) => void;
   /** 判別の結果を受けて、その行を残すか外すか決める */
   onResolveClassify: (index: number, action: "keep" | "drop") => void;
+  /** 読み取った名前を、選んだ台帳の別名として覚える */
+  onLearnAlias: (index: number) => void;
 }) {
   const [receipts, setReceipts] = useState<{ id: string; label: string }[]>([]);
   const [receiptId, setReceiptId] = useState("");
@@ -1598,6 +1628,7 @@ function AiPanel(props: {
                               const picked = props.ledgers.find(
                                 (l) => l.loan.id === e.target.value
                               );
+                              const read = d.counterparty_name;
                               next[i] = picked
                                 ? {
                                     ...d,
@@ -1607,8 +1638,16 @@ function AiPanel(props: {
                                     balance_after:
                                       picked.balance +
                                       (d.entry_type === "repay" ? -d.amount : d.amount),
+                                    // 読み取った名前が台帳に無ければ、覚えるか尋ねる。
+                                    // 登録しておけば次回から自動で結び付く
+                                    aliasSuggestion:
+                                      read &&
+                                      read !== picked.loan.lender_name &&
+                                      !(picked.loan.aliases ?? []).includes(read)
+                                        ? read
+                                        : null,
                                   }
-                                : { ...d, loan_id: null, balance_after: null };
+                                : { ...d, loan_id: null, balance_after: null, aliasSuggestion: null };
                               props.setDrafts(next);
                             }}
                             className={
@@ -1781,6 +1820,33 @@ function AiPanel(props: {
                               </Button>
                             )}
                           </div>
+
+                          {d.aliasSuggestion && d.loan_id && (
+                            <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-primary/30 bg-primary/5 p-2">
+                              <span className="text-[15px]">
+                                「{d.aliasSuggestion}」を{" "}
+                                <span className="font-bold">{d.counterparty_name}</span> の
+                                通帳での表記として登録しますか？ 次回から自動で結び付きます。
+                              </span>
+                              <Button
+                                className="px-2 py-1 text-[15px]"
+                                onClick={() => props.onLearnAlias(i)}
+                              >
+                                登録する
+                              </Button>
+                              <Button
+                                variant="outline"
+                                className="px-2 py-1 text-[15px]"
+                                onClick={() => {
+                                  const next = [...props.drafts];
+                                  next[i] = { ...d, aliasSuggestion: null };
+                                  props.setDrafts(next);
+                                }}
+                              >
+                                今回だけ
+                              </Button>
+                            </div>
+                          )}
 
                           {d.classification && (
                             <div className="mt-2 rounded-lg border border-warning/40 bg-warning/10 p-2 space-y-1">
@@ -1985,6 +2051,24 @@ function LoanFormModal(props: {
               </div>
             )}
 
+          </div>
+
+          <div>
+            {/* 通帳に載る名前と台帳の名前は普通ちがう。ここに登録しておくと
+                証憑の読み取りで自動的にこの台帳へ結び付く */}
+            <label className={labelCls}>通帳での表記</label>
+            <input
+              ref={(el) => setCellRef(4, el)}
+              value={form.aliases}
+              onChange={(e) => setForm({ ...form, aliases: e.target.value })}
+              onKeyDown={(e) => handleKeyDown(4, e)}
+              className={inputCls}
+              placeholder="アンドウ レン, ｱﾝﾄﾞｳ ﾚﾝ（カンマ区切り）"
+            />
+            <p className="mt-1 text-[15px] text-foreground/80">
+              通帳や振込明細に出る名前を登録すると、証憑を読み取ったときに
+              この相手先だと判断できます。
+            </p>
           </div>
 
           <div>

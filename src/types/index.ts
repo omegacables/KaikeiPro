@@ -490,6 +490,8 @@ export interface Loan {
   business_partner_id: string | null;
   /** 返済条件（役員は「定めなし」が既定） */
   repayment_terms: string | null;
+  /** 通帳・振込明細での表記ゆれ。読み取った名前をこの台帳に結び付けるのに使う */
+  aliases: string[];
   /** 借入理由（内訳明細書の記載項目） */
   purpose: string | null;
   status: LoanStatus;

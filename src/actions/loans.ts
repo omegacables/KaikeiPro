@@ -51,6 +51,7 @@ function rowToLoan(r: DbRow): Loan {
     liability_account_id: (r.liability_account_id as string) ?? null,
     business_partner_id: (r.business_partner_id as string) ?? null,
     repayment_terms: (r.repayment_terms as string) ?? null,
+    aliases: (r.aliases as string[]) ?? [],
     purpose: (r.purpose as string) ?? null,
     status: (r.status as Loan["status"]) ?? "active",
     memo: (r.memo as string) ?? null,
@@ -187,6 +188,7 @@ export async function createLoan(input: LoanInput): Promise<Loan> {
       liability_account_id: input.liability_account_id,
       business_partner_id: input.business_partner_id,
       repayment_terms: input.repayment_terms,
+      aliases: input.aliases ?? [],
       purpose: input.purpose,
       memo: input.memo,
       status: "active",
@@ -214,6 +216,7 @@ export async function updateLoan(id: string, input: Partial<LoanInput>): Promise
     "liability_account_id",
     "business_partner_id",
     "repayment_terms",
+    "aliases",
     "purpose",
     "memo",
     "status",
@@ -936,4 +939,33 @@ export async function getLoanBreakdownReport(
     totalClosingBalance: visible.reduce((s, r) => s + r.closing_balance, 0),
     totalInterestPaid: visible.reduce((s, r) => s + r.interest_paid, 0),
   };
+}
+
+
+/**
+ * 通帳での表記を、その台帳の別名として覚える。
+ *
+ * 通帳の名前と台帳の名前は一致しないため、人が結び付けた対応を残しておかないと
+ * 毎回選び直すことになる。学習として暗黙に持たず、台帳の項目として明示的に持つ。
+ * どう紐付いているかを画面で確認でき、間違えたら消せる。
+ */
+export async function addLoanAlias(loanId: string, alias: string): Promise<string[]> {
+  await resolveClientIdForRecord("loans", loanId);
+  const name = alias.trim();
+  if (!name) throw new Error("登録する表記を指定してください");
+
+  const supabase = await createServerSupabaseClient();
+  const { data: cur } = await supabase
+    .from("loans")
+    .select("aliases")
+    .eq("id", loanId)
+    .single();
+
+  const list = ((cur as DbRow | null)?.aliases as string[]) ?? [];
+  if (list.includes(name)) return list;
+
+  const next = [...list, name];
+  const { error } = await supabase.from("loans").update({ aliases: next }).eq("id", loanId);
+  if (error) throw new Error(error.message);
+  return next;
 }

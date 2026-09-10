@@ -14,6 +14,7 @@ import {
   callGemini,
 } from "@/lib/gemini";
 import { currentBalance, entryTypeLabel } from "@/lib/loan-ledger";
+import { findCounterparty } from "@/lib/counterparty-match";
 import { downloadReceiptImage } from "@/actions/receipt-storage";
 import { lookupLearnedRules } from "@/actions/learned-rules";
 import type { Json } from "@/types/database";
@@ -45,6 +46,8 @@ type LedgerContext = {
     direction: LoanDirection;
     kind: string;
     balance: number;
+    /** 通帳での表記ゆれ */
+    aliases: string[];
   }[];
   officers: { name: string; gross: number; net: number; payMonth: string }[];
   /** 返済予定。元金と利息の内訳が決まっているので、突き合えばそのまま使える */
@@ -111,6 +114,7 @@ async function loadContext(clientId: string): Promise<LedgerContext> {
       direction: ((row.direction as LoanDirection) ?? "borrow") as LoanDirection,
       kind: (row.counterparty_kind as string) ?? "institution",
       balance: currentBalance(es),
+      aliases: (row.aliases as string[]) ?? [],
     };
   });
 
@@ -167,7 +171,9 @@ function contextPrompt(ctx: LedgerContext): string {
             (l) =>
               `- id=${l.id} 相手先「${l.name}」 区分:${
                 l.direction === "lend" ? "役員貸付金（会社→役員）" : "借入金（役員/金融機関→会社）"
-              } 現在残高:${l.balance}円`
+              } 現在残高:${l.balance}円${
+                l.aliases.length > 0 ? ` 通帳での表記:${l.aliases.join("・")}` : ""
+              }`
           )
           .join("\n");
 
@@ -269,11 +275,12 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
   if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return null;
 
   const name = (raw.counterparty_name ?? "").trim();
-  // 相手先名から既存台帳を引き当てる（完全一致 → 部分一致）
-  const matched =
-    ctx.loans.find((l) => l.name === name) ??
-    ctx.loans.find((l) => name && (l.name.includes(name) || name.includes(l.name))) ??
-    null;
+  // 通帳の表記と台帳の名前は一致しないため、登録された別名も含めて突き合わせる。
+  // 全角半角・「振込」「株式会社」などの揺れは正規化して吸収する
+  const matched = findCounterparty(
+    name,
+    ctx.loans.map((l) => ({ ...l, lender_name: l.name }))
+  );
 
   const expenseAccount = raw.expense_account_name
     ? (ctx.expenseAccounts.find((a) => a.name === raw.expense_account_name) ??
