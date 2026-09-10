@@ -1755,70 +1755,74 @@ function AiPanel(props: {
                       <tr className="border-b border-border/60">
                         <td />
                         <td colSpan={5} className="pb-2 pr-2 align-top">
-                          <div className="flex flex-wrap items-start gap-2">
-                            <Badge
-                              variant={
-                                d.evidence.confidence >= 0.8
-                                  ? "success"
-                                  : d.evidence.confidence >= 0.5
-                                    ? "warning"
-                                    : "destructive"
-                              }
-                            >
-                              確信度 {Math.round(d.evidence.confidence * 100)}%
-                            </Badge>
-                            {/* 仕訳と起票後残高は幅を取るので、列にせず行の下に置く。
-                                列に入れると表が横に伸びて金額が読めなくなる */}
-                            <span className="text-[15px] text-foreground whitespace-nowrap">
-                              {d.journal_preview
-                                ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit} ${formatCurrency(d.journal_preview.amount)}`
-                                : "仕訳は台帳を選ぶと決まります"}
-                            </span>
-                            {/* 残高がマイナスになる下書きは、そのまま登録すると帳簿が壊れる。
-                                数字を並べるだけでは見落とすので、警告として出す */}
-                            {d.balance_after != null && d.balance_after < 0 ? (
-                              <span className="text-[15px] font-bold text-destructive">
-                                残高が {formatCurrency(Math.abs(d.balance_after))} 足りません
-                                （借入の記録が抜けている可能性）
-                              </span>
-                            ) : (
-                              <span className="text-[15px] text-foreground whitespace-nowrap">
-                                起票後残高{" "}
-                                <span className="font-bold tabular-nums">
-                                  {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
+                          {/* 情報を一続きに並べると読めないので、項目ごとに行を分けて
+                              見出しを付ける。金額と文章が混ざるとどこを見ればよいか分からない */}
+                          <div className="space-y-1">
+                            <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                              <Badge
+                                variant={
+                                  d.evidence.confidence >= 0.8
+                                    ? "success"
+                                    : d.evidence.confidence >= 0.5
+                                      ? "warning"
+                                      : "destructive"
+                                }
+                              >
+                                確信度 {Math.round(d.evidence.confidence * 100)}%
+                              </Badge>
+
+                              {d.balance_after != null && d.balance_after < 0 ? (
+                                <span className="text-[15px] font-bold text-destructive">
+                                  残高が {formatCurrency(Math.abs(d.balance_after))} 足りません
+                                  （借入の記録が抜けている可能性）
                                 </span>
-                              </span>
-                            )}
-                            <p className="flex-1 min-w-[16rem] text-[15px] text-foreground">
-                              {d.evidence.reasoning}
-                              {d.evidence.sourceText && (
-                                <span className="block mt-0.5">
-                                  読取元: {d.evidence.sourceText}
+                              ) : (
+                                <span className="text-[15px] text-foreground whitespace-nowrap">
+                                  <span className="text-foreground/70">起票後残高</span>{" "}
+                                  <span className="font-bold tabular-nums">
+                                    {d.balance_after != null
+                                      ? formatCurrency(d.balance_after)
+                                      : "—"}
+                                  </span>
                                 </span>
                               )}
+                            </div>
+
+                            <p className="text-[15px] text-foreground">
+                              <span className="text-foreground/70">仕訳</span>{" "}
+                              {d.journal_preview
+                                ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit}　${formatCurrency(d.journal_preview.amount)}`
+                                : "台帳を選ぶと決まります"}
                             </p>
 
-                            {/* 会社から出ていく取引だけ判別が要る。
-                                役員個人への送金は 返済／役員報酬／立替精算 のどれとも取れ、
-                                役員報酬なら源泉徴収が必要、借入返済なら課税関係なしと扱いが正反対になる */}
+                            <p className="text-[15px] text-foreground">
+                              <span className="text-foreground/70">根拠</span>{" "}
+                              {d.evidence.reasoning}
+                            </p>
+
+                            {d.evidence.sourceText && (
+                              <p className="text-[15px] text-foreground/80">
+                                <span className="text-foreground/70">読取元</span>{" "}
+                                {d.evidence.sourceText}
+                              </p>
+                            )}
+
                             {/* 迷いのある行だけに出す。確信度が高く残高も足りる行に
                                 押させても、AIを呼ぶ費用がかかるだけで得るものがない */}
                             {d.entry_type === "repay" &&
                               !d.classification &&
                               (d.evidence.confidence < 0.9 ||
                                 (d.balance_after != null && d.balance_after < 0)) && (
-                              <Button
-                                variant="outline"
-                                className="px-2 py-1 text-[15px]"
-                                disabled={d.classifying}
-                                onClick={() => props.onClassify(i)}
-                              >
-                                {d.classifying && (
-                                  <Loader2 className="size-4 animate-spin" />
-                                )}
-                                {d.classifying ? "判別中…" : "この送金を判別"}
-                              </Button>
-                            )}
+                                <Button
+                                  variant="outline"
+                                  className="mt-1 px-2 py-1 text-[15px]"
+                                  disabled={d.classifying}
+                                  onClick={() => props.onClassify(i)}
+                                >
+                                  {d.classifying && <Loader2 className="size-4 animate-spin" />}
+                                  {d.classifying ? "判別中…" : "この送金を判別"}
+                                </Button>
+                              )}
                           </div>
 
                           {d.aliasSuggestion && d.loan_id && (
