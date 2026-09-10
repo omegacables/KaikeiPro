@@ -33,7 +33,7 @@ import {
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
-import { getClients } from "@/actions/clients";
+import { loadClients } from "@/lib/client-cache";
 import { useMobileNav } from "@/components/layout/mobile-nav";
 
 type ClientOption = { id: string; name: string };
@@ -210,7 +210,8 @@ export function Sidebar() {
   const [selectedClientId, setSelectedClientId] = useState<string | null>(null);
 
   useEffect(() => {
-    getClients()
+    // ヘッダーと同じキャッシュを使う（同じ一覧を2回取りに行かない）
+    loadClients()
       .then((data) => {
         const opts = data.map((c) => ({ id: c.id, name: c.name }));
         setClients(opts);

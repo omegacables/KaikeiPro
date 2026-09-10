@@ -56,7 +56,7 @@ import {
   commitLoanAiDrafts,
   askLoanLedger,
 } from "@/actions/loan-ai";
-import { getClient } from "@/actions/clients";
+import { loadClients, loadStatutoryRates } from "@/lib/client-cache";
 import { getAccounts } from "@/actions/accounts";
 import { getReceipts } from "@/actions/receipts";
 import {
@@ -193,13 +193,17 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [ls, client, accounts, rateRows] = await Promise.all([
+      const [ls, clients, accounts, rateMap] = await Promise.all([
         getLoanLedgers(id),
-        getClient(id).catch(() => null),
+        // 決算月は顧問先一覧に含まれる。ヘッダーと共有のキャッシュから引き、
+        // 台帳を開くたびに顧問先を取りに行かない
+        loadClients(),
         getAccounts(id).catch(() => []),
-        getStatutoryInterestRates().catch(() => []),
+        // 利率は年に一度しか変わらないのでキャッシュから読む
+        loadStatutoryRates(),
       ]);
       setLedgers(ls);
+      const client = clients.find((c) => c.id === id);
       if (client?.fiscal_year_start_month) setFiscalStartMonth(client.fiscal_year_start_month);
       setExpenseAccounts(
         (accounts ?? [])
@@ -216,7 +220,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           // 立替の相手科目になるのは費用科目のみ
           .filter((a) => a.categoryType === "expenses")
       );
-      setRates(Object.fromEntries(rateRows.map((r) => [r.loan_year, r.rate])));
+      setRates(rateMap);
     } catch (e) {
       setError(e instanceof Error ? e.message : "読み込みに失敗しました");
     } finally {
@@ -1268,8 +1272,15 @@ function AiPanel(props: {
 }) {
   const [receipts, setReceipts] = useState<{ id: string; label: string }[]>([]);
   const [receiptId, setReceiptId] = useState("");
+  const [receiptsLoading, setReceiptsLoading] = useState(false);
+  const receiptsLoaded = useRef(false);
 
-  useEffect(() => {
+  // 証憑の一覧は件数が多く結合もあるため、プルダウンを触るまで読まない。
+  // AIを使わずに台帳だけ見る場合の読み込みを軽くする
+  const loadReceipts = useCallback(() => {
+    if (receiptsLoaded.current) return;
+    receiptsLoaded.current = true;
+    setReceiptsLoading(true);
     getReceipts(props.clientId)
       .then((rs) =>
         setReceipts(
@@ -1282,7 +1293,8 @@ function AiPanel(props: {
             }))
         )
       )
-      .catch(() => setReceipts([]));
+      .catch(() => setReceipts([]))
+      .finally(() => setReceiptsLoading(false));
   }, [props.clientId]);
 
   const chosen = props.drafts.filter((d) => d.selected).length;
@@ -1324,10 +1336,14 @@ function AiPanel(props: {
             <label className={labelCls}>証憑から一括起票（通帳・振込明細）</label>
             <select
               value={receiptId}
+              onFocus={loadReceipts}
+              onMouseDown={loadReceipts}
               onChange={(e) => setReceiptId(e.target.value)}
               className={inputCls}
             >
-              <option value="">証憑を選択してください</option>
+              <option value="">
+                {receiptsLoading ? "読み込み中..." : "証憑を選択してください"}
+              </option>
               {receipts.map((r) => (
                 <option key={r.id} value={r.id}>
                   {r.label}

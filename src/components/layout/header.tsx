@@ -7,7 +7,8 @@ import { useAuth } from "@/components/providers/auth-provider";
 import { useMobileNav } from "@/components/layout/mobile-nav";
 import { cn, getInitials, formatTimeAgo } from "@/lib/utils";
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme";
-import { getClient, getClients } from "@/actions/clients";
+import { getClient } from "@/actions/clients";
+import { loadClients } from "@/lib/client-cache";
 import {
   getNotifications,
   getUnreadCount,
@@ -98,33 +99,35 @@ export function Header() {
     }
   }, [user?.role, user?.clientId]);
 
-  // URL から今の顧問先を割り出して名前を引く
+  // 切り替え先の一覧。顧問先ユーザーは自社しか見られないので読まない。
+  // 一覧はキャッシュされ、サイドバーと共有される
   useEffect(() => {
-    const id = pathname.match(/^\/clients\/([^/]+)/)?.[1];
-    if (!id || id === "new") {
+    if (user?.role === "client") return;
+    loadClients().then(setClientList);
+  }, [user?.role]);
+
+  // 今の顧問先の名前。一覧に載っていればそこから引き、サーバーへ行かない。
+  // pathname ではなく顧問先IDに反応させる（画面を移るたびに読み直さない）
+  const activeClientId = pathname.match(/^\/clients\/([^/]+)/)?.[1] ?? null;
+  useEffect(() => {
+    if (!activeClientId || activeClientId === "new") {
       setActiveClientName(null);
       return;
     }
+    const hit = clientList.find((c) => c.id === activeClientId);
+    if (hit) {
+      setActiveClientName(hit.name);
+      return;
+    }
+    // 一覧に無い場合だけ問い合わせる（権限の広いユーザーが他事務所の顧問先を開いたときなど）
     let cancelled = false;
-    getClient(id)
-      .then((c) => {
-        if (!cancelled) setActiveClientName(c.name);
-      })
-      .catch(() => {
-        if (!cancelled) setActiveClientName(null);
-      });
+    getClient(activeClientId)
+      .then((c) => !cancelled && setActiveClientName(c.name))
+      .catch(() => !cancelled && setActiveClientName(null));
     return () => {
       cancelled = true;
     };
-  }, [pathname]);
-
-  // 切り替え先の一覧。顧問先ユーザーは自社しか見られないので読まない
-  useEffect(() => {
-    if (user?.role === "client") return;
-    getClients()
-      .then((cs) => setClientList(cs.map((c) => ({ id: c.id, name: c.name }))))
-      .catch(() => {});
-  }, [user?.role]);
+  }, [activeClientId, clientList]);
 
   // 切り替えメニューの外側を押したら閉じる
   useEffect(() => {
