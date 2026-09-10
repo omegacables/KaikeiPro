@@ -275,7 +275,7 @@ export default function PayrollPage({
   const pendingCount = records.filter((r) => r.status === "pending" && r.gross_salary > 0).length;
 
   return (
-    <div className="space-y-6 max-w-6xl">
+    <div className="space-y-6">
       {/* ヘッダー */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
@@ -283,9 +283,6 @@ export default function PayrollPage({
           <h1 className="text-xl font-bold">給与台帳</h1>
         </div>
         <div className="flex items-center gap-2 shrink-0 ml-auto">
-          <label className="text-sm font-medium text-foreground whitespace-nowrap">
-            表示する月
-          </label>
           <input
             type="month"
             value={month}
@@ -357,8 +354,8 @@ export default function PayrollPage({
               この月の給与データはまだありません。「給与を追加」から登録してください。
             </div>
           ) : (
-            <div className="overflow-x-auto -mx-2 px-2">
-              <table className="w-full text-sm min-w-[760px]">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-border text-xs text-muted-foreground">
                     <th className="text-left py-2 px-2">氏名</th>
