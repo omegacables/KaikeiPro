@@ -214,8 +214,14 @@ ${
 }`;
 }
 
-const ENTRY_TYPE_GUIDE = `## 区分（entry_type）の判断
-- borrow  : 元本の発生。会社が役員/金融機関から借りた、または（貸付台帳では）会社が役員に貸した
+const ENTRY_TYPE_GUIDE = `## どちらの台帳の話か（direction）
+- borrow … 会社が借りている側の話（金融機関からの借入、役員借入金）
+- lend   … 会社が貸している側の話（役員貸付金）
+会社からお金が出ていく取引でも、借入金の返済なら borrow、
+新たに役員へ貸したなら lend になる。お金の向きだけで決めないこと。
+
+## 区分（entry_type）の判断
+- borrow  : 元本の発生。direction=borrow なら「借りた」、direction=lend なら「貸した」
 - advance : 立替。役員が会社の経費を個人資金・個人カードで払った。**現金は動かないが役員借入金は増える**
 - repay   : 返済／回収
 - interest: 利息
@@ -238,6 +244,8 @@ amount（元金）と interest_amount（利息）に分けること。
 
 type RawDraft = {
   counterparty_name?: string;
+  /** borrow=借入金台帳の話 / lend=貸付金台帳の話。台帳が特定できないときの向きの判断に使う */
+  direction?: string;
   entry_date?: string;
   entry_type?: string;
   amount?: number;
@@ -273,7 +281,10 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
       null)
     : null;
 
-  const direction: LoanDirection = matched?.direction ?? "borrow";
+  // 台帳が特定できればその向きに従う。できない場合はAIの申告を使う。
+  // 向きが分からないと、会社から出ていくお金を「借入」と表示してしまう
+  const direction: LoanDirection =
+    matched?.direction ?? (raw.direction === "lend" ? "lend" : "borrow");
 
   // 利息は返済のときだけ意味を持つ
   let interest = entryType === "repay" ? Math.max(0, Math.round(Number(raw.interest_amount) || 0)) : 0;
@@ -391,7 +402,7 @@ ${ENTRY_TYPE_GUIDE}
 
 ## 出力形式
 JSONのみを返してください。説明文は不要です。
-{"entries":[{"counterparty_name":"相手先名","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":元金の数値,"interest_amount":返済と同時に払った利息の数値（無ければ0）,"expense_account_name":"立替のときの費用科目名。それ以外はnull","memo":"摘要","reasoning":"そう判断した根拠","confidence":0.0-1.0,"needs_confirmation":true/false}]}
+{"entries":[{"counterparty_name":"相手先名","direction":"borrow|lend","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":元金の数値,"interest_amount":返済と同時に払った利息の数値（無ければ0）,"expense_account_name":"立替のときの費用科目名。それ以外はnull","memo":"摘要","reasoning":"そう判断した根拠","confidence":0.0-1.0,"needs_confirmation":true/false}]}
 
 ## 注意
 - 今日は ${today} です。年の記載が無い日付はこれを基準に解釈してください。
@@ -479,7 +490,7 @@ ${ENTRY_TYPE_GUIDE}
 
 ## 出力形式
 JSONのみを返してください。説明文は不要です。
-{"candidates":[{"counterparty_name":"相手先名","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":元金の数値,"interest_amount":返済と同時に払った利息の数値（無ければ0）,"expense_account_name":null,"memo":"摘要","source_text":"通帳の該当行の記載をそのまま","reasoning":"台帳に関係すると判断した根拠","confidence":0.0-1.0}],
+{"candidates":[{"counterparty_name":"相手先名","direction":"borrow|lend","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":元金の数値,"interest_amount":返済と同時に払った利息の数値（無ければ0）,"expense_account_name":null,"memo":"摘要","source_text":"通帳の該当行の記載をそのまま","reasoning":"台帳に関係すると判断した根拠","confidence":0.0-1.0}],
  "excluded":[{"line":"通帳の記載をそのまま","reason":"台帳に無関係と判断した理由"}]}
 
 ## 注意
