@@ -1806,13 +1806,13 @@ function AttachReceiptModal(props: {
                 placeholder="2026-08-24 / 65000 / ○○銀行"
               />
             </div>
-            <div>
+            <div className="w-32">
               <label className={labelCls}>証憑内の行番号</label>
               <input
                 type="number"
                 value={lineNo}
                 onChange={(e) => setLineNo(e.target.value)}
-                className={inputCls + " w-32 text-right"}
+                className={inputCls + " text-right"}
                 placeholder="任意"
               />
             </div>
