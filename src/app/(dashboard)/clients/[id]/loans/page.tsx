@@ -527,12 +527,23 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   }
 
   async function handleCommitDrafts() {
-    const chosen = drafts.filter((d) => d.selected);
-    if (chosen.length === 0) return;
+    // 元の並びでの位置を覚えておく。失敗した下書きだけを残すために使う
+    const chosenIdx = drafts.map((d, i) => (d.selected ? i : -1)).filter((i) => i >= 0);
+    if (chosenIdx.length === 0) return;
+
     setAiBusy(true);
     setError(null);
     try {
-      const { created, errors } = await commitLoanAiDrafts(id, chosen);
+      const { created, errors } = await commitLoanAiDrafts(
+        id,
+        chosenIdx.map((i) => drafts[i])
+      );
+
+      // 登録できたものだけ消し、失敗したものは残す。
+      // 全部消すと読み取り結果が失われ、AIを呼び直すことになる
+      const failed = new Set(errors.map((e) => chosenIdx[e.index]));
+      setDrafts(drafts.filter((d, i) => !d.selected || failed.has(i)));
+
       if (errors.length > 0) {
         // 同じ理由が並ぶと読みにくいので、まとめて件数で示す
         const counts = new Map<string, number>();
@@ -541,12 +552,14 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           .map(([msg, n]) => (n > 1 ? `${msg}（${n}件）` : msg))
           .join("\n");
         setError(
-          `${created}件を登録しました。${errors.length}件は登録できませんでした。\n${summary}`
+          `${created}件を登録しました。${errors.length}件は登録できませんでした。\n` +
+            `${summary}\n登録できなかった分は下に残してあります。直して登録し直せます。`
         );
+      } else {
+        setNotice(`${created}件を登録しました。`);
+        setExcluded([]);
+        setAiText("");
       }
-      setDrafts([]);
-      setExcluded([]);
-      setAiText("");
       await fetchAll();
     } catch (e) {
       setError(e instanceof Error ? e.message : "登録に失敗しました");
