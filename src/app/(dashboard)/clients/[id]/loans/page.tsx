@@ -1,5 +1,6 @@
 "use client";
 
+import * as React from "react";
 import { useState, useEffect, useCallback, use, useMemo, useRef } from "react";
 import {
   Landmark,
@@ -596,10 +597,10 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       {/* サマリー */}
       {/* 借入金は「合計」の中に内訳を入れ、貸付金は別枠にする。
           役員借入金と役員貸付金は1文字違いで意味が正反対なので、並べると混同される。 */}
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 grid-cols-2 max-w-3xl">
         <Card>
           <CardContent className="py-4">
-            <p className="text-[17px] font-medium text-foreground">借入金残高合計</p>
+            <p className="text-xl font-bold text-foreground">借入金残高合計</p>
             <p className="text-3xl font-bold tabular-nums text-foreground">
               {formatCurrency(summary.total)}
             </p>
@@ -625,7 +626,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         >
           <CardContent className="py-4">
             <p
-              className={`text-[17px] font-medium ${summary.lend > 0 ? "text-destructive" : "text-foreground"}`}
+              className={`text-xl font-bold ${summary.lend > 0 ? "text-destructive" : "text-foreground"}`}
             >
               役員貸付金
             </p>
@@ -1310,7 +1311,6 @@ function AiPanel(props: {
             </select>
             <Button
               className="mt-2"
-              variant="outline"
               onClick={() => receiptId && props.onRunDocument(receiptId)}
               disabled={props.busy || !receiptId}
             >
@@ -1341,7 +1341,7 @@ function AiPanel(props: {
               AIの下書き（{props.drafts.length}件）— 内容を確認して登録してください
             </p>
             <div className="overflow-x-auto">
-              <table className="w-full min-w-[64rem] text-[17px]">
+              <table className="w-full text-[17px]">
                 <thead>
                   <tr className="border-b border-border text-left">
                     <th className="py-2 pr-2 whitespace-nowrap">採用</th>
@@ -1351,12 +1351,12 @@ function AiPanel(props: {
                     <th className="py-2 pr-2 text-right whitespace-nowrap">金額</th>
                     <th className="py-2 pr-2 whitespace-nowrap">生成される仕訳</th>
                     <th className="py-2 pr-2 text-right whitespace-nowrap">起票後残高</th>
-                    <th className="py-2 pr-2 whitespace-nowrap">根拠</th>
                   </tr>
                 </thead>
                 <tbody>
                   {props.drafts.map((d, i) => (
-                    <tr key={i} className="border-b border-border/60 align-top">
+                    <React.Fragment key={i}>
+                    <tr className="align-top">
                       <td className="py-2 pr-2">
                         <input
                           type="checkbox"
@@ -1448,25 +1448,36 @@ function AiPanel(props: {
                       <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
                         {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
                       </td>
-                      <td className="py-2 pr-2 min-w-[18rem] max-w-[26rem]">
-                        <p>{d.evidence.reasoning}</p>
-                        {d.evidence.sourceText && (
-                          <p className="mt-1 text-[15px]">読取元: {d.evidence.sourceText}</p>
-                        )}
-                        <Badge
-                          variant={
-                            d.evidence.confidence >= 0.8
-                              ? "success"
-                              : d.evidence.confidence >= 0.5
-                                ? "warning"
-                                : "destructive"
-                          }
-                          className="mt-1"
-                        >
-                          確信度 {Math.round(d.evidence.confidence * 100)}%
-                        </Badge>
-                      </td>
                     </tr>
+                      {/* 根拠は長文になるため、列にせず行の下に回す。
+                          列に入れると表が横に伸び、金額や仕訳が読めなくなる */}
+                      <tr className="border-b border-border/60">
+                        <td />
+                        <td colSpan={6} className="pb-2 pr-2 align-top">
+                          <div className="flex flex-wrap items-start gap-2">
+                            <Badge
+                              variant={
+                                d.evidence.confidence >= 0.8
+                                  ? "success"
+                                  : d.evidence.confidence >= 0.5
+                                    ? "warning"
+                                    : "destructive"
+                              }
+                            >
+                              確信度 {Math.round(d.evidence.confidence * 100)}%
+                            </Badge>
+                            <p className="flex-1 min-w-[16rem] text-[15px] text-foreground">
+                              {d.evidence.reasoning}
+                              {d.evidence.sourceText && (
+                                <span className="block mt-0.5">
+                                  読取元: {d.evidence.sourceText}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        </td>
+                      </tr>
+                    </React.Fragment>
                   ))}
                 </tbody>
               </table>
@@ -2424,7 +2435,7 @@ function AskSection({ clientId }: { clientId: string }) {
   return (
     <details className="rounded-lg border border-border p-3">
       <summary className="text-[17px] font-medium cursor-pointer flex items-center gap-2">
-        <MessageCircleQuestion className="size-4" />
+        <MessageCircleQuestion className="size-4 text-primary" />
         台帳について質問する
       </summary>
 
