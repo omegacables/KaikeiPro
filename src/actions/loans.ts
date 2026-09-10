@@ -13,6 +13,7 @@ import {
   interestTotals,
   entryTypeLabel,
   buildJournalLines,
+  entryFromJournalLines,
   generateRepaymentSchedule,
   reconcileLoanLedger,
   type RepaymentMethod,
@@ -72,6 +73,7 @@ function rowToEntry(r: DbRow): LoanEntry {
     expense_account_id: (r.expense_account_id as string) ?? null,
     payment_account_id: (r.payment_account_id as string) ?? null,
     journal_entry_id: (r.journal_entry_id as string) ?? null,
+    journal_link: (r.journal_link as LoanEntry["journal_link"]) ?? "generated",
     status: (r.status as LoanEntry["status"]) ?? "confirmed",
     source: (r.source as LoanEntry["source"]) ?? "manual",
     ai_evidence: (r.ai_evidence as LoanAiEvidence) ?? null,
@@ -248,9 +250,11 @@ export async function deleteLoan(id: string): Promise<void> {
   // 明細から生成済みの仕訳も併せて削除する（明細は ON DELETE CASCADE）
   const { data: entries } = await supabase
     .from("loan_entries")
-    .select("journal_entry_id")
+    .select("journal_entry_id, journal_link")
     .eq("loan_id", id);
   const journalIds = (entries ?? [])
+    // 取り込んだだけの仕訳は利用者の元データなので消さない
+    .filter((r) => (r as DbRow).journal_link !== "linked")
     .map((r) => (r as DbRow).journal_entry_id as string | null)
     .filter((v): v is string => Boolean(v));
   if (journalIds.length > 0) {
@@ -364,12 +368,16 @@ export async function deleteLoanEntry(id: string): Promise<void> {
   const supabase = await createServerSupabaseClient();
   const { data: row } = await supabase
     .from("loan_entries")
-    .select("journal_entry_id")
+    .select("journal_entry_id, journal_link")
     .eq("id", id)
     .maybeSingle();
 
-  // 仕訳化済みなら生成済みの仕訳も消す（残高は明細から算出するため戻し処理は不要）
-  const journalId = (row as DbRow | null)?.journal_entry_id as string | null;
+  // 台帳から生成した仕訳のみ併せて消す（残高は明細から算出するため戻し処理は不要）。
+  // 取り込んだだけの仕訳は利用者の元データなので残す
+  const journalId =
+    (row as DbRow | null)?.journal_link === "linked"
+      ? null
+      : ((row as DbRow | null)?.journal_entry_id as string | null);
   if (journalId) {
     const admin = createAdminSupabaseClient();
     await admin.from("journal_entries").delete().eq("id", journalId);
@@ -608,9 +616,106 @@ export async function journalizeLoanEntry(entryId: string): Promise<string> {
 
   const { error: updErr } = await admin
     .from("loan_entries")
-    .update({ journal_entry_id: created.id, status: "journalized" })
+    .update({ journal_entry_id: created.id, status: "journalized", journal_link: "generated" })
     .eq("id", entryId);
   if (updErr) throw new Error(updErr.message);
+
+  return created.id as string;
+}
+
+/**
+ * 既にある仕訳を台帳に取り込み、明細として1件作る。
+ *
+ * 前の会計ソフトからの引き継ぎ、銀行明細の取込、過年度の仕訳など、
+ * 仕訳側にしか存在しない借入の記録を台帳に載せるための経路。
+ * 仕訳は**新たに作らず**、もとの仕訳をそのまま指す（journal_link='linked'）。
+ * 同じ内容を台帳にも手で入れて仕訳化すると、仕訳が二重になってしまう。
+ *
+ * 区分・金額・利息は仕訳の中身から読み取る（entryFromJournalLines）。
+ */
+export async function importJournalIntoLedger(
+  loanId: string,
+  journalEntryId: string
+): Promise<string> {
+  const clientId = await resolveClientIdForRecord("loans", loanId);
+  const admin = createAdminSupabaseClient();
+
+  const { data: loanRaw } = await admin.from("loans").select("*").eq("id", loanId).single();
+  if (!loanRaw) throw new Error("台帳が見つかりません");
+  const loan = rowToLoan(loanRaw as DbRow);
+
+  // 仕訳が同じ顧問先のものか確かめる（他社の仕訳を取り込ませない）
+  const { data: journalRaw } = await admin
+    .from("journal_entries")
+    .select("id, client_id, entry_date, description")
+    .eq("id", journalEntryId)
+    .maybeSingle();
+  if (!journalRaw) throw new Error("仕訳が見つかりません");
+  if ((journalRaw as DbRow).client_id !== clientId) {
+    throw new Error("この仕訳は別の顧問先のものです");
+  }
+
+  // 同じ仕訳を二つの明細に結び付けると残高が二重になる
+  const { data: already } = await admin
+    .from("loan_entries")
+    .select("id")
+    .eq("journal_entry_id", journalEntryId)
+    .maybeSingle();
+  if (already) throw new Error("この仕訳は既に台帳の明細と結び付いています");
+
+  const accounts = await loadAccounts(admin, clientId);
+  const ledgerAccountId =
+    loan.liability_account_id ??
+    (loan.direction === "lend"
+      ? findAccount(accounts, ["役員貸付金", "貸付金"])
+      : loan.counterparty_kind === "officer"
+        ? findAccount(accounts, ["役員借入金", "役員からの借入金"])
+        : findAccount(accounts, ["長期借入金", "短期借入金", "借入金"]));
+  if (!ledgerAccountId) throw new Error("対象の勘定科目が見つかりません");
+
+  const { data: lineRows } = await admin
+    .from("journal_entry_lines")
+    .select("account_id, debit_amount, credit_amount")
+    .eq("journal_entry_id", journalEntryId);
+
+  const draft = entryFromJournalLines({
+    direction: loan.direction,
+    ledgerAccountId,
+    interestAccountId:
+      loan.direction === "lend"
+        ? findAccount(accounts, ["受取利息"])
+        : findAccount(accounts, ["支払利息", "利息"]),
+    lines: (lineRows ?? []).map((r) => ({
+      accountId: (r as DbRow).account_id as string,
+      debit: Number((r as DbRow).debit_amount ?? 0),
+      credit: Number((r as DbRow).credit_amount ?? 0),
+    })),
+  });
+
+  if (!draft) {
+    throw new Error(
+      "この仕訳からは増減を読み取れません（対象の科目が使われていないか、借方と貸方が相殺されています）"
+    );
+  }
+
+  const { data: created, error } = await admin
+    .from("loan_entries")
+    .insert({
+      loan_id: loanId,
+      client_id: clientId,
+      entry_date: (journalRaw as DbRow).entry_date as string,
+      entry_type: draft.entry_type,
+      amount: draft.amount,
+      interest_amount: draft.interest_amount,
+      journal_entry_id: journalEntryId,
+      journal_link: "linked",
+      status: "journalized",
+      source: "manual",
+      memo: ((journalRaw as DbRow).description as string) ?? null,
+    })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
 
   return created.id as string;
 }
@@ -623,17 +728,19 @@ export async function unjournalizeLoanEntry(entryId: string): Promise<void> {
 
   const { data: raw } = await admin
     .from("loan_entries")
-    .select("journal_entry_id")
+    .select("journal_entry_id, journal_link")
     .eq("id", entryId)
     .maybeSingle();
   const journalId = (raw as DbRow | null)?.journal_entry_id as string | null;
-  if (journalId) {
+  // 台帳から生成した仕訳だけを消す。もとからあった仕訳を取り込んだ場合
+  // （journal_link='linked'）は、結び付きを外すだけで仕訳は残す
+  if (journalId && (raw as DbRow | null)?.journal_link !== "linked") {
     await admin.from("journal_entries").delete().eq("id", journalId);
   }
 
   const { error } = await admin
     .from("loan_entries")
-    .update({ journal_entry_id: null, status: "confirmed" })
+    .update({ journal_entry_id: null, status: "confirmed", journal_link: "generated" })
     .eq("id", entryId);
   if (error) throw new Error(error.message);
 }

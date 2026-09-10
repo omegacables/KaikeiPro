@@ -48,6 +48,7 @@ import {
   deleteSchedule,
   applySchedule,
   reconcileLoan,
+  importJournalIntoLedger,
 } from "@/actions/loans";
 import {
   draftLoanEntriesFromText,
@@ -1308,7 +1309,7 @@ function LedgerRow(props: {
           )}
 
           {/* 台帳と仕訳の照合（要件3-5 / 4-6） */}
-          <ReconcileSection ledger={ledger} />
+          <ReconcileSection ledger={ledger} onChanged={props.onRefresh} />
 
           {/* 増減明細と残高推移 */}
           {/* 見出しが無いと、どの表を指しているのか会話で伝わらない */}
@@ -2592,10 +2593,19 @@ function RepaymentScheduleSection({
 // 整合性チェック（要件3-5 / 4-6）
 // ---------------------------------------------------------------------------
 
-function ReconcileSection({ ledger }: { ledger: LoanLedger }) {
+function ReconcileSection({
+  ledger,
+  onChanged,
+}: {
+  ledger: LoanLedger;
+  /** 取り込みで明細が増えたときに台帳を読み直してもらう */
+  onChanged: () => void | Promise<void>;
+}) {
   const [result, setResult] = useState<ReconcileResult | null>(null);
   const [busy, setBusy] = useState(false);
+  const [importing, setImporting] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function run() {
     setBusy(true);
@@ -2606,6 +2616,27 @@ function ReconcileSection({ ledger }: { ledger: LoanLedger }) {
       setError(e instanceof Error ? e.message : "照合に失敗しました");
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * 仕訳側にしかない記録を台帳に取り込む。
+   * 仕訳は作り直さずそのまま使うので、同じ内容を手で入れ直して
+   * 仕訳が二重になる事故が起きない。
+   */
+  async function importOne(journalEntryId: string) {
+    setImporting(journalEntryId);
+    setError(null);
+    setNotice(null);
+    try {
+      await importJournalIntoLedger(ledger.loan.id, journalEntryId);
+      await onChanged();
+      setNotice("台帳に取り込みました。仕訳は元のまま使っています。");
+      setResult(await reconcileLoan(ledger.loan.id));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "取り込みに失敗しました");
+    } finally {
+      setImporting(null);
     }
   }
 
@@ -2623,9 +2654,12 @@ function ReconcileSection({ ledger }: { ledger: LoanLedger }) {
       <p className={bodyCls}>
         台帳は管理用の記録で、決算書に出るのは仕訳の方です。両者がずれていると
         「台帳では返し終わっているのに決算書に残債がある」といった食い違いが起きます。
+        仕訳側にしかない記録（前の会計ソフトからの引き継ぎ、銀行明細の取込、過年度の仕訳）は
+        「台帳に取り込む」で台帳に載せられます。仕訳は作り直さないので二重になりません。
       </p>
 
       {error && <p className="text-[17px] text-destructive">{error}</p>}
+      {notice && <p className="text-[17px] text-primary">{notice}</p>}
 
       {result && (
         <div className="space-y-2">
@@ -2647,8 +2681,23 @@ function ReconcileSection({ ledger }: { ledger: LoanLedger }) {
               <p className="text-[17px] font-medium">原因と思われるもの</p>
               <ul className="mt-1 space-y-1">
                 {result.suspects.map((s) => (
-                  <li key={s.refId} className={bodyCls}>
-                    {s.date} ／ {formatCurrency(s.amount)} ／ {s.label}
+                  <li key={s.refId} className={bodyCls + " flex flex-wrap items-center gap-2"}>
+                    <span>
+                      {s.date} ／ {formatCurrency(s.amount)} ／ {s.label}
+                    </span>
+                    {/* 仕訳側にしかない記録は、その場で台帳に取り込めるようにする。
+                        手で入れ直させると仕訳が二重になる */}
+                    {s.kind === "journal_without_entry" && (
+                      <Button
+                        variant="outline"
+                        className="px-2 py-1 text-[15px]"
+                        disabled={importing !== null}
+                        onClick={() => importOne(s.refId)}
+                      >
+                        {importing === s.refId && <Loader2 className="size-4 animate-spin" />}
+                        {importing === s.refId ? "取り込み中…" : "台帳に取り込む"}
+                      </Button>
+                    )}
                   </li>
                 ))}
               </ul>

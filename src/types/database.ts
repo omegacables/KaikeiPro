@@ -791,6 +791,7 @@ export interface Database {
           expense_account_id: string | null;
           payment_account_id: string | null;
           journal_entry_id: string | null;
+          journal_link: "generated" | "linked";
           status: "draft" | "confirmed" | "journalized";
           source: "manual" | "ai_draft";
           ai_evidence: Json | null;
@@ -810,6 +811,7 @@ export interface Database {
           expense_account_id?: string | null;
           payment_account_id?: string | null;
           journal_entry_id?: string | null;
+          journal_link?: "generated" | "linked";
           status?: "draft" | "confirmed" | "journalized";
           source?: "manual" | "ai_draft";
           ai_evidence?: Json | null;
@@ -829,6 +831,7 @@ export interface Database {
           expense_account_id?: string | null;
           payment_account_id?: string | null;
           journal_entry_id?: string | null;
+          journal_link?: "generated" | "linked";
           status?: "draft" | "confirmed" | "journalized";
           source?: "manual" | "ai_draft";
           ai_evidence?: Json | null;

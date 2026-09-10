@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
   signOf,
+  entryFromJournalLines,
   deltaOf,
   runningBalances,
   currentBalance,
@@ -1026,5 +1027,109 @@ describe("認定利息の試算期間", () => {
     // 合計は両方の合算。片方だけで数えていないこと
     expect(alert.estimatedInterest).toBe((older.interest ?? 0) + (newer.interest ?? 0));
     expect(alert.estimatedInterest).toBeGreaterThan(older.interest ?? 0);
+  });
+});
+
+describe("entryFromJournalLines", () => {
+  const LOAN = "acc-loan";
+  const CASH = "acc-cash";
+  const INT = "acc-interest";
+
+  it("借入金が貸方に立つ仕訳は借入として読む", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "borrow",
+        ledgerAccountId: LOAN,
+        interestAccountId: INT,
+        lines: [
+          { accountId: CASH, debit: 1200000, credit: 0 },
+          { accountId: LOAN, debit: 0, credit: 1200000 },
+        ],
+      })
+    ).toEqual({ entry_type: "borrow", amount: 1200000, interest_amount: 0 });
+  });
+
+  it("借入金が借方に立つ仕訳は返済として読み、支払利息も取り込む", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "borrow",
+        ledgerAccountId: LOAN,
+        interestAccountId: INT,
+        lines: [
+          { accountId: LOAN, debit: 100000, credit: 0 },
+          { accountId: INT, debit: 2400, credit: 0 },
+          { accountId: CASH, debit: 0, credit: 102400 },
+        ],
+      })
+    ).toEqual({ entry_type: "repay", amount: 100000, interest_amount: 2400 });
+  });
+
+  it("貸付金は向きが逆になる", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "lend",
+        ledgerAccountId: LOAN,
+        interestAccountId: INT,
+        lines: [
+          { accountId: LOAN, debit: 500000, credit: 0 },
+          { accountId: CASH, debit: 0, credit: 500000 },
+        ],
+      })
+    ).toEqual({ entry_type: "borrow", amount: 500000, interest_amount: 0 });
+  });
+
+  it("借入では利息の行があっても取り込まない（残高を増やす向きのため）", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "borrow",
+        ledgerAccountId: LOAN,
+        interestAccountId: INT,
+        lines: [
+          { accountId: CASH, debit: 1000000, credit: 0 },
+          { accountId: INT, debit: 5000, credit: 0 },
+          { accountId: LOAN, debit: 0, credit: 1005000 },
+        ],
+      })
+    ).toEqual({ entry_type: "borrow", amount: 1005000, interest_amount: 0 });
+  });
+
+  it("借入金の科目が使われていない仕訳は読み取れない", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "borrow",
+        ledgerAccountId: LOAN,
+        interestAccountId: INT,
+        lines: [{ accountId: CASH, debit: 1000, credit: 0 }],
+      })
+    ).toBeNull();
+  });
+
+  it("借方と貸方が相殺される仕訳は読み取れない", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "borrow",
+        ledgerAccountId: LOAN,
+        interestAccountId: INT,
+        lines: [
+          { accountId: LOAN, debit: 50000, credit: 0 },
+          { accountId: LOAN, debit: 0, credit: 50000 },
+        ],
+      })
+    ).toBeNull();
+  });
+
+  it("同じ科目の行が複数あっても合算して読む", () => {
+    expect(
+      entryFromJournalLines({
+        direction: "borrow",
+        ledgerAccountId: LOAN,
+        interestAccountId: null,
+        lines: [
+          { accountId: LOAN, debit: 0, credit: 300000 },
+          { accountId: LOAN, debit: 0, credit: 200000 },
+          { accountId: CASH, debit: 500000, credit: 0 },
+        ],
+      })
+    ).toEqual({ entry_type: "borrow", amount: 500000, interest_amount: 0 });
   });
 });

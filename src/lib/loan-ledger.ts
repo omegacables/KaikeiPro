@@ -758,3 +758,68 @@ export function reconcileLoanLedger(params: {
     suspects: suspects.sort((a, b) => (a.date < b.date ? -1 : 1)),
   };
 }
+
+// ---------------------------------------------------------------------------
+// 既にある仕訳から明細を組み立てる
+// ---------------------------------------------------------------------------
+
+/** 仕訳1行ぶん。取り込みの判定に使う最小限だけを持つ */
+export type JournalLineForImport = {
+  accountId: string;
+  debit: number;
+  credit: number;
+};
+
+export type ImportedEntryDraft = {
+  entry_type: Extract<LoanEntryType, "borrow" | "repay">;
+  amount: number;
+  interest_amount: number;
+};
+
+/**
+ * 既にある仕訳から、台帳の明細に相当する内容を読み取る。
+ *
+ * 判定はすべて「借入金（貸付金）科目の行が借方か貸方か」で決まる。
+ *
+ *   借りる側（direction='borrow'）… 貸方に立てば残高が増える＝借入
+ *                                    借方に立てば残高が減る＝返済
+ *   貸す側（direction='lend'）  … 上記の逆
+ *
+ * 支払利息（貸付なら受取利息）の行があれば、返済と同時に払った利息として取り込む。
+ * 利息は残高を動かさないため、金額とは別に持つ。
+ *
+ * 借方と貸方が同額で相殺される仕訳（振替など）は増減が読み取れないので null を返す。
+ */
+export function entryFromJournalLines(params: {
+  direction: LoanDirection;
+  /** 借入金／貸付金の科目 */
+  ledgerAccountId: string;
+  /** 支払利息（貸付なら受取利息）の科目。無ければ null */
+  interestAccountId: string | null;
+  lines: JournalLineForImport[];
+}): ImportedEntryDraft | null {
+  const { direction, ledgerAccountId, interestAccountId, lines } = params;
+
+  const ledgerLines = lines.filter((l) => l.accountId === ledgerAccountId);
+  if (ledgerLines.length === 0) return null;
+
+  const debit = ledgerLines.reduce((s, l) => s + l.debit, 0);
+  const credit = ledgerLines.reduce((s, l) => s + l.credit, 0);
+
+  // 残高を増やす向きを正とする
+  const net = direction === "lend" ? debit - credit : credit - debit;
+  if (net === 0) return null;
+
+  const entry_type = net > 0 ? "borrow" : "repay";
+
+  // 利息は返済（回収）と同時に払われたもののみ取り込む
+  let interest_amount = 0;
+  if (entry_type === "repay" && interestAccountId) {
+    interest_amount = lines
+      .filter((l) => l.accountId === interestAccountId)
+      // 支払利息は借方に、受取利息は貸方に立つ
+      .reduce((s, l) => s + (direction === "lend" ? l.credit : l.debit), 0);
+  }
+
+  return { entry_type, amount: Math.abs(net), interest_amount };
+}

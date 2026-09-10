@@ -552,6 +552,12 @@ export interface LoanEntry {
   /** 借入・返済時の相手科目（普通預金/現金） */
   payment_account_id: string | null;
   journal_entry_id: string | null;
+  /**
+   * 仕訳との結び付き方。
+   * generated=台帳から生成した仕訳（明細を消すと仕訳も消す）
+   * linked=もとからあった仕訳を取り込んだだけ（明細を消しても仕訳は残す）
+   */
+  journal_link: "generated" | "linked";
   status: LoanEntryStatus;
   source: LoanEntrySource;
   ai_evidence: LoanAiEvidence | null;
@@ -561,7 +567,13 @@ export interface LoanEntry {
 
 export type LoanEntryInput = Omit<
   LoanEntry,
-  "id" | "journal_entry_id" | "created_at" | "status" | "source" | "interest_amount"
+  | "id"
+  | "journal_entry_id"
+  | "journal_link"
+  | "created_at"
+  | "status"
+  | "source"
+  | "interest_amount"
 > & {
   /** 返済と同時に支払った利息（任意） */
   interest_amount?: number;
