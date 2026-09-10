@@ -724,7 +724,8 @@ export interface Database {
           principal: number;
           current_balance: number;
           interest_rate: number | null;
-          borrowed_date: string | null;
+          /** @deprecated 044 で廃止。増減明細の日付を使う */
+          borrowed_date?: string | null;
           liability_account_id: string | null;
           status: "active" | "completed";
           memo: string | null;

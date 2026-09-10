@@ -484,8 +484,6 @@ export interface Loan {
   counterparty_kind: CounterpartyKind;
   /** 年利(%)。金融機関等では必須、役員では原則不要 */
   interest_rate: number | null;
-  /** 借入開始日（明細が無い相手先の表示用） */
-  borrowed_date: string | null;
   /** 借入金/貸付金の科目。未設定なら仕訳化時に名称から解決する */
   liability_account_id: string | null;
   /** 内訳明細書に所在地を出すための取引先マスタ参照 */

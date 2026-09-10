@@ -109,7 +109,6 @@ type LoanFormState = {
   direction: LoanDirection;
   counterparty_kind: CounterpartyKind;
   interest_rate: string;
-  borrowed_date: string;
   repayment_terms: string;
   purpose: string;
   memo: string;
@@ -120,7 +119,6 @@ const emptyLoanForm: LoanFormState = {
   direction: "borrow",
   counterparty_kind: "institution",
   interest_rate: "",
-  borrowed_date: "",
   repayment_terms: "",
   purpose: "",
   memo: "",
@@ -302,7 +300,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
 
   function openCreateLoan() {
     setEditingLoanId(null);
-    setLoanForm({ ...emptyLoanForm, borrowed_date: today() });
+    setLoanForm({ ...emptyLoanForm });
     setShowLoanForm(true);
     setError(null);
   }
@@ -314,7 +312,6 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       direction: l.loan.direction,
       counterparty_kind: l.loan.counterparty_kind,
       interest_rate: l.loan.interest_rate != null ? String(l.loan.interest_rate) : "",
-      borrowed_date: l.loan.borrowed_date ?? "",
       repayment_terms: l.loan.repayment_terms ?? "",
       purpose: l.loan.purpose ?? "",
       memo: l.loan.memo ?? "",
@@ -343,7 +340,6 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         interest_rate: showInterestRate && loanForm.interest_rate.trim() !== ""
           ? Number(loanForm.interest_rate)
           : null,
-        borrowed_date: loanForm.borrowed_date || null,
         liability_account_id: null,
         business_partner_id: null,
         repayment_terms: loanForm.repayment_terms.trim() || null,
@@ -1607,8 +1603,9 @@ function LoanFormModal(props: {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {/* 役員借入金は無利息が原則なので年利欄そのものを出さない */}
+          <div className="max-w-[12rem]">
+            {/* 役員借入金は無利息が原則なので年利欄そのものを出さない。
+                金融機関では返済予定表の利息計算と内訳明細書の利率欄に使う */}
             {props.showInterestRate && (
               <div>
                 <label className={labelCls}>
@@ -1625,17 +1622,7 @@ function LoanFormModal(props: {
                 />
               </div>
             )}
-            <div>
-              <label className={labelCls}>開始日</label>
-              <DateInput
-                value={form.borrowed_date}
-                onChange={(v) => setForm({ ...form, borrowed_date: v })}
-                allowEmpty
-                inputRef={(el) => setCellRef(4, el)}
-                onKeyDown={(e) => handleKeyDown(4, e)}
-                className={inputCls + " pr-7"}
-              />
-            </div>
+
           </div>
 
           <div>

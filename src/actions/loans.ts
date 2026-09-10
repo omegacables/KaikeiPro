@@ -48,7 +48,6 @@ function rowToLoan(r: DbRow): Loan {
     direction: (r.direction as LoanDirection) ?? "borrow",
     counterparty_kind: (r.counterparty_kind as Loan["counterparty_kind"]) ?? "institution",
     interest_rate: (r.interest_rate as number) ?? null,
-    borrowed_date: (r.borrowed_date as string) ?? null,
     liability_account_id: (r.liability_account_id as string) ?? null,
     business_partner_id: (r.business_partner_id as string) ?? null,
     repayment_terms: (r.repayment_terms as string) ?? null,
@@ -185,7 +184,6 @@ export async function createLoan(input: LoanInput): Promise<Loan> {
       counterparty_kind: input.counterparty_kind,
       // 役員借入金は無利息が原則なので年利を持たせない
       interest_rate: input.counterparty_kind === "officer" ? null : input.interest_rate,
-      borrowed_date: input.borrowed_date,
       liability_account_id: input.liability_account_id,
       business_partner_id: input.business_partner_id,
       repayment_terms: input.repayment_terms,
@@ -213,7 +211,6 @@ export async function updateLoan(id: string, input: Partial<LoanInput>): Promise
     "lender_name",
     "direction",
     "counterparty_kind",
-    "borrowed_date",
     "liability_account_id",
     "business_partner_id",
     "repayment_terms",
