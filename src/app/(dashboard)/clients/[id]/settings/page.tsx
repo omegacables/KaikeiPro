@@ -1,16 +1,18 @@
 "use client";
 
 import { useState } from "react";
-import { Settings, Percent, FolderArchive, Shield } from "lucide-react";
+import { Settings, Percent, FolderArchive, Shield, Banknote } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaxPageContent } from "../tax/content";
 import { CompanyDocumentsPageContent } from "../company-documents/content";
 import { AuditLogPageContent } from "../audit/content";
+import { PayrollSettingsContent } from "./payroll-settings";
 
-type SettingsTab = "tax" | "company_documents" | "audit";
+type SettingsTab = "tax" | "payroll" | "company_documents" | "audit";
 
 const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: "tax", label: "消費税計算", icon: Percent },
+  { key: "payroll", label: "給与", icon: Banknote },
   { key: "company_documents", label: "会社書類", icon: FolderArchive },
   { key: "audit", label: "監査ログ", icon: Shield },
 ];
@@ -28,7 +30,7 @@ export default function ClientSettingsPage() {
             設定
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            消費税計算・会社書類・監査ログをまとめて管理します。
+            消費税計算・給与・会社書類・監査ログをまとめて管理します。
           </p>
         </div>
       </div>
@@ -54,6 +56,7 @@ export default function ClientSettingsPage() {
 
       {/* Content */}
       {activeTab === "tax" && <TaxPageContent hideHeader />}
+      {activeTab === "payroll" && <PayrollSettingsContent />}
       {activeTab === "company_documents" && <CompanyDocumentsPageContent hideHeader />}
       {activeTab === "audit" && <AuditLogPageContent hideHeader />}
     </>

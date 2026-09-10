@@ -130,6 +130,8 @@ export interface Database {
           telephone: string | null;
           email: string | null;
           fiscal_year_start_month: number;
+          /** 給料日。1〜31 はその日にち、0 は末日、NULL は未設定 */
+          payday: number | null;
           tax_method: "standard" | "simplified";
           simplified_business_type: number | null;
           invoice_registration_number: string | null;
@@ -148,6 +150,7 @@ export interface Database {
           telephone?: string | null;
           email?: string | null;
           fiscal_year_start_month?: number;
+          payday?: number | null;
           tax_method?: "standard" | "simplified";
           simplified_business_type?: number | null;
           invoice_registration_number?: string | null;
@@ -166,6 +169,7 @@ export interface Database {
           telephone?: string | null;
           email?: string | null;
           fiscal_year_start_month?: number;
+          payday?: number | null;
           tax_method?: "standard" | "simplified";
           simplified_business_type?: number | null;
           invoice_registration_number?: string | null;

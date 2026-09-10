@@ -27,6 +27,8 @@ import {
 import type { PayrollRecord, EmployeeType } from "@/types/index";
 import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
+import { paydayOf } from "@/lib/payday";
+import { getClient } from "@/actions/clients";
 
 function currentMonth(): string {
   const d = new Date();
@@ -84,6 +86,8 @@ export default function PayrollPage({
 }) {
   const { id } = use(params);
   const [month, setMonth] = useState(currentMonth());
+  // 顧問先ごとの給料日。支給日の初期値に使う（未設定なら空欄のまま）
+  const [payday, setPayday] = useState<number | null>(null);
   const [months, setMonths] = useState<string[]>([]);
   const [records, setRecords] = useState<PayrollRecord[]>([]);
   const [loading, setLoading] = useState(true);
@@ -97,12 +101,14 @@ export default function PayrollPage({
   const fetchData = useCallback(async () => {
     setLoading(true);
     try {
-      const [recs, ms] = await Promise.all([
+      const [recs, ms, client] = await Promise.all([
         getPayrollRecords(id, month),
         getPayrollMonths(id),
+        getClient(id).catch(() => null),
       ]);
       setRecords(recs);
       setMonths(ms);
+      setPayday(client?.payday ?? null);
     } catch {
       // DB not available
     } finally {
@@ -116,7 +122,8 @@ export default function PayrollPage({
 
   function openCreate() {
     setEditingId(null);
-    setForm({ ...emptyForm, pay_month: month, pay_date: `${month}-25` });
+    // 支給日は顧問先の設定から出す。以前は全顧問先で一律25日を入れていた
+    setForm({ ...emptyForm, pay_month: month, pay_date: paydayOf(month, payday) });
     setShowForm(true);
     setError(null);
   }
