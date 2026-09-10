@@ -25,6 +25,7 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useFieldNav } from "@/components/ui/use-field-nav";
+import { AmountInput } from "@/components/ui/amount-input";
 import { AccountLookup, type AccountOption } from "@/components/ui/account-lookup";
 import {
   getLoanLedgers,
@@ -596,25 +597,56 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       {worstAlert && <ImputedInterestBanner alert={worstAlert} />}
 
       {/* サマリー */}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard label="借入金残高合計" value={summary.total} sub="会社が借りている総額" />
-        <SummaryCard label="うち金融機関等" value={summary.institution} sub="銀行などからの借入" />
-        <SummaryCard label="うち役員借入金" value={summary.officer} sub="役員から借りている" />
-        {/* 「役員借入金」と1文字違いで意味が正反対なので、向きを言葉で補う */}
-        <SummaryCard
-          label="役員貸付金"
-          sub="会社が役員に貸している"
-          value={summary.lend}
-          // 役員貸付金は残高があること自体が税務リスクなので警告色にする
-          warn={summary.lend > 0}
-          note={
-            summary.lend > 0 && worstAlert
-              ? worstAlert.level === "required"
-                ? "認定利息の計上が必要"
-                : `決算日まで${worstAlert.daysUntilFiscalYearEnd}日`
-              : null
-          }
-        />
+      {/* 借入金は「合計」の中に内訳を入れ、貸付金は別枠にする。
+          役員借入金と役員貸付金は1文字違いで意味が正反対なので、並べると混同される。 */}
+      <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardContent className="py-4">
+            <p className="text-[17px] font-medium text-foreground">借入金残高合計</p>
+            <p className="text-3xl font-bold tabular-nums text-foreground">
+              {formatCurrency(summary.total)}
+            </p>
+            <div className="mt-3 space-y-1 border-t border-border pt-3">
+              <div className="flex items-baseline justify-between">
+                <span className="text-[17px] text-foreground">うち金融機関等</span>
+                <span className="text-[17px] font-medium tabular-nums">
+                  {formatCurrency(summary.institution)}
+                </span>
+              </div>
+              <div className="flex items-baseline justify-between">
+                <span className="text-[17px] text-foreground">うち役員借入金</span>
+                <span className="text-[17px] font-medium tabular-nums">
+                  {formatCurrency(summary.officer)}
+                </span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card
+          className={summary.lend > 0 ? "border-destructive/40 bg-destructive/5" : undefined}
+        >
+          <CardContent className="py-4">
+            <p
+              className={`text-[17px] font-medium ${summary.lend > 0 ? "text-destructive" : "text-foreground"}`}
+            >
+              役員貸付金
+            </p>
+            <p className="text-[15px] text-foreground/80">会社が役員に貸している</p>
+            <p
+              className={`text-3xl font-bold tabular-nums ${summary.lend > 0 ? "text-destructive" : "text-foreground"}`}
+            >
+              {formatCurrency(summary.lend)}
+            </p>
+            {summary.lend > 0 && worstAlert && (
+              <p className="mt-1 text-[15px] font-medium text-destructive">
+                {worstAlert.level === "required"
+                  ? "認定利息の計上が必要"
+                  : `決算日まで${worstAlert.daysUntilFiscalYearEnd}日`}
+              </p>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       {/* 同一相手先の差引（会計上は両建てだが、実態把握のための表示） */}
@@ -754,42 +786,6 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         />
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// サマリーカード
-// ---------------------------------------------------------------------------
-
-function SummaryCard({
-  label,
-  value,
-  sub,
-  warn = false,
-  note = null,
-}: {
-  label: string;
-  value: number;
-  /** ラベルだけでは向き（借りている/貸している）が伝わらないため補う */
-  sub?: string;
-  warn?: boolean;
-  note?: string | null;
-}) {
-  return (
-    <Card className={warn ? "border-destructive/40 bg-destructive/5" : undefined}>
-      <CardContent className="py-4">
-        <p className={`text-[17px] font-medium ${warn ? "text-destructive" : "text-foreground"}`}>
-          {label}
-        </p>
-        {sub && <p className="text-[15px] text-foreground/80">{sub}</p>}
-        <p
-          className={`text-2xl font-bold tabular-nums ${warn ? "text-destructive" : "text-foreground"}`}
-        >
-          {formatCurrency(value)}
-        </p>
-        {note && <p className="mt-1 text-[15px] font-medium text-destructive">{note}</p>}
-      </CardContent>
-    </Card>
   );
 }
 
@@ -1032,11 +1028,10 @@ function LedgerRow(props: {
             </div>
             <div className="w-40">
               <label className={labelCls}>金額</label>
-              <input
-                ref={(el) => setCellRef(2, el)}
-                type="number"
+              <AmountInput
+                inputRef={(el) => setCellRef(2, el)}
                 value={entryForm.amount}
-                onChange={(e) => setEntryForm({ ...entryForm, amount: e.target.value })}
+                onChange={(v) => setEntryForm({ ...entryForm, amount: v })}
                 onKeyDown={(e) => handleCellKeyDown(2, e)}
                 className={inputCls + " text-right"}
               />
@@ -1044,12 +1039,9 @@ function LedgerRow(props: {
             {entryForm.entry_type === "repay" && (
               <div className="w-36">
                 <label className={labelCls}>同時に払う利息</label>
-                <input
-                  type="number"
+                <AmountInput
                   value={entryForm.interest_amount}
-                  onChange={(e) =>
-                    setEntryForm({ ...entryForm, interest_amount: e.target.value })
-                  }
+                  onChange={(v) => setEntryForm({ ...entryForm, interest_amount: v })}
                   onKeyDown={(e) => handleCellKeyDown(3, e)}
                   className={inputCls + " text-right"}
                 />
@@ -1451,15 +1443,14 @@ function AiPanel(props: {
                         )}
                       </td>
                       <td className="py-2 pr-2 text-right">
-                        <input
-                          type="number"
-                          value={d.amount}
-                          onChange={(e) => {
+                        <AmountInput
+                          value={String(d.amount || "")}
+                          onChange={(v) => {
                             const next = [...props.drafts];
-                            next[i] = { ...d, amount: num(e.target.value) };
+                            next[i] = { ...d, amount: num(v) };
                             props.setDrafts(next);
                           }}
-                          className="w-28 px-2 py-1 rounded border border-border bg-background text-[17px] text-right"
+                          className="w-32 px-2 py-1 rounded border border-border bg-background text-[17px] text-right"
                         />
                       </td>
                       <td className="py-2 pr-2">
@@ -1542,6 +1533,8 @@ function LoanFormModal(props: {
 }) {
   const { form, setForm } = props;
   const isOfficer = form.counterparty_kind === "officer";
+  // 欄の並び: 0=区分 1=方向 2=年利(条件付き) 3=相手先 4=開始日 5=返済条件 6=借入理由 7=メモ
+  const { setCellRef, handleKeyDown, submitRef, handleSubmitKeyDown } = useFieldNav(7, [2]);
 
   return (
     <div
@@ -1566,6 +1559,7 @@ function LoanFormModal(props: {
             <div>
               <label className={labelCls}>区分</label>
               <select
+                ref={(el) => setCellRef(0, el)}
                 value={form.counterparty_kind}
                 onChange={(e) =>
                   setForm({
@@ -1578,6 +1572,7 @@ function LoanFormModal(props: {
                         : form.repayment_terms,
                   })
                 }
+                onKeyDown={(e) => handleKeyDown(0, e)}
                 className={inputCls}
               >
                 <option value="institution">金融機関等</option>
@@ -1587,10 +1582,12 @@ function LoanFormModal(props: {
             <div>
               <label className={labelCls}>方向</label>
               <select
+                ref={(el) => setCellRef(1, el)}
                 value={form.direction}
                 onChange={(e) =>
                   setForm({ ...form, direction: e.target.value as LoanDirection })
                 }
+                onKeyDown={(e) => handleKeyDown(1, e)}
                 className={inputCls}
               >
                 <option value="borrow">借入金（会社が借りる）</option>
@@ -1609,8 +1606,10 @@ function LoanFormModal(props: {
           <div>
             <label className={labelCls}>相手先</label>
             <input
+              ref={(el) => setCellRef(3, el)}
               value={form.lender_name}
               onChange={(e) => setForm({ ...form, lender_name: e.target.value })}
+              onKeyDown={(e) => handleKeyDown(3, e)}
               className={inputCls}
               // 区分に応じてプレースホルダを切り替える（要件6章）
               placeholder={isOfficer ? "代表取締役 ○○" : "○○銀行"}
@@ -1624,12 +1623,14 @@ function LoanFormModal(props: {
                 <label className={labelCls}>
                   年利（%）<span className="text-destructive">（必須）</span>
                 </label>
-                <input
-                  type="number"
-                  step="0.001"
+                <AmountInput
+                  allowDecimal
+                  inputRef={(el) => setCellRef(2, el)}
                   value={form.interest_rate}
-                  onChange={(e) => setForm({ ...form, interest_rate: e.target.value })}
+                  onChange={(v) => setForm({ ...form, interest_rate: v })}
+                  onKeyDown={(e) => handleKeyDown(2, e)}
                   className={inputCls + " text-right"}
+                  placeholder="%"
                 />
               </div>
             )}
@@ -1639,6 +1640,8 @@ function LoanFormModal(props: {
                 value={form.borrowed_date}
                 onChange={(v) => setForm({ ...form, borrowed_date: v })}
                 allowEmpty
+                inputRef={(el) => setCellRef(4, el)}
+                onKeyDown={(e) => handleKeyDown(4, e)}
                 className={inputCls + " pr-7"}
               />
             </div>
@@ -1647,8 +1650,10 @@ function LoanFormModal(props: {
           <div>
             <label className={labelCls}>返済条件</label>
             <input
+              ref={(el) => setCellRef(5, el)}
               value={form.repayment_terms}
               onChange={(e) => setForm({ ...form, repayment_terms: e.target.value })}
+              onKeyDown={(e) => handleKeyDown(5, e)}
               className={inputCls}
               placeholder={isOfficer ? "定めなし" : "毎月末 元金50,000円"}
             />
@@ -1657,8 +1662,10 @@ function LoanFormModal(props: {
           <div>
             <label className={labelCls}>借入理由</label>
             <input
+              ref={(el) => setCellRef(6, el)}
               value={form.purpose}
               onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+              onKeyDown={(e) => handleKeyDown(6, e)}
               className={inputCls}
               placeholder="運転資金 など（勘定科目内訳明細書の記載項目）"
             />
@@ -1667,8 +1674,10 @@ function LoanFormModal(props: {
           <div>
             <label className={labelCls}>メモ</label>
             <input
+              ref={(el) => setCellRef(7, el)}
               value={form.memo}
               onChange={(e) => setForm({ ...form, memo: e.target.value })}
+              onKeyDown={(e) => handleKeyDown(7, e)}
               className={inputCls}
               placeholder="（任意）"
             />
@@ -1685,7 +1694,12 @@ function LoanFormModal(props: {
           <Button variant="outline" onClick={props.onClose}>
             キャンセル
           </Button>
-          <Button onClick={props.onSave} disabled={props.busy}>
+          <Button
+            ref={submitRef}
+            onClick={props.onSave}
+            onKeyDown={handleSubmitKeyDown}
+            disabled={props.busy}
+          >
             {props.busy && <Loader2 className="size-4 animate-spin" />}
             保存
           </Button>
@@ -1856,6 +1870,9 @@ function ClassifyPaymentSection(props: {
   ledgers: LoanLedger[];
   onAdopt: (draft: LoanAiDraft) => void;
 }) {
+  // 欄の並び: 0=日付 1=金額 2=摘要
+  const { setCellRef, handleKeyDown, submitRef, handleSubmitKeyDown } = useFieldNav(2, [1]);
+
   const [date, setDate] = useState(today());
   const [amount, setAmount] = useState("");
   const [description, setDescription] = useState("");
@@ -1937,28 +1954,39 @@ function ClassifyPaymentSection(props: {
             <DateInput
               value={date}
               onChange={setDate}
+              inputRef={(el) => setCellRef(0, el)}
+              onKeyDown={(e) => handleKeyDown(0, e)}
               className={inputCls + " w-44 pr-7"}
             />
           </div>
           <div>
             <label className={labelCls}>金額</label>
-            <input
-              type="number"
+            <AmountInput
+              inputRef={(el) => setCellRef(1, el)}
               value={amount}
-              onChange={(e) => setAmount(e.target.value)}
-              className={inputCls + " w-32 text-right"}
+              onChange={setAmount}
+              onKeyDown={(e) => handleKeyDown(1, e)}
+              className={inputCls + " text-right"}
             />
           </div>
           <div>
             <label className={labelCls}>摘要（通帳の記載）</label>
             <input
+              ref={(el) => setCellRef(2, el)}
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              onKeyDown={(e) => handleKeyDown(2, e)}
               className={inputCls}
               placeholder="振込 ペイペイ アンドウ　レン"
             />
           </div>
-          <Button variant="outline" onClick={run} disabled={busy}>
+          <Button
+            ref={submitRef}
+            variant="outline"
+            onClick={run}
+            onKeyDown={handleSubmitKeyDown}
+            disabled={busy}
+          >
             {busy && <Loader2 className="size-4 animate-spin" />}
             判別する
           </Button>
@@ -2121,36 +2149,34 @@ function RepaymentScheduleSection({
         <div className="flex flex-wrap items-end gap-2">
           <div className="w-44">
             <label className={labelCls}>借入額</label>
-            <input
-              type="number"
-              ref={(el) => setCellRef(0, el)}
+            <AmountInput
+              inputRef={(el) => setCellRef(0, el)}
               value={form.principal}
-              onChange={(e) => setForm({ ...form, principal: e.target.value })}
-              className={inputCls + " text-right"}
+              onChange={(v) => setForm({ ...form, principal: v })}
               onKeyDown={(e) => handleKeyDown(0, e)}
+              className={inputCls + " text-right"}
             />
           </div>
           <div className="w-24">
             <label className={labelCls}>年利(%)</label>
-            <input
-              type="number"
-              step="0.001"
-              ref={(el) => setCellRef(1, el)}
+            <AmountInput
+              allowDecimal
+              inputRef={(el) => setCellRef(1, el)}
               value={form.rate}
-              onChange={(e) => setForm({ ...form, rate: e.target.value })}
-              className={inputCls + " text-right"}
+              onChange={(v) => setForm({ ...form, rate: v })}
               onKeyDown={(e) => handleKeyDown(1, e)}
+              className={inputCls + " text-right"}
+              placeholder="%"
             />
           </div>
           <div className="w-24">
             <label className={labelCls}>回数(月)</label>
-            <input
-              type="number"
-              ref={(el) => setCellRef(2, el)}
+            <AmountInput
+              inputRef={(el) => setCellRef(2, el)}
               value={form.months}
-              onChange={(e) => setForm({ ...form, months: e.target.value })}
-              className={inputCls + " text-right"}
+              onChange={(v) => setForm({ ...form, months: v })}
               onKeyDown={(e) => handleKeyDown(2, e)}
+              className={inputCls + " text-right"}
             />
           </div>
           <div className="w-44">
