@@ -633,7 +633,6 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
             >
               役員貸付金
             </p>
-            <p className="text-[15px] text-foreground/80">会社が役員に貸している</p>
             <p
               className={`text-3xl font-bold tabular-nums ${summary.lend > 0 ? "text-destructive" : "text-foreground"}`}
             >
