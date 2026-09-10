@@ -26,6 +26,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useFieldNav } from "@/components/ui/use-field-nav";
 import { AmountInput } from "@/components/ui/amount-input";
+import { IconButton } from "@/components/ui/icon-button";
 import { AccountLookup, type AccountOption } from "@/components/ui/account-lookup";
 import {
   getLoanLedgers,
@@ -914,13 +915,13 @@ function LedgerRow(props: {
   return (
     <div className="rounded-lg border border-border overflow-hidden">
       <div className="flex items-center gap-2 px-4 py-3 bg-muted/20">
-        <button
+        <IconButton
+          label={expanded ? "明細を閉じる" : "明細を開く"}
+          className="p-1"
           onClick={props.onToggle}
-          className="p-1 rounded hover:bg-muted text-foreground"
-          title="増減明細を表示"
         >
           {expanded ? <ChevronDown className="size-4" /> : <ChevronRight className="size-4" />}
-        </button>
+        </IconButton>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
             <span className="text-[17px] font-medium truncate">{loan.lender_name}</span>
@@ -950,25 +951,17 @@ function LedgerRow(props: {
           </p>
         </div>
         <div className="flex items-center gap-1 ml-2">
-          <button
-            onClick={props.onEditLoan}
-            className="p-1.5 rounded hover:bg-muted text-foreground"
-            title="編集"
-          >
+          <IconButton label="相手先を編集" onClick={props.onEditLoan}>
             <Pencil className="size-4" />
-          </button>
-          <button
+          </IconButton>
+          <IconButton
+            label="相手先を削除"
+            tone="destructive"
+            busy={busy === loan.id}
             onClick={props.onDeleteLoan}
-            disabled={busy === loan.id}
-            className="p-1.5 rounded hover:bg-muted text-destructive"
-            title="削除"
           >
-            {busy === loan.id ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <Trash2 className="size-4" />
-            )}
-          </button>
+            <Trash2 className="size-4" />
+          </IconButton>
         </div>
       </div>
 
@@ -1162,23 +1155,24 @@ function LedgerRow(props: {
                         <td className="py-2 pr-3">
                           <div className="flex items-center gap-1 flex-wrap">
                             {links.map((link) => (
-                              <button
+                              <IconButton
                                 key={link.id}
+                                label="証憑の紐付けを解除"
+                                tone="destructive"
+                                className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[15px] text-foreground hover:bg-destructive/10"
                                 onClick={() => props.onDetach(link.id)}
-                                className="inline-flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-[15px] hover:bg-destructive/10"
-                                title="クリックで紐付けを解除"
                               >
                                 <FileText className="size-3" />
                                 {link.source_line_no != null ? `${link.source_line_no}行目` : "証憑"}
-                              </button>
+                              </IconButton>
                             ))}
-                            <button
+                            <IconButton
+                              label="証憑を添付"
+                              className="p-1"
                               onClick={() => props.onAttach(entry)}
-                              className="p-1 rounded hover:bg-muted text-foreground"
-                              title="証憑を添付"
                             >
                               <Paperclip className="size-4" />
-                            </button>
+                            </IconButton>
                           </div>
                         </td>
                         <td className="py-2 text-right whitespace-nowrap">
@@ -1187,36 +1181,34 @@ function LedgerRow(props: {
                           ) : (
                             <>
                               {journalized ? (
-                                <button
+                                <IconButton
+                                  label="仕訳化を取り消す"
                                   onClick={() => props.onUnjournalize(entry)}
-                                  className="p-1.5 rounded hover:bg-muted text-foreground"
-                                  title="仕訳化を取り消す"
                                 >
                                   <RotateCcw className="size-4" />
-                                </button>
+                                </IconButton>
                               ) : (
-                                <button
+                                <IconButton
+                                  label="仕訳にする"
+                                  tone="primary"
                                   onClick={() => props.onJournalize(entry)}
-                                  className="p-1.5 rounded hover:bg-muted text-primary"
-                                  title="仕訳化する"
                                 >
                                   <CheckCircle className="size-4" />
-                                </button>
+                                </IconButton>
                               )}
-                              <button
+                              <IconButton
+                                label="この明細を編集"
                                 onClick={() => props.onEditEntry(entry)}
-                                className="p-1.5 rounded hover:bg-muted text-foreground"
-                                title="編集"
                               >
                                 <Pencil className="size-4" />
-                              </button>
-                              <button
+                              </IconButton>
+                              <IconButton
+                                label="この明細を削除"
+                                tone="destructive"
                                 onClick={() => props.onDeleteEntry(entry)}
-                                className="p-1.5 rounded hover:bg-muted text-destructive"
-                                title="削除"
                               >
                                 <Trash2 className="size-4" />
-                              </button>
+                              </IconButton>
                             </>
                           )}
                         </td>
@@ -2274,55 +2266,49 @@ function RepaymentScheduleSection({
                         )}
                       </td>
                       <td className="py-2 text-right whitespace-nowrap">
-                        {busy === r.id ? (
-                          <Loader2 className="size-4 animate-spin inline" />
-                        ) : (
-                          <>
-                            {!applied && (
-                              <button
-                                onClick={async () => {
-                                  setBusy(r.id);
-                                  setError(null);
-                                  try {
-                                    await applySchedule(r.id);
-                                    // 明細が1件増えるので、増減明細と残高も読み直す
-                                    await Promise.all([load(), onChanged()]);
-                                  } catch (e) {
-                                    setError(
-                                      e instanceof Error ? e.message : "消し込みに失敗しました"
-                                    );
-                                  } finally {
-                                    setBusy(null);
-                                  }
-                                }}
-                                className="p-1.5 rounded hover:bg-muted text-primary"
-                                title="この予定を明細にする"
-                              >
-                                <CheckCircle className="size-4" />
-                              </button>
-                            )}
-                            <button
-                              onClick={async () => {
-                                if (!confirm("この予定を削除しますか？")) return;
-                                setBusy(r.id);
-                                try {
-                                  await deleteSchedule(r.id);
-                                  await load();
-                                } catch (e) {
-                                  setError(
-                                    e instanceof Error ? e.message : "削除に失敗しました"
-                                  );
-                                } finally {
-                                  setBusy(null);
-                                }
-                              }}
-                              className="p-1.5 rounded hover:bg-muted text-destructive"
-                              title="削除"
-                            >
-                              <Trash2 className="size-4" />
-                            </button>
-                          </>
+                        {!applied && (
+                          <IconButton
+                            label="この予定を明細にする"
+                            tone="primary"
+                            busy={busy === r.id}
+                            onClick={async () => {
+                              setBusy(r.id);
+                              setError(null);
+                              try {
+                                await applySchedule(r.id);
+                                // 明細が1件増えるので、増減明細と残高も読み直す
+                                await Promise.all([load(), onChanged()]);
+                              } catch (e) {
+                                setError(
+                                  e instanceof Error ? e.message : "消し込みに失敗しました"
+                                );
+                              } finally {
+                                setBusy(null);
+                              }
+                            }}
+                          >
+                            <CheckCircle className="size-4" />
+                          </IconButton>
                         )}
+                        <IconButton
+                          label="この予定を削除"
+                          tone="destructive"
+                          busy={busy === r.id}
+                          onClick={async () => {
+                            if (!confirm("この予定を削除しますか？")) return;
+                            setBusy(r.id);
+                            try {
+                              await deleteSchedule(r.id);
+                              await load();
+                            } catch (e) {
+                              setError(e instanceof Error ? e.message : "削除に失敗しました");
+                            } finally {
+                              setBusy(null);
+                            }
+                          }}
+                        >
+                          <Trash2 className="size-4" />
+                        </IconButton>
                       </td>
                     </tr>
                   );
