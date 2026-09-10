@@ -245,7 +245,7 @@ export function Header() {
 
   return (
     <header className="sticky top-0 z-10 flex items-center justify-between bg-card/80 backdrop-blur-md border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
-      <div className="flex items-center gap-2 sm:gap-4 min-w-0">
+      <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
         {/* モバイル用ハンバーガー（サイドバードロワーを開く） */}
         <button
           onClick={openNav}
@@ -254,7 +254,7 @@ export function Header() {
         >
           <Menu className="size-5" />
         </button>
-        <div className="min-w-0">
+        <div className="min-w-0 flex-1">
           {/* 顧問先名を画面名の上に出す。どの会社を触っているかを取り違えると
               入力先そのものを間違えるため、常に見える場所に置く */}
           {activeClientName && (
@@ -262,13 +262,16 @@ export function Header() {
               <button
                 onClick={() => clientList.length > 1 && setSwitcherOpen((v) => !v)}
                 className={cn(
-                  "flex items-center gap-1.5 max-w-full rounded px-1 -ml-1 text-[15px] font-medium text-primary",
+                  // 顧問先名は取り違えると入力先を間違えるので、本文と同じ濃さで出す。
+                  // primary の緑はライトモード向けの濃さで、暗い背景では 2.36:1 しかなく読めない
+                  "flex items-center gap-1.5 rounded px-1 -ml-1 text-[16px] font-bold text-foreground",
                   clientList.length > 1 && "hover:bg-muted/50 cursor-pointer"
                 )}
                 title={clientList.length > 1 ? "顧問先を切り替える" : undefined}
               >
-                <Building2 className="size-4 shrink-0" />
-                <span className="truncate">{activeClientName}</span>
+                <Building2 className="size-4 shrink-0 text-primary-light" />
+                {/* 名前は省略せず全部出す。長い法人名で末尾が切れると別会社と紛らわしい */}
+                <span className="whitespace-nowrap">{activeClientName}</span>
                 {clientList.length > 1 && (
                   <ChevronDown
                     className={cn("size-4 shrink-0 transition-transform", switcherOpen && "rotate-180")}

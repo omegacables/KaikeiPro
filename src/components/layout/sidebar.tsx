@@ -403,7 +403,7 @@ export function Sidebar() {
                         <span className="block text-[10px] text-sage leading-tight">
                           選択中の顧問先
                         </span>
-                        <span className="block truncate font-semibold">
+                        <span className="block font-semibold break-words leading-snug">
                           {selectedClient?.name ?? "顧問先を選択"}
                         </span>
                       </span>
