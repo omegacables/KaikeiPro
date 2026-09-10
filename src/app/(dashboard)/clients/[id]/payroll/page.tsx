@@ -36,6 +36,7 @@ function currentMonth(): string {
 type FormState = {
   employee_name: string;
   employee_type: EmployeeType;
+  pay_month: string;
   pay_date: string;
   gross_salary: string;
   income_tax: string;
@@ -50,6 +51,7 @@ type FormState = {
 const emptyForm: FormState = {
   employee_name: "",
   employee_type: "employee",
+  pay_month: "",
   pay_date: "",
   gross_salary: "",
   income_tax: "",
@@ -114,7 +116,7 @@ export default function PayrollPage({
 
   function openCreate() {
     setEditingId(null);
-    setForm({ ...emptyForm, pay_date: `${month}-25` });
+    setForm({ ...emptyForm, pay_month: month, pay_date: `${month}-25` });
     setShowForm(true);
     setError(null);
   }
@@ -124,6 +126,7 @@ export default function PayrollPage({
     setForm({
       employee_name: r.employee_name,
       employee_type: r.employee_type,
+      pay_month: (r.pay_month ?? "").slice(0, 7),
       pay_date: r.pay_date ?? "",
       gross_salary: String(r.gross_salary || ""),
       income_tax: String(r.income_tax || ""),
@@ -157,7 +160,7 @@ export default function PayrollPage({
     try {
       const payload = {
         client_id: id,
-        pay_month: month,
+        pay_month: form.pay_month || month,
         pay_date: form.pay_date || null,
         employee_name: form.employee_name.trim(),
         employee_type: form.employee_type,
@@ -272,14 +275,17 @@ export default function PayrollPage({
   const pendingCount = records.filter((r) => r.status === "pending" && r.gross_salary > 0).length;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 max-w-6xl">
       {/* ヘッダー */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex items-center gap-2">
           <Users className="size-6 text-primary" />
           <h1 className="text-xl font-bold">給与台帳</h1>
         </div>
-        <div className="flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 ml-auto">
+          <label className="text-sm font-medium text-foreground whitespace-nowrap">
+            表示する月
+          </label>
           <input
             type="month"
             value={month}
@@ -484,10 +490,25 @@ export default function PayrollPage({
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-muted-foreground mb-1">支給日</label>
+                  {/* どの月の給与かはこの欄で決める。
+                      以前は画面上部の月選択が暗黙に使われ、登録先の月が分からなかった */}
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    支給月
+                  </label>
+                  <input
+                    type="month"
+                    value={form.pay_month}
+                    onChange={(e) => setForm({ ...form, pay_month: e.target.value })}
+                    className={inputCls}
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-muted-foreground mb-1">
+                    支給日<span className="text-muted-foreground">（任意）</span>
+                  </label>
                   <DateInput allowEmpty value={form.pay_date}
                     onChange={(v) => setForm({ ...form, pay_date: v })}
-                    className={inputCls} />
+                    className={inputCls + " pr-7"} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">総支給額</label>
