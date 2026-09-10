@@ -1341,17 +1341,17 @@ function AiPanel(props: {
               AIの下書き（{props.drafts.length}件）— 内容を確認して登録してください
             </p>
             <div className="overflow-x-auto">
-              <table className="w-full text-[17px]">
+              <table className="w-full min-w-[64rem] text-[17px]">
                 <thead>
                   <tr className="border-b border-border text-left">
-                    <th className="py-2 pr-2">採用</th>
-                    <th className="py-2 pr-2">日付</th>
-                    <th className="py-2 pr-2">相手先</th>
-                    <th className="py-2 pr-2">区分</th>
-                    <th className="py-2 pr-2 text-right">金額</th>
-                    <th className="py-2 pr-2">生成される仕訳</th>
-                    <th className="py-2 pr-2 text-right">起票後残高</th>
-                    <th className="py-2 pr-2">根拠</th>
+                    <th className="py-2 pr-2 whitespace-nowrap">採用</th>
+                    <th className="py-2 pr-2 whitespace-nowrap">日付</th>
+                    <th className="py-2 pr-2 whitespace-nowrap">相手先</th>
+                    <th className="py-2 pr-2 whitespace-nowrap">区分</th>
+                    <th className="py-2 pr-2 text-right whitespace-nowrap">金額</th>
+                    <th className="py-2 pr-2 whitespace-nowrap">生成される仕訳</th>
+                    <th className="py-2 pr-2 text-right whitespace-nowrap">起票後残高</th>
+                    <th className="py-2 pr-2 whitespace-nowrap">根拠</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1379,7 +1379,7 @@ function AiPanel(props: {
                           className="w-36 px-2 py-1 pr-7 rounded border border-border bg-background text-[17px]"
                         />
                       </td>
-                      <td className="py-2 pr-2">
+                      <td className="py-2 pr-2 whitespace-nowrap">
                         {d.counterparty_name}
                         {!d.loan_id && (
                           <Badge variant="destructive" className="ml-1">
@@ -1440,15 +1440,15 @@ function AiPanel(props: {
                           className="w-32 px-2 py-1 rounded border border-border bg-background text-[17px] text-right"
                         />
                       </td>
-                      <td className="py-2 pr-2">
+                      <td className="py-2 pr-2 whitespace-nowrap">
                         {d.journal_preview
                           ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit}`
                           : "—"}
                       </td>
-                      <td className="py-2 pr-2 text-right tabular-nums">
+                      <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
                         {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
                       </td>
-                      <td className="py-2 pr-2 max-w-[22rem]">
+                      <td className="py-2 pr-2 min-w-[18rem] max-w-[26rem]">
                         <p>{d.evidence.reasoning}</p>
                         {d.evidence.sourceText && (
                           <p className="mt-1 text-[15px]">読取元: {d.evidence.sourceText}</p>
