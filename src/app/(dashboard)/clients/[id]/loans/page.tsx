@@ -1731,12 +1731,21 @@ function AiPanel(props: {
                                 ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit} ${formatCurrency(d.journal_preview.amount)}`
                                 : "仕訳は台帳を選ぶと決まります"}
                             </span>
-                            <span className="text-[15px] text-foreground whitespace-nowrap">
-                              起票後残高{" "}
-                              <span className="font-bold tabular-nums">
-                                {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
+                            {/* 残高がマイナスになる下書きは、そのまま登録すると帳簿が壊れる。
+                                数字を並べるだけでは見落とすので、警告として出す */}
+                            {d.balance_after != null && d.balance_after < 0 ? (
+                              <span className="text-[15px] font-bold text-destructive">
+                                残高が {formatCurrency(Math.abs(d.balance_after))} 足りません
+                                （借入の記録が抜けている可能性）
                               </span>
-                            </span>
+                            ) : (
+                              <span className="text-[15px] text-foreground whitespace-nowrap">
+                                起票後残高{" "}
+                                <span className="font-bold tabular-nums">
+                                  {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
+                                </span>
+                              </span>
+                            )}
                             <p className="flex-1 min-w-[16rem] text-[15px] text-foreground">
                               {d.evidence.reasoning}
                               {d.evidence.sourceText && (

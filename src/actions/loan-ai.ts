@@ -329,7 +329,14 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
       model,
     },
     balance_after: matched ? matched.balance + delta : null,
-    journal_preview: journalPreview(direction, entryType, principal, expenseAccount?.name ?? null, interest),
+    journal_preview: journalPreview(
+      direction,
+      entryType,
+      principal,
+      expenseAccount?.name ?? null,
+      interest,
+      matched?.kind
+    ),
   };
 }
 
@@ -339,9 +346,18 @@ function journalPreview(
   entryType: LoanEntryType,
   amount: number,
   expenseAccountName: string | null,
-  paidInterest = 0
+  paidInterest = 0,
+  /** institution=金融機関等 / officer=役員。科目名がこれで変わる */
+  counterpartyKind: string = "officer"
 ): LoanAiDraft["journal_preview"] {
-  const ledger = direction === "lend" ? "役員貸付金" : "役員借入金";
+  // 実際の仕訳は科目名から解決するが、プレビューでも同じ呼び名を出す。
+  // 銀行からの借入に「役員借入金」と表示すると、誤った仕訳が作られるように見える
+  const ledger =
+    direction === "lend"
+      ? "役員貸付金"
+      : counterpartyKind === "institution"
+        ? "借入金"
+        : "役員借入金";
   if (direction === "borrow") {
     switch (entryType) {
       case "borrow":
