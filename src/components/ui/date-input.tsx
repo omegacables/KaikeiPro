@@ -168,9 +168,17 @@ export const DateInput = memo(function DateInput({
     });
   };
 
-  /** 打ち込み中の文字列を確定する。解釈できなければ元の値に戻す。 */
+  /**
+   * 打ち込み中の文字列を確定する。
+   *
+   * 戻り値は「未確定の打ち込みが残っていないか」。読み取れなかったときだけ false。
+   * かつては読み取れないと黙って元の値に戻していたが、それでは
+   * **打ち間違いに気づけないまま、初期値（今日の日付）で登録されてしまう**。
+   * 日付の取り違えは決算期をまたぐ致命的な誤りになるため、
+   * 読み取れないときは打った内容と赤枠をそのまま残して知らせる。
+   */
   const commitDraft = useCallback((): boolean => {
-    if (draft === null) return false;
+    if (draft === null) return true;
     // 任意項目なら、空にして確定＝未入力に戻す操作として受け付ける
     if (allowEmpty && draft.trim() === "") {
       setDraft(null);
@@ -186,12 +194,15 @@ export const DateInput = memo(function DateInput({
     }
     setDraft(null);
     setInvalid(false);
-    if (parsed !== value) {
-      onChange(parsed);
-      return true;
-    }
-    return false;
+    if (parsed !== value) onChange(parsed);
+    return true;
   }, [draft, year, month, day, value, onChange, allowEmpty]);
+
+  /** 読み取れない打ち込みを捨てて、確定値に戻す（↑↓ で数字を動かすときに使う） */
+  const discardDraft = useCallback(() => {
+    setDraft(null);
+    setInvalid(false);
+  }, []);
 
   const adjust = useCallback(
     (delta: number) => {
@@ -229,12 +240,12 @@ export const DateInput = memo(function DateInput({
       switch (e.key) {
         case "ArrowUp":
           e.preventDefault();
-          commitDraft();
+          if (!commitDraft()) discardDraft();
           adjust(1);
           return;
         case "ArrowDown":
           e.preventDefault();
-          commitDraft();
+          if (!commitDraft()) discardDraft();
           adjust(-1);
           return;
         case "ArrowLeft":
@@ -252,8 +263,15 @@ export const DateInput = memo(function DateInput({
         }
         case "Enter":
         case "Tab":
-          // 打ち込み内容を確定してから、親（Enterで次の欄へ）に処理を渡す
-          commitDraft();
+          // 打ち込み内容を確定してから、親（Enterで次の欄へ）に処理を渡す。
+          // 読み取れないときは次の欄へ進ませない。進んでしまうと
+          // 打った日付が消えたことに気づけない
+          if (!commitDraft()) {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              return;
+            }
+          }
           break;
         case "Escape":
           if (draft !== null) {
@@ -265,7 +283,7 @@ export const DateInput = memo(function DateInput({
       }
       onKeyDown?.(e);
     },
-    [adjust, commitDraft, draft, onKeyDown]
+    [adjust, commitDraft, discardDraft, draft, onKeyDown]
   );
 
   return (
@@ -285,17 +303,27 @@ export const DateInput = memo(function DateInput({
         }}
         onKeyDown={handleKeyDown}
         onBlur={() => {
-          // 読み取れないまま欄を離れたら、元の値に戻す（中途半端な表示を残さない）
-          if (!commitDraft()) {
-            setDraft(null);
-            setInvalid(false);
-          }
+          // 読み取れないまま欄を離れても、打った内容と赤枠は残す。
+          // 黙って元に戻すと、間違った日付のまま登録されたことに気づけない。
+          // 打ち直しをやめたいときは Esc で戻せる
+          commitDraft();
         }}
         onFocus={(e) => {
           // 全体を選択しておく。こうしないと「日」の部分にだけ文字が挿し込まれ、
           // 20260410 のようにフルの日付を打ったときに壊れた文字列になる。
           // 全選択中でも上下キーは日の増減として働く（getSegment 参照）。
           e.currentTarget.select();
+        }}
+        onMouseUp={(e) => {
+          // 2回目以降のクリックでは onFocus が起きず全選択が外れる。
+          // その状態で 0401 と打つと "2026/040109/11" のように差し込まれ、
+          // 日付として読めず、今日の日付のまま登録されてしまっていた。
+          // 確定値を表示している間は、どこをクリックしても打ち直しになるようにする。
+          // （年・月だけを直したいときは ← → で区画を選び ↑ ↓ で増減する）
+          if (draft === null) {
+            e.preventDefault();
+            e.currentTarget.select();
+          }
         }}
         aria-invalid={invalid || undefined}
         title={invalid ? "日付として読み取れません。20260430 / 0430 / 4/30 のように入力してください" : undefined}
