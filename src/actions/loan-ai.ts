@@ -47,6 +47,14 @@ type LedgerContext = {
     balance: number;
   }[];
   officers: { name: string; gross: number; net: number; payMonth: string }[];
+  /** 返済予定。元金と利息の内訳が決まっているので、突き合えばそのまま使える */
+  schedules: {
+    loanId: string;
+    loanName: string;
+    due: string;
+    principal: number;
+    interest: number;
+  }[];
   partners: string[];
   expenseAccounts: { id: string; name: string }[];
 };
@@ -54,7 +62,8 @@ type LedgerContext = {
 async function loadContext(clientId: string): Promise<LedgerContext> {
   const supabase = await createServerSupabaseClient();
 
-  const [loansRes, entriesRes, payrollRes, partnersRes, accountsRes] = await Promise.all([
+  const [loansRes, entriesRes, payrollRes, partnersRes, accountsRes, schedulesRes] =
+    await Promise.all([
     supabase.from("loans").select("*").eq("client_id", clientId),
     supabase.from("loan_entries").select("*").eq("client_id", clientId),
     supabase
@@ -70,6 +79,11 @@ async function loadContext(clientId: string): Promise<LedgerContext> {
       .select("id, name, is_default, account_categories(type)")
       .or(`client_id.eq.${clientId},is_default.eq.true`)
       .eq("is_active", true),
+    supabase
+      .from("loan_repayment_schedules")
+      .select("loan_id, due_date, principal_amount, interest_amount")
+      .eq("client_id", clientId)
+      .order("due_date"),
   ]);
 
   const entriesByLoan = new Map<string, DbRow[]>();
@@ -123,11 +137,24 @@ async function loadContext(clientId: string): Promise<LedgerContext> {
     })
     .map((a) => ({ id: (a as DbRow).id as string, name: (a as DbRow).name as string }));
 
+  const loanNameById = new Map(loans.map((l) => [l.id, l.name]));
+  const schedules = (schedulesRes.data ?? []).map((r) => {
+    const row = r as DbRow;
+    return {
+      loanId: row.loan_id as string,
+      loanName: loanNameById.get(row.loan_id as string) ?? "",
+      due: row.due_date as string,
+      principal: (row.principal_amount as number) ?? 0,
+      interest: (row.interest_amount as number) ?? 0,
+    };
+  });
+
   return {
     loans,
     officers,
     partners: (partnersRes.data ?? []).map((p) => (p as DbRow).name as string),
     expenseAccounts,
+    schedules,
   };
 }
 
@@ -169,7 +196,22 @@ ${officers}
 ${ctx.partners.slice(0, 100).join(" / ") || "（登録なし）"}
 
 ## 選択できる費用科目（立替のとき使用）
-${expenses}`;
+${expenses}
+
+## 返済予定表（元金と利息の内訳が決まっているもの）
+${
+  ctx.schedules.length === 0
+    ? "（登録なし）"
+    : ctx.schedules
+        .slice(0, 60)
+        .map(
+          (s) =>
+            `- ${s.due} 「${s.loanName}」 元金${s.principal}円 + 利息${s.interest}円 = ${
+              s.principal + s.interest
+            }円`
+        )
+        .join("\n")
+}`;
 }
 
 const ENTRY_TYPE_GUIDE = `## 区分（entry_type）の判断
@@ -177,7 +219,18 @@ const ENTRY_TYPE_GUIDE = `## 区分（entry_type）の判断
 - advance : 立替。役員が会社の経費を個人資金・個人カードで払った。**現金は動かないが役員借入金は増える**
 - repay   : 返済／回収
 - interest: 利息
-判断できない場合は推測せず needs_confirmation を true にすること。`;
+判断できない場合は推測せず needs_confirmation を true にすること。
+
+## 元金と利息の分け方（返済のとき）
+銀行返済は元金と利息をまとめて1回で引き落とす。通帳には合計額しか出ないため、
+amount（元金）と interest_amount（利息）に分けること。
+1. **返済予定表に日付と合計額が一致する行があれば、その内訳をそのまま使う。**
+   これが最も確実なので必ず優先する
+2. 予定表に無い場合は、台帳の残高と年利から利息を見積もる
+   （利息 = 残高 × 年利 ÷ 12 のおおよそ）
+3. どちらもできなければ interest_amount は 0 とし、confidence を下げること。
+   推測で分けてはいけない
+役員借入金は無利息が原則なので、通常 interest_amount は 0 になる。`;
 
 // ---------------------------------------------------------------------------
 // 共通のドラフト整形
@@ -188,6 +241,7 @@ type RawDraft = {
   entry_date?: string;
   entry_type?: string;
   amount?: number;
+  interest_amount?: number;
   expense_account_name?: string | null;
   memo?: string | null;
   reasoning?: string;
@@ -220,7 +274,31 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
     : null;
 
   const direction: LoanDirection = matched?.direction ?? "borrow";
-  const delta = entryType === "repay" ? -amount : amount;
+
+  // 利息は返済のときだけ意味を持つ
+  let interest = entryType === "repay" ? Math.max(0, Math.round(Number(raw.interest_amount) || 0)) : 0;
+  let principal = amount;
+
+  // 返済予定表に「日付が一致し、合計額も一致する」行があれば、その内訳をそのまま使う。
+  // 予定表は契約で決まった確かな値なので、AIの見積もりより優先する。
+  // 通帳には合計しか出ないため、AIが読んだ amount は合計であることが多い
+  if (entryType === "repay" && matched) {
+    const hit = ctx.schedules.find(
+      (sc) =>
+        sc.loanId === matched.id &&
+        sc.due === date &&
+        (sc.principal + sc.interest === amount || sc.principal + sc.interest === amount + interest)
+    );
+    if (hit) {
+      principal = hit.principal;
+      interest = hit.interest;
+    } else if (interest > 0 && interest < amount) {
+      // AIが合計額を amount に入れ、利息も別に返してきた場合は元金を差し引く
+      principal = amount - interest;
+    }
+  }
+
+  const delta = entryType === "repay" ? -principal : principal;
 
   return {
     loan_id: matched?.id ?? null,
@@ -228,7 +306,8 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
     direction,
     entry_date: date,
     entry_type: entryType,
-    amount,
+    amount: principal,
+    interest_amount: interest,
     expense_account_id: expenseAccount?.id ?? null,
     expense_account_name: expenseAccount?.name ?? raw.expense_account_name ?? null,
     memo: raw.memo ?? null,
@@ -239,7 +318,7 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
       model,
     },
     balance_after: matched ? matched.balance + delta : null,
-    journal_preview: journalPreview(direction, entryType, amount, expenseAccount?.name ?? null),
+    journal_preview: journalPreview(direction, entryType, principal, expenseAccount?.name ?? null, interest),
   };
 }
 
@@ -248,7 +327,8 @@ function journalPreview(
   direction: LoanDirection,
   entryType: LoanEntryType,
   amount: number,
-  expenseAccountName: string | null
+  expenseAccountName: string | null,
+  paidInterest = 0
 ): LoanAiDraft["journal_preview"] {
   const ledger = direction === "lend" ? "役員貸付金" : "役員借入金";
   if (direction === "borrow") {
@@ -258,7 +338,14 @@ function journalPreview(
       case "advance":
         return { debit: expenseAccountName ?? "（費用科目）", credit: ledger, amount };
       case "repay":
-        return { debit: ledger, credit: "普通預金", amount };
+        // 元金と利息を同時に払う場合は、現金の出は合計額になる
+        return paidInterest > 0
+          ? {
+              debit: `${ledger} + 支払利息`,
+              credit: "普通預金",
+              amount: amount + paidInterest,
+            }
+          : { debit: ledger, credit: "普通預金", amount };
       case "interest":
         return { debit: "支払利息", credit: ledger, amount };
       default:
@@ -304,7 +391,7 @@ ${ENTRY_TYPE_GUIDE}
 
 ## 出力形式
 JSONのみを返してください。説明文は不要です。
-{"entries":[{"counterparty_name":"相手先名","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":金額数値,"expense_account_name":"立替のときの費用科目名。それ以外はnull","memo":"摘要","reasoning":"そう判断した根拠","confidence":0.0-1.0,"needs_confirmation":true/false}]}
+{"entries":[{"counterparty_name":"相手先名","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":元金の数値,"interest_amount":返済と同時に払った利息の数値（無ければ0）,"expense_account_name":"立替のときの費用科目名。それ以外はnull","memo":"摘要","reasoning":"そう判断した根拠","confidence":0.0-1.0,"needs_confirmation":true/false}]}
 
 ## 注意
 - 今日は ${today} です。年の記載が無い日付はこれを基準に解釈してください。
@@ -382,7 +469,7 @@ ${ENTRY_TYPE_GUIDE}
 
 ## 出力形式
 JSONのみを返してください。説明文は不要です。
-{"candidates":[{"counterparty_name":"相手先名","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":金額数値,"expense_account_name":null,"memo":"摘要","source_text":"通帳の該当行の記載をそのまま","reasoning":"台帳に関係すると判断した根拠","confidence":0.0-1.0}],
+{"candidates":[{"counterparty_name":"相手先名","entry_date":"YYYY-MM-DD","entry_type":"borrow|advance|repay|interest","amount":元金の数値,"interest_amount":返済と同時に払った利息の数値（無ければ0）,"expense_account_name":null,"memo":"摘要","source_text":"通帳の該当行の記載をそのまま","reasoning":"台帳に関係すると判断した根拠","confidence":0.0-1.0}],
  "excluded":[{"line":"通帳の記載をそのまま","reason":"台帳に無関係と判断した理由"}]}
 
 ## 注意
@@ -563,6 +650,7 @@ ${INJECTION_GUARD}`;
         entry_date: input.date,
         entry_type: "repay",
         amount: input.amount,
+        interest_amount: 0,
         expense_account_id: null,
         expense_account_name: null,
         memo: input.description,
@@ -638,6 +726,7 @@ export async function commitLoanAiDrafts(
         entry_date: d.entry_date,
         entry_type: d.entry_type,
         amount: Math.round(d.amount),
+        interest_amount: Math.max(0, Math.round(d.interest_amount ?? 0)),
         signed_adjustment: null,
         expense_account_id: d.expense_account_id,
         payment_account_id: null,

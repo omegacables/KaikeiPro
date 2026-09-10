@@ -1558,6 +1558,7 @@ function AiPanel(props: {
                     <th className="py-2 pr-2 whitespace-nowrap">相手先</th>
                     <th className="py-2 pr-2 whitespace-nowrap">区分</th>
                     <th className="py-2 pr-2 text-right whitespace-nowrap">金額</th>
+                    <th className="py-2 pr-2 text-right whitespace-nowrap">利息</th>
                     <th className="py-2 pr-2 whitespace-nowrap">生成される仕訳</th>
                     <th className="py-2 pr-2 text-right whitespace-nowrap">起票後残高</th>
                   </tr>
@@ -1693,6 +1694,22 @@ function AiPanel(props: {
                           className="w-32 px-2 py-1 rounded border border-border bg-background text-[17px] text-right"
                         />
                       </td>
+                      {/* 返済のときだけ利息を出す。元金と利息を同時に払う銀行返済で使う */}
+                      <td className="py-2 pr-2 text-right">
+                        {d.entry_type === "repay" ? (
+                          <AmountInput
+                            value={String(d.interest_amount || "")}
+                            onChange={(v) => {
+                              const next = [...props.drafts];
+                              next[i] = { ...d, interest_amount: num(v) };
+                              props.setDrafts(next);
+                            }}
+                            className="w-28 px-2 py-1 rounded border border-border bg-background text-[17px] text-right"
+                          />
+                        ) : (
+                          <span className="text-foreground/50">—</span>
+                        )}
+                      </td>
                       <td className="py-2 pr-2 whitespace-nowrap">
                         {d.journal_preview
                           ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit}`
@@ -1706,7 +1723,7 @@ function AiPanel(props: {
                           列に入れると表が横に伸び、金額や仕訳が読めなくなる */}
                       <tr className="border-b border-border/60">
                         <td />
-                        <td colSpan={6} className="pb-2 pr-2 align-top">
+                        <td colSpan={7} className="pb-2 pr-2 align-top">
                           <div className="flex flex-wrap items-start gap-2">
                             <Badge
                               variant={

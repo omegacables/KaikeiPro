@@ -668,7 +668,10 @@ export interface LoanAiDraft {
   direction: LoanDirection;
   entry_date: string;
   entry_type: LoanEntryType;
+  /** 元金。返済なら元金だけの額 */
   amount: number;
+  /** 返済と同時に支払った利息。残高は動かさず仕訳にだけ載る */
+  interest_amount: number;
   /** 立替のときの費用科目（AIは名称で返し、サーバー側でIDに解決する） */
   expense_account_id: string | null;
   expense_account_name: string | null;
