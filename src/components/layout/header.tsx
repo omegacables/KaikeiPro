@@ -247,7 +247,7 @@ export function Header() {
   const currentClientId = clientMatch ? clientMatch[1] : null;
 
   return (
-    <header className="sticky top-0 z-10 flex items-center justify-between bg-card/80 backdrop-blur-md border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
+    <header className="sticky top-0 z-10 flex items-center justify-between gap-2 overflow-hidden bg-card/80 backdrop-blur-md border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
       <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
         {/* モバイル用ハンバーガー（サイドバードロワーを開く） */}
         <button
@@ -273,8 +273,10 @@ export function Header() {
                 title={clientList.length > 1 ? "顧問先を切り替える" : undefined}
               >
                 <Building2 className="size-4 shrink-0 text-primary-light" />
-                {/* 名前は省略せず全部出す。長い法人名で末尾が切れると別会社と紛らわしい */}
-                <span className="whitespace-nowrap">{activeClientName}</span>
+                {/* 名前は省略せず全部出す（末尾が切れると別会社と紛らわしい）。
+                    ただし1行に固定するとヘッダーが画面幅を超え、ページ全体が
+                    横スクロールしてしまうため、長いときは折り返す */}
+                <span className="text-left leading-tight break-words">{activeClientName}</span>
                 {clientList.length > 1 && (
                   <ChevronDown
                     className={cn("size-4 shrink-0 transition-transform", switcherOpen && "rotate-180")}
