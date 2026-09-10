@@ -477,7 +477,6 @@ export default function PayrollPage({
                     value={form.employee_name}
                     onChange={(e) => setForm({ ...form, employee_name: e.target.value })}
                     className={inputCls}
-                    placeholder="山田 太郎"
                   />
                 </div>
                 <div>
