@@ -61,9 +61,4 @@ BEGIN
 END;
 $function$;
 
--- 既定では PUBLIC に EXECUTE が付いており、anon はそこから権限を継いでいる。
--- anon から revoke するだけでは外れないため、PUBLIC ごと外して必要な役割に付け直す。
-revoke execute on function public.setup_self_service_account(uuid, text, text, text) from public;
 revoke execute on function public.setup_self_service_account(uuid, text, text, text) from anon;
-grant execute on function public.setup_self_service_account(uuid, text, text, text) to authenticated;
-grant execute on function public.setup_self_service_account(uuid, text, text, text) to service_role;
