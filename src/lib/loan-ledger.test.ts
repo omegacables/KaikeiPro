@@ -323,10 +323,11 @@ describe("imputedInterestAlert", () => {
     expect(alert.level).toBe("required");
     expect(alert.priorFiscalYearEnd).toBe("2026-03-31");
     expect(alert.balanceAtPriorYearEnd).toBe(1_000_000);
-    // 前期末→当期末の 365 日分を試算
+    // 期首より前からある貸付は「期首から期末まで」で試算する
     expect(alert.breakdown[0].rate).toBe(0.9);
+    expect(alert.breakdown[0].days).toBe(daysBetween("2026-04-01", "2027-03-31"));
     expect(alert.estimatedInterest).toBe(
-      imputedInterest(1_000_000, 0.9, daysBetween("2026-03-31", "2027-03-31"))
+      imputedInterest(1_000_000, 0.9, daysBetween("2026-04-01", "2027-03-31"))
     );
   });
 
@@ -971,5 +972,59 @@ describe("interestTotals（利息の集計）", () => {
       { ...e("2026-04-30", "repay", 100_000), interest_amount: 2_400, status: "draft" as const },
     ];
     expect(interestTotals(entries).paid).toBe(0);
+  });
+});
+
+describe("認定利息の試算期間", () => {
+  const OFFICIAL = { 2024: 0.9, 2025: 0.9, 2026: 1.3 };
+  const MARCH = 4; // 3月決算（期首4月）
+
+  it("期中に実行した貸付は、実行日から期末までで数える（今日からではない）", () => {
+    const alert = imputedInterestAlert({
+      entries: [e("2026-05-01", "borrow", 1_000_000)],
+      fiscalStartMonth: MARCH,
+      today: "2026-09-10",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    // 5/1〜3/31。「今日(9/10)から3/31」の202日で数えると経過分が抜けて過小になる
+    expect(alert.breakdown[0].days).toBe(daysBetween("2026-05-01", "2027-03-31"));
+    expect(alert.breakdown[0].days).toBeGreaterThan(daysBetween("2026-09-10", "2027-03-31"));
+  });
+
+  it("期首より前からある貸付は、期首から期末までで数える（前期以前まで遡らない）", () => {
+    const alert = imputedInterestAlert({
+      entries: [e("2024-08-01", "borrow", 1_000_000)],
+      fiscalStartMonth: MARCH,
+      today: "2026-09-10",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    expect(alert.breakdown[0].days).toBe(daysBetween("2026-04-01", "2027-03-31"));
+  });
+
+  it("古い貸付と当期の貸付が混在しても、それぞれの利率と期間で数える", () => {
+    const alert = imputedInterestAlert({
+      entries: [
+        e("2025-06-01", "borrow", 1_000_000), // 前期から継続 → 0.9% / 期首から
+        e("2026-05-01", "borrow", 2_000_000), // 当期に実行   → 1.3% / 実行日から
+      ],
+      fiscalStartMonth: MARCH,
+      today: "2026-09-10",
+      rateByLoanYear: OFFICIAL,
+    });
+
+    expect(alert.level).toBe("required");
+    expect(alert.breakdown).toHaveLength(2);
+
+    const [older, newer] = alert.breakdown;
+    expect(older).toMatchObject({ loanYear: 2025, outstanding: 1_000_000, rate: 0.9 });
+    expect(older.days).toBe(daysBetween("2026-04-01", "2027-03-31"));
+    expect(newer).toMatchObject({ loanYear: 2026, outstanding: 2_000_000, rate: 1.3 });
+    expect(newer.days).toBe(daysBetween("2026-05-01", "2027-03-31"));
+
+    // 合計は両方の合算。片方だけで数えていないこと
+    expect(alert.estimatedInterest).toBe((older.interest ?? 0) + (newer.interest ?? 0));
+    expect(alert.estimatedInterest).toBeGreaterThan(older.interest ?? 0);
   });
 });

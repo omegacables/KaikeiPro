@@ -375,13 +375,18 @@ export function imputedInterestAlert(params: {
   else if (balance > 0) level = "warning";
   else level = "none";
 
-  // 計上義務が生じている場合は「前期末から当期末まで」を試算期間とする
-  const from = crossed ? priorFiscalYearEnd : today;
-  const days = Math.max(0, daysBetween(from, fiscalYearEnd));
-  const tranches = level === "none" ? [] : outstandingTranches(params.entries, from);
+  // 認定利息は事業年度を通じて発生する。
+  // 貸付ごとに「その貸付が当期中に残っていた期間」で計算する:
+  //   期首より前からある貸付 … 期首から期末まで
+  //   期中に実行した貸付     … 実行日から期末まで
+  // 「今日から期末まで」で数えると、すでに経過した期間が抜けて試算が過小になる。
+  // 残高は今日時点のものを使い、以後の返済は見込まない（警告として過小に出さない）。
+  const tranches = level === "none" ? [] : outstandingTranches(params.entries, today);
 
   const breakdown: InterestBreakdown[] = tranches.map((t) => {
     const rate = params.rateByLoanYear?.[t.loanYear] ?? null;
+    const accrualFrom = t.date > period.startDate ? t.date : period.startDate;
+    const days = Math.max(0, daysBetween(accrualFrom, fiscalYearEnd));
     return {
       loanYear: t.loanYear,
       outstanding: t.outstanding,
