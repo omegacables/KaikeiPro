@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeAmount, formatAmount } from "./amount-input";
+import { parseAmountInput, normalizeAmount, formatAmount } from "./amount-input";
 
 describe("normalizeAmount（計算に使う値の取り出し）", () => {
   it("カンマと空白を取り除く", () => {
@@ -16,8 +16,14 @@ describe("normalizeAmount（計算に使う値の取り出し）", () => {
   });
 
   it("数字以外が混ざれば空にする（不正な値を通さない）", () => {
-    expect(normalizeAmount("1200円")).toBe("");
     expect(normalizeAmount("abc")).toBe("");
+  });
+
+  it("「円」や通貨記号は金額の一部ではないので取り除いて読む", () => {
+    // 以前はここで空になり、打った金額が黙って消えていた
+    expect(normalizeAmount("1200円")).toBe("1200");
+    expect(normalizeAmount("¥1,200,000")).toBe("1200000");
+    expect(normalizeAmount("￥1200000")).toBe("1200000");
   });
 
   it("マイナスは受け付けない（帳簿にマイナスは使わない）", () => {
@@ -61,5 +67,31 @@ describe("formatAmount（表示）", () => {
     for (const v of ["0", "5", "1000", "1200000", "999999999"]) {
       expect(normalizeAmount(formatAmount(v))).toBe(v);
     }
+  });
+});
+
+describe("parseAmountInput（未入力と読み取れないの区別）", () => {
+  it("未入力は空文字を返す", () => {
+    expect(parseAmountInput("")).toBe("");
+    // 単位だけを消し残した状態も「未入力」として扱う
+    expect(parseAmountInput("円")).toBe("");
+  });
+
+  it("読み取れないときは null を返す（空にしない）", () => {
+    // 空にすると打った金額が黙って消える。呼び出し側が赤枠で知らせられるよう
+    // 「未入力」と区別する
+    expect(parseAmountInput("120000o")).toBeNull();
+    expect(parseAmountInput("あ")).toBeNull();
+    expect(parseAmountInput("-1000")).toBeNull();
+    expect(parseAmountInput("1000.5")).toBeNull();
+  });
+
+  it("全角の空白も取り除く", () => {
+    expect(parseAmountInput("1　200　000")).toBe("1200000");
+  });
+
+  it("小数を許す欄では年利のような値を読む", () => {
+    expect(parseAmountInput("2.4", true)).toBe("2.4");
+    expect(parseAmountInput("2.4.5", true)).toBeNull();
   });
 });
