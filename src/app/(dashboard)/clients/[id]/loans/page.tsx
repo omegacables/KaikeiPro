@@ -1314,6 +1314,20 @@ function LedgerRow(props: {
           {/* 見出しが無いと、どの表を指しているのか会話で伝わらない */}
           <p className="text-[17px] font-bold border-l-4 border-primary pl-2">増減明細（{rows.length}件）</p>
 
+          {/* 吹き出しは気づかれないので、逆転がある間は表の上に理由を出す */}
+          {rows.some((r) => r.balanceAfter < 0) && (
+            <div className="flex items-start gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3">
+              <AlertTriangle className="size-5 shrink-0 text-destructive mt-0.5" />
+              <p className="text-[15px] text-foreground">
+                <span className="font-bold text-destructive">残高が逆転している行があります。</span>{" "}
+                返した額が借りた額を超えている状態です。多くは
+                <span className="font-bold">借入の記録が抜けている</span>か、
+                <span className="font-bold">借入の日付が返済より後になっている</span>のが原因です。
+                日付を直すか、抜けている借入を登録してください。
+              </p>
+            </div>
+          )}
+
           {rows.length === 0 ? (
             <p className={bodyCls}>まだ明細がありません。上のフォームから追加してください。</p>
           ) : (
@@ -1367,8 +1381,21 @@ function LedgerRow(props: {
                             ? formatCurrency(entry.interest_amount)
                             : ""}
                         </td>
+                        {/* 帳簿にマイナスは出さない。残高が逆転するのは
+                            「返済より前の借入が記録されていない」という誤りなので、
+                            数字ではなく警告として見せる */}
                         <td className="py-2 pr-3 text-right tabular-nums font-bold">
-                          {formatCurrency(balanceAfter)}
+                          {balanceAfter < 0 ? (
+                            <span
+                              className="inline-flex items-center gap-1 text-destructive"
+                              title="この時点で残高が逆転しています。返した額が借りた額を超えているため、これより前の借入の記録が抜けている可能性があります。"
+                            >
+                              <AlertTriangle className="size-4 shrink-0" />
+                              {formatCurrency(-balanceAfter)} 超過
+                            </span>
+                          ) : (
+                            formatCurrency(balanceAfter)
+                          )}
                         </td>
                         <td className="py-2 pr-3 max-w-[20rem] truncate" title={entry.memo ?? ""}>
                           {entry.memo}
