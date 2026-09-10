@@ -597,11 +597,13 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
 
       {/* サマリー */}
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        <SummaryCard label="借入金残高合計" value={summary.total} />
-        <SummaryCard label="うち金融機関等" value={summary.institution} />
-        <SummaryCard label="うち役員借入金" value={summary.officer} />
+        <SummaryCard label="借入金残高合計" value={summary.total} sub="会社が借りている総額" />
+        <SummaryCard label="うち金融機関等" value={summary.institution} sub="銀行などからの借入" />
+        <SummaryCard label="うち役員借入金" value={summary.officer} sub="役員から借りている" />
+        {/* 「役員借入金」と1文字違いで意味が正反対なので、向きを言葉で補う */}
         <SummaryCard
-          label="うち役員貸付金"
+          label="役員貸付金"
+          sub="会社が役員に貸している"
           value={summary.lend}
           // 役員貸付金は残高があること自体が税務リスクなので警告色にする
           warn={summary.lend > 0}
@@ -762,11 +764,14 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
 function SummaryCard({
   label,
   value,
+  sub,
   warn = false,
   note = null,
 }: {
   label: string;
   value: number;
+  /** ラベルだけでは向き（借りている/貸している）が伝わらないため補う */
+  sub?: string;
   warn?: boolean;
   note?: string | null;
 }) {
@@ -776,6 +781,7 @@ function SummaryCard({
         <p className={`text-[17px] font-medium ${warn ? "text-destructive" : "text-foreground"}`}>
           {label}
         </p>
+        {sub && <p className="text-[15px] text-foreground/80">{sub}</p>}
         <p
           className={`text-2xl font-bold tabular-nums ${warn ? "text-destructive" : "text-foreground"}`}
         >
