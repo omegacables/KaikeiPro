@@ -391,19 +391,30 @@ export function Sidebar() {
                 <>
                   {/* Client dropdown */}
                   <div className="relative px-1">
+                    {/* 選択中の顧問先。押すと切り替えられることが分かるよう、
+                        名前だけでなく枠と説明を付ける */}
                     <button
                       onClick={() => setDropdownOpen(!dropdownOpen)}
-                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-purple/30 text-cream text-sm hover:bg-slate-purple/50 transition-colors cursor-pointer"
+                      title="顧問先を切り替える"
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-lg bg-slate-purple/30 border border-primary-light/40 text-cream text-sm hover:bg-slate-purple/50 transition-colors cursor-pointer"
                     >
                       <Users className="size-4 shrink-0 text-primary-light" />
-                      <span className="flex-1 text-left truncate">
-                        {selectedClient?.name ?? "顧問先を選択"}
+                      <span className="flex-1 min-w-0 text-left">
+                        <span className="block text-[10px] text-sage leading-tight">
+                          選択中の顧問先
+                        </span>
+                        <span className="block truncate font-semibold">
+                          {selectedClient?.name ?? "顧問先を選択"}
+                        </span>
                       </span>
                       <ChevronDown className={cn("size-4 shrink-0 transition-transform", dropdownOpen && "rotate-180")} />
                     </button>
 
                     {dropdownOpen && (
-                      <div className="absolute left-1 right-1 top-full mt-1 z-50 bg-sidebar-bg border border-slate-purple/50 rounded-lg shadow-lg max-h-48 overflow-y-auto">
+                      <div className="absolute left-1 right-1 top-full mt-1 z-50 bg-sidebar-bg border border-slate-purple/50 rounded-lg shadow-lg max-h-56 overflow-y-auto">
+                        <p className="px-3 py-2 text-[10px] font-bold text-sage border-b border-slate-purple/40">
+                          顧問先を切り替える
+                        </p>
                         {clients.map((c) => (
                           <button
                             key={c.id}

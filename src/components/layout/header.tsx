@@ -1,13 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { Bell, HelpCircle, Sun, Moon, Menu, MessageSquare } from "lucide-react";
+import { Bell, HelpCircle, Sun, Moon, Menu, MessageSquare, Building2, ChevronDown } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useMobileNav } from "@/components/layout/mobile-nav";
-import { getInitials, formatTimeAgo } from "@/lib/utils";
+import { cn, getInitials, formatTimeAgo } from "@/lib/utils";
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme";
-import { getClient } from "@/actions/clients";
+import { getClient, getClients } from "@/actions/clients";
 import {
   getNotifications,
   getUnreadCount,
@@ -73,6 +73,12 @@ export function Header() {
   const [theme, setThemeState] = useState<Theme>("light");
   const [companyName, setCompanyName] = useState<string | null>(null);
 
+  // 今どの顧問先を見ているか。ヘッダーは常に表示されるので、ここに出しておく
+  const [activeClientName, setActiveClientName] = useState<string | null>(null);
+  const [clientList, setClientList] = useState<{ id: string; name: string }[]>([]);
+  const [switcherOpen, setSwitcherOpen] = useState(false);
+  const switcherRef = useRef<HTMLDivElement>(null);
+
   // Notification state
   const [isOpen, setIsOpen] = useState(false);
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -91,6 +97,44 @@ export function Header() {
         .catch(() => {});
     }
   }, [user?.role, user?.clientId]);
+
+  // URL から今の顧問先を割り出して名前を引く
+  useEffect(() => {
+    const id = pathname.match(/^\/clients\/([^/]+)/)?.[1];
+    if (!id || id === "new") {
+      setActiveClientName(null);
+      return;
+    }
+    let cancelled = false;
+    getClient(id)
+      .then((c) => {
+        if (!cancelled) setActiveClientName(c.name);
+      })
+      .catch(() => {
+        if (!cancelled) setActiveClientName(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname]);
+
+  // 切り替え先の一覧。顧問先ユーザーは自社しか見られないので読まない
+  useEffect(() => {
+    if (user?.role === "client") return;
+    getClients()
+      .then((cs) => setClientList(cs.map((c) => ({ id: c.id, name: c.name }))))
+      .catch(() => {});
+  }, [user?.role]);
+
+  // 切り替えメニューの外側を押したら閉じる
+  useEffect(() => {
+    if (!switcherOpen) return;
+    const onDown = (e: MouseEvent) => {
+      if (!switcherRef.current?.contains(e.target as Node)) setSwitcherOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [switcherOpen]);
 
   // Fetch unread count on mount
   useEffect(() => {
@@ -210,9 +254,63 @@ export function Header() {
         >
           <Menu className="size-5" />
         </button>
-        <h2 className="text-foreground text-lg sm:text-xl font-bold tracking-tight truncate">
-          {pageTitle}
-        </h2>
+        <div className="min-w-0">
+          {/* 顧問先名を画面名の上に出す。どの会社を触っているかを取り違えると
+              入力先そのものを間違えるため、常に見える場所に置く */}
+          {activeClientName && (
+            <div className="relative" ref={switcherRef}>
+              <button
+                onClick={() => clientList.length > 1 && setSwitcherOpen((v) => !v)}
+                className={cn(
+                  "flex items-center gap-1.5 max-w-full rounded px-1 -ml-1 text-[15px] font-medium text-primary",
+                  clientList.length > 1 && "hover:bg-muted/50 cursor-pointer"
+                )}
+                title={clientList.length > 1 ? "顧問先を切り替える" : undefined}
+              >
+                <Building2 className="size-4 shrink-0" />
+                <span className="truncate">{activeClientName}</span>
+                {clientList.length > 1 && (
+                  <ChevronDown
+                    className={cn("size-4 shrink-0 transition-transform", switcherOpen && "rotate-180")}
+                  />
+                )}
+              </button>
+
+              {switcherOpen && (
+                <div className="absolute left-0 top-full mt-1 z-50 min-w-56 max-h-72 overflow-y-auto rounded-lg border border-border bg-card shadow-lg">
+                  <p className="px-3 py-2 text-[13px] font-bold text-muted-foreground border-b border-border">
+                    顧問先を切り替える
+                  </p>
+                  {clientList.map((c) => {
+                    const active = pathname.startsWith(`/clients/${c.id}`);
+                    return (
+                      <button
+                        key={c.id}
+                        onClick={() => {
+                          setSwitcherOpen(false);
+                          // 同じ画面のまま相手先だけ入れ替える（借入金台帳→借入金台帳）
+                          const sub = pathname.match(/^\/clients\/[^/]+(\/.*)?$/)?.[1] ?? "";
+                          router.push(`/clients/${c.id}${sub}`);
+                        }}
+                        className={cn(
+                          "w-full text-left px-3 py-2 text-[15px] transition-colors",
+                          active
+                            ? "bg-primary/10 text-primary font-semibold"
+                            : "text-foreground hover:bg-muted/50"
+                        )}
+                      >
+                        {c.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+          <h2 className="text-foreground text-lg sm:text-xl font-bold tracking-tight truncate">
+            {pageTitle}
+          </h2>
+        </div>
       </div>
       <div className="flex items-center gap-2 sm:gap-6">
         {/* Action buttons */}
