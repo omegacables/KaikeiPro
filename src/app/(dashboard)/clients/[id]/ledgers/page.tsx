@@ -1418,11 +1418,11 @@ export default function LedgersPage() {
               <label className="text-xs text-muted-foreground font-bold">期間:</label>
               <DateInput allowEmpty value={dateFrom}
                 onChange={(v) => setDateFrom(v)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
               <span className="text-muted-foreground">〜</span>
               <DateInput allowEmpty value={dateTo}
                 onChange={(v) => setDateTo(v)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
               <div className="flex items-center gap-1 ml-4">
                 {presets.map((preset) => (
                   <button
@@ -1680,7 +1680,7 @@ export default function LedgersPage() {
                     <label className="text-xs text-muted-foreground font-bold">日付</label>
                     <DateInput allowEmpty value={editDate}
                       onChange={(v) => setEditDate(v)}
-                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground font-bold">摘要</label>

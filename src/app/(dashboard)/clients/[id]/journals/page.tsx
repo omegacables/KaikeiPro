@@ -1070,7 +1070,7 @@ export default function JournalsPage() {
                       <td className="px-2 py-1">
                         <DateInput allowEmpty value={s.date}
                           onChange={(v) => updateImportSuggestion(s.rowIdx, { date: v })}
-                          className="bg-transparent border-0 text-xs w-28 pr-7" />
+                          className="bg-transparent border-0 text-xs w-28" />
                       </td>
                       <td className="px-2 py-1">
                         <input
@@ -1337,7 +1337,7 @@ export default function JournalsPage() {
                       <td className="px-2 py-1">
                         <DateInput allowEmpty value={s.date}
                           onChange={(v) => updateSuggestion(s.rowIdx, { date: v })}
-                          className="bg-transparent border-0 text-xs w-28 pr-7" />
+                          className="bg-transparent border-0 text-xs w-28" />
                       </td>
                       <td className="px-2 py-1">
                         <input

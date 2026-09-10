@@ -505,7 +505,7 @@ export default function PayrollPage({
                   </label>
                   <DateInput allowEmpty value={form.pay_date}
                     onChange={(v) => setForm({ ...form, pay_date: v })}
-                    className={inputCls + " pr-7"} />
+                    className={inputCls} />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">総支給額</label>

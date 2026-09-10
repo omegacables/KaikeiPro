@@ -1182,7 +1182,7 @@ function LedgerRow(props: {
                 onChange={(v) => setEntryForm({ ...entryForm, entry_date: v })}
                 inputRef={(el) => setCellRef(0, el)}
                 onKeyDown={(e) => handleCellKeyDown(0, e)}
-                className={inputCls + " pr-7"}
+                className={inputCls}
               />
             </div>
             <div className="w-32">
@@ -2280,7 +2280,7 @@ function RepaymentScheduleSection({
               onChange={(v) => setForm({ ...form, firstDue: v })}
               inputRef={(el) => setCellRef(3, el)}
               onKeyDown={(e) => handleKeyDown(3, e)}
-              className={inputCls + " pr-7"}
+              className={inputCls}
             />
           </div>
           <div className="w-32">

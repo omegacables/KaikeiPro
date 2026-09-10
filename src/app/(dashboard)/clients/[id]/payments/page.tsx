@@ -385,7 +385,7 @@ export default function PaymentsPage() {
           <form onSubmit={handleCreatePayment} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">入金日 *</label>
-              <DateInput allowEmpty value={newPayment.payment_date} onChange={(v) => setNewPayment({ ...newPayment, payment_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+              <DateInput allowEmpty value={newPayment.payment_date} onChange={(v) => setNewPayment({ ...newPayment, payment_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">金額 *</label>
@@ -545,7 +545,7 @@ export default function PaymentsPage() {
                         <td className="px-2 py-1">
                           <DateInput allowEmpty value={d.date}
                             onChange={(v) => setDeposits((prev) => prev.map((x) => (x.rowIdx === d.rowIdx ? { ...x, date: v } : x)))}
-                            className="bg-transparent border-0 text-xs w-28 pr-7" />
+                            className="bg-transparent border-0 text-xs w-28" />
                         </td>
                         <td className="px-2 py-1 text-right font-mono">{formatCurrency(d.amount)}</td>
                         <td className="px-2 py-1">{d.payer || "—"}</td>

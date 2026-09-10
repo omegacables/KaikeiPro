@@ -184,7 +184,7 @@ export default function AssetsPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取得日 *</label>
-              <DateInput allowEmpty value={newAsset.acquisition_date} onChange={(v) => setNewAsset({ ...newAsset, acquisition_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+              <DateInput allowEmpty value={newAsset.acquisition_date} onChange={(v) => setNewAsset({ ...newAsset, acquisition_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取得金額 *</label>

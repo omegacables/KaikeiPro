@@ -1276,7 +1276,7 @@ export function ReceiptsPageContent({
                   </div>
                   <div>
                     <label className="text-xs text-muted-foreground">日付</label>
-                    <DateInput allowEmpty className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background pr-7"
+                    <DateInput allowEmpty className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background"
                       value={editForm.date}
                       onChange={(v) => setEditForm((f) => ({ ...f, date: v }))} />
                   </div>

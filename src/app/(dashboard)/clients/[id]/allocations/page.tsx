@@ -502,7 +502,7 @@ export default function AllocationsPage() {
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">日付</label>
-                <DateInput allowEmpty value={jDate} onChange={(v) => setJDate(v)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                <DateInput allowEmpty value={jDate} onChange={(v) => setJDate(v)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">費用科目</label>

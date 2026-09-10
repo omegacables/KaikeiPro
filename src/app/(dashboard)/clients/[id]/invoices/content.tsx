@@ -539,13 +539,13 @@ export function InvoicesPageContent({
                 </label>
                 <DateInput allowEmpty value={newInvoice.issued_date}
                   onChange={(v) => setNewInvoice({ ...newInvoice, issued_date: v })}
-                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm pr-7" />
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="block text-sm font-medium text-foreground mb-1">支払期限</label>
                 <DateInput allowEmpty value={newInvoice.due_date}
                   onChange={(v) => setNewInvoice({ ...newInvoice, due_date: v })}
-                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm pr-7" />
+                  className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm" />
               </div>
             </div>
 
@@ -568,7 +568,7 @@ export function InvoicesPageContent({
                     <td className="py-2 pr-2">
                       <DateInput allowEmpty value={item.transaction_date}
                         onChange={(v) => updateItem(idx, "transaction_date", v)}
-                        className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm pr-7" />
+                        className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm" />
                     </td>
                     <td className="py-2 pr-2">
                       <input type="text" value={item.description}

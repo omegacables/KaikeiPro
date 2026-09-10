@@ -169,11 +169,11 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
               <label className="text-xs text-muted-foreground font-bold">期間:</label>
               <DateInput allowEmpty value={dateFrom}
                 onChange={(v) => setDateFrom(v)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
               <span className="text-muted-foreground">〜</span>
               <DateInput allowEmpty value={dateTo}
                 onChange={(v) => setDateTo(v)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
             </div>
             <select
               value={tableName}

@@ -312,7 +312,13 @@ export const DateInput = memo(function DateInput({
         value={isEmpty ? "" : value}
         tabIndex={-1}
         aria-hidden
-        onChange={(e) => e.target.value && onChange(e.target.value)}
+        onChange={(e) => {
+          // カレンダーの「消去」を押すと空で通知される。
+          // 空を無視していたため、カレンダーからは日付を消せなかった。
+          // 未入力を許す欄では、空もそのまま反映する
+          const v = e.target.value;
+          if (v || allowEmpty) onChange(v);
+        }}
         className="absolute right-1 size-6 opacity-0 pointer-events-none"
       />
       <button

@@ -325,7 +325,7 @@ export default function CardTransactionsPage({
               <label className="text-xs text-muted-foreground font-bold block mb-1">支払日</label>
               <DateInput allowEmpty value={paymentDate}
                 onChange={(v) => setPaymentDate(v)}
-                className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7" />
+                className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
             </div>
           </div>
           <div className="flex gap-2 justify-end">
