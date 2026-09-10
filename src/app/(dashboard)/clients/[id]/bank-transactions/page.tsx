@@ -283,7 +283,7 @@ export default function BankTransactionsPage({
   return (
     <>
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div className="flex items-center gap-3">
           <Link href={`/clients/${id}`}>
             <Button variant="ghost" size="sm">

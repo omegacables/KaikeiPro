@@ -152,7 +152,7 @@ export default function FirmsPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
           <h1 className="text-2xl font-bold text-foreground">税理士事務所管理</h1>
           <p className="text-muted-foreground text-sm mt-1">{firms.length} 事務所</p>

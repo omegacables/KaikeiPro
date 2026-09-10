@@ -282,7 +282,7 @@ export default function PayrollPage({
           <Users className="size-6 text-primary" />
           <h1 className="text-xl font-bold">給与台帳</h1>
         </div>
-        <div className="flex items-center gap-2 shrink-0 ml-auto">
+        <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
           <input
             type="month"
             value={month}
@@ -295,7 +295,7 @@ export default function PayrollPage({
               <option key={m} value={m.slice(0, 7)} />
             ))}
           </datalist>
-          <Button onClick={openCreate} className="shrink-0 whitespace-nowrap">
+          <Button onClick={openCreate} className="whitespace-nowrap">
             <Plus className="size-4" />
             給与を追加
           </Button>

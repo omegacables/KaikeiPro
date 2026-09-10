@@ -405,7 +405,7 @@ export function InvoicesPageContent({
   return (
     <>
       {/* ===== ヘッダー ===== */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         {!hideHeader ? (
           <div>
             <h1 className="text-2xl font-bold text-foreground">請求書管理</h1>

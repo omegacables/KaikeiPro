@@ -309,7 +309,7 @@ export default function AllocationsPage() {
 
   return (
     <>
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Home className="size-6 text-primary" />

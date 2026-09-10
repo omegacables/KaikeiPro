@@ -26,8 +26,7 @@ export default async function DashboardLayout({
       <div className="flex h-screen overflow-hidden">
         <GlobalLoading />
         <Sidebar />
-        {/* 横方向は隠す。どこか1か所が幅を超えても、画面全体が横スクロールしないようにする */}
-        <main className="flex-1 flex flex-col overflow-y-auto overflow-x-hidden min-w-0">
+        <main className="flex-1 flex flex-col overflow-y-auto min-w-0">
           <Header />
           <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto w-full min-w-0">
             {children}

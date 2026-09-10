@@ -147,7 +147,7 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
   return (
     <>
       {!hideHeader && (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Shield className="size-6 text-primary" />

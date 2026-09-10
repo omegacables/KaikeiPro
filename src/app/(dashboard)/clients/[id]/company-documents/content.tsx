@@ -185,7 +185,7 @@ export function CompanyDocumentsPageContent({ hideHeader = false }: { hideHeader
             <h1 className="text-xl font-bold">会社書類</h1>
           </div>
         ) : <div />}
-        <Button onClick={openCreate} className="shrink-0 whitespace-nowrap">
+        <Button onClick={openCreate} className="whitespace-nowrap">
           <Plus className="size-4" />
           書類を追加
         </Button>

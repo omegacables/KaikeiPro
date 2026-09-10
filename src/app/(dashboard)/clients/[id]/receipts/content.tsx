@@ -607,7 +607,7 @@ export function ReceiptsPageContent({
     <>
       {/* Page Header */}
       {!hideHeader && (
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
               <Receipt className="size-6 text-primary" />
@@ -670,7 +670,7 @@ export function ReceiptsPageContent({
       {!processingOnly && (
       <div className="flex items-center justify-between mb-4 gap-4">
         {/* 左側フィルター群（発行/受領・インボイス） */}
-        <div className="flex items-center gap-2 flex-wrap shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
         {/* 発行/受領フィルター（区分固定時・書類種別固定時は非表示） */}
         {!lockedDirection && !lockedDocType && (
         <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">
