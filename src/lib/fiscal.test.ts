@@ -6,6 +6,7 @@ import {
   startMonthFromSettlement,
   currentFiscalStartYear,
   DEFAULT_FISCAL_START_MONTH,
+  toJstDate,
 } from "./fiscal";
 
 describe("fiscalRangeFromStartYear", () => {
@@ -81,5 +82,23 @@ describe("currentFiscalStartYear", () => {
   it("基準日が属する会計年度の開始年を返す", () => {
     expect(currentFiscalStartYear(4, new Date(2026, 7, 15))).toBe(2026); // 8月
     expect(currentFiscalStartYear(4, new Date(2026, 1, 15))).toBe(2025); // 2月
+  });
+});
+
+describe("toJstDate", () => {
+  it("日本時間の午前中に登録したものが前日にならない", () => {
+    // 2026-09-11 03:08 JST = 2026-09-10 18:08 UTC
+    expect(toJstDate("2026-09-10T18:08:00Z")).toBe("2026-09-11");
+  });
+
+  it("日本時間の夜に登録したものはその日のまま", () => {
+    // 2026-09-10 23:00 JST = 2026-09-10 14:00 UTC
+    expect(toJstDate("2026-09-10T14:00:00Z")).toBe("2026-09-10");
+  });
+
+  it("空やおかしな値では空文字を返す", () => {
+    expect(toJstDate(null)).toBe("");
+    expect(toJstDate("")).toBe("");
+    expect(toJstDate("not-a-date")).toBe("");
   });
 });

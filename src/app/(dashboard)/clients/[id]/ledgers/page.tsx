@@ -47,7 +47,7 @@ import { Badge } from "@/components/ui/badge";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { getAccounts } from "@/actions/accounts";
 import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear, currentFiscalStartYear } from "@/lib/fiscal";
+import { fiscalRangeFromStartYear, currentFiscalStartYear, toJstDate } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { deleteJournalEntries, getDescriptionSuggestions, getJournalEntry, updateJournalEntryWithLines } from "@/actions/journals";
@@ -203,7 +203,7 @@ function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, select
                       </td>
                       <td className="px-3 py-2 text-foreground whitespace-nowrap border-r border-border">
                         <div className="font-medium">{formatDate(entry.date)}</div>
-                        <div className="text-[10px] text-muted-foreground mt-0.5">({formatDate(entry.createdAt?.split("T")[0] ?? "")})</div>
+                        <div className="text-[10px] text-muted-foreground mt-0.5">({formatDate(toJstDate(entry.createdAt))})</div>
                       </td>
                       <td className="px-2 py-1.5 border-r border-border/50" />
                       <td className="px-3 py-1.5 border-r border-border/50" />
@@ -241,7 +241,7 @@ function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, select
                             className="px-3 py-2 text-foreground whitespace-nowrap border-r border-border align-top"
                           >
                             <div className="font-medium">{formatDate(entry.date)}</div>
-                            <div className="text-[10px] text-muted-foreground mt-0.5">({formatDate(entry.createdAt?.split("T")[0] ?? "")})</div>
+                            <div className="text-[10px] text-muted-foreground mt-0.5">({formatDate(toJstDate(entry.createdAt))})</div>
                           </td>
                         )}
                         {/* 借方コード */}

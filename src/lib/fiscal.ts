@@ -56,3 +56,23 @@ export function currentFiscalStartYear(
 ): number {
   return getFiscalPeriod(startMonth, now.getFullYear(), now.getMonth() + 1).startYear;
 }
+
+/**
+ * 保存された日時（UTCのISO文字列）を、日本時間の YYYY-MM-DD に直す。
+ *
+ * `iso.split("T")[0]` で切り出すとUTCの日付になり、日本時間の 0:00〜9:00 に
+ * 登録したものが**前日として表示される**。登録日は電子帳簿保存法の
+ * 訂正削除履歴として意味を持つ値なので、1日ずれてはいけない。
+ */
+export function toJstDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  // en-CA は YYYY-MM-DD 形式を返す
+  return new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Tokyo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
