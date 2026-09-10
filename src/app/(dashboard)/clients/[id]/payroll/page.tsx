@@ -319,19 +319,19 @@ export default function PayrollPage({
       <div className="grid gap-4 sm:grid-cols-3">
         <Card>
           <CardContent className="py-4">
-            <p className="text-[15px] font-bold text-foreground">総支給額</p>
+            <p className="text-lg font-bold text-foreground">総支給額</p>
             <p className="text-2xl font-bold tabular-nums">{formatCurrency(totals.gross)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
-            <p className="text-[15px] font-bold text-foreground">控除合計（預り金）</p>
+            <p className="text-lg font-bold text-foreground">控除合計（預り金）</p>
             <p className="text-2xl font-bold tabular-nums">{formatCurrency(totals.deductions)}</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="py-4">
-            <p className="text-[15px] font-bold text-foreground">差引支給額</p>
+            <p className="text-lg font-bold text-foreground">差引支給額</p>
             <p className="text-2xl font-bold tabular-nums">{formatCurrency(totals.net)}</p>
           </CardContent>
         </Card>
