@@ -1559,8 +1559,6 @@ function AiPanel(props: {
                     <th className="py-2 pr-2 whitespace-nowrap">区分</th>
                     <th className="py-2 pr-2 text-right whitespace-nowrap">金額</th>
                     <th className="py-2 pr-2 text-right whitespace-nowrap">利息</th>
-                    <th className="py-2 pr-2 whitespace-nowrap">生成される仕訳</th>
-                    <th className="py-2 pr-2 text-right whitespace-nowrap">起票後残高</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -1591,7 +1589,7 @@ function AiPanel(props: {
                       </td>
                       {/* 通帳に載る名前と台帳の名前は普通ちがう（「アンドウ レン」と「代表取締役 ○○」など）。
                           突き合わせに失敗したら、その場で台帳を選べるようにする */}
-                      <td className="py-2 pr-2 whitespace-nowrap">
+                      <td className="py-2 pr-2">
                         <div className="flex items-center gap-1">
                           <select
                             value={d.loan_id ?? ""}
@@ -1614,14 +1612,12 @@ function AiPanel(props: {
                               props.setDrafts(next);
                             }}
                             className={
-                              "px-2 py-1 rounded border bg-background text-[17px] " +
+                              "max-w-[11rem] px-2 py-1 rounded border bg-background text-[17px] " +
                               (d.loan_id ? "border-border" : "border-destructive")
                             }
                           >
                             <option value="">
-                              {d.counterparty_name
-                                ? `${d.counterparty_name}（台帳を選択）`
-                                : "台帳を選択"}
+                              {d.counterparty_name || "台帳を選択"}
                             </option>
                             {props.ledgers.map((l) => (
                               <option key={l.loan.id} value={l.loan.id}>
@@ -1633,10 +1629,10 @@ function AiPanel(props: {
                           {!d.loan_id && (
                             <Button
                               variant="outline"
-                              className="px-2 py-1 text-[15px]"
+                              className="px-2 py-1 text-[15px] whitespace-nowrap"
                               onClick={() => props.onCreateLoan(d.counterparty_name)}
                             >
-                              台帳を作る
+                              新規
                             </Button>
                           )}
                         </div>
@@ -1710,20 +1706,12 @@ function AiPanel(props: {
                           <span className="text-foreground/50">—</span>
                         )}
                       </td>
-                      <td className="py-2 pr-2 whitespace-nowrap">
-                        {d.journal_preview
-                          ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit}`
-                          : "—"}
-                      </td>
-                      <td className="py-2 pr-2 text-right tabular-nums whitespace-nowrap">
-                        {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
-                      </td>
                     </tr>
                       {/* 根拠は長文になるため、列にせず行の下に回す。
                           列に入れると表が横に伸び、金額や仕訳が読めなくなる */}
                       <tr className="border-b border-border/60">
                         <td />
-                        <td colSpan={7} className="pb-2 pr-2 align-top">
+                        <td colSpan={5} className="pb-2 pr-2 align-top">
                           <div className="flex flex-wrap items-start gap-2">
                             <Badge
                               variant={
@@ -1736,6 +1724,19 @@ function AiPanel(props: {
                             >
                               確信度 {Math.round(d.evidence.confidence * 100)}%
                             </Badge>
+                            {/* 仕訳と起票後残高は幅を取るので、列にせず行の下に置く。
+                                列に入れると表が横に伸びて金額が読めなくなる */}
+                            <span className="text-[15px] text-foreground whitespace-nowrap">
+                              {d.journal_preview
+                                ? `借 ${d.journal_preview.debit} / 貸 ${d.journal_preview.credit} ${formatCurrency(d.journal_preview.amount)}`
+                                : "仕訳は台帳を選ぶと決まります"}
+                            </span>
+                            <span className="text-[15px] text-foreground whitespace-nowrap">
+                              起票後残高{" "}
+                              <span className="font-bold tabular-nums">
+                                {d.balance_after != null ? formatCurrency(d.balance_after) : "—"}
+                              </span>
+                            </span>
                             <p className="flex-1 min-w-[16rem] text-[15px] text-foreground">
                               {d.evidence.reasoning}
                               {d.evidence.sourceText && (
