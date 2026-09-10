@@ -2645,7 +2645,8 @@ function ReconcileSection({
       <div className="flex flex-wrap items-center gap-3">
         <Scale className="size-4" />
         <span className="text-[17px] font-medium">台帳と仕訳の照合</span>
-        <Button variant="outline" onClick={run} disabled={busy}>
+        {/* 押してほしい操作なので、追加ボタンと同じ実行色にそろえる */}
+        <Button onClick={run} disabled={busy}>
           {busy && <Loader2 className="size-4 animate-spin" />}
           照合する
         </Button>
@@ -2689,7 +2690,6 @@ function ReconcileSection({
                         手で入れ直させると仕訳が二重になる */}
                     {s.kind === "journal_without_entry" && (
                       <Button
-                        variant="outline"
                         className="px-2 py-1 text-[15px]"
                         disabled={importing !== null}
                         onClick={() => importOne(s.refId)}
