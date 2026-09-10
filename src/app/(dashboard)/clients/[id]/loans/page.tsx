@@ -1617,7 +1617,11 @@ function AiPanel(props: {
                             }
                           >
                             <option value="">
-                              {d.counterparty_name || "台帳を選択"}
+                              {/* 読み取った名前だけを出すと選択済みに見える。
+                                  未選択であることを言葉で示す */}
+                              {d.counterparty_name
+                                ? `▼ 台帳を選ぶ（${d.counterparty_name}）`
+                                : "▼ 台帳を選ぶ"}
                             </option>
                             {props.ledgers.map((l) => (
                               <option key={l.loan.id} value={l.loan.id}>
@@ -1758,7 +1762,12 @@ function AiPanel(props: {
                             {/* 会社から出ていく取引だけ判別が要る。
                                 役員個人への送金は 返済／役員報酬／立替精算 のどれとも取れ、
                                 役員報酬なら源泉徴収が必要、借入返済なら課税関係なしと扱いが正反対になる */}
-                            {d.entry_type === "repay" && !d.classification && (
+                            {/* 迷いのある行だけに出す。確信度が高く残高も足りる行に
+                                押させても、AIを呼ぶ費用がかかるだけで得るものがない */}
+                            {d.entry_type === "repay" &&
+                              !d.classification &&
+                              (d.evidence.confidence < 0.9 ||
+                                (d.balance_after != null && d.balance_after < 0)) && (
                               <Button
                                 variant="outline"
                                 className="px-2 py-1 text-[15px]"
