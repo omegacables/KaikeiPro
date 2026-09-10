@@ -19,7 +19,6 @@ import {
   FileText,
   CalendarClock,
   Scale,
-  MessageCircleQuestion,
   Printer,
   Search,
 } from "lucide-react";
@@ -32,7 +31,6 @@ import { IconButton } from "@/components/ui/icon-button";
 import { AccountLookup, type AccountOption } from "@/components/ui/account-lookup";
 import {
   getLoanLedgers,
-  getStatutoryInterestRates,
   createLoan,
   updateLoan,
   deleteLoan,
@@ -55,7 +53,6 @@ import {
   draftLoanEntriesFromReceipt,
   classifyOfficerPayment,
   commitLoanAiDrafts,
-  askLoanLedger,
 } from "@/actions/loan-ai";
 import { loadClients, loadStatutoryRates } from "@/lib/client-cache";
 import { getAccounts } from "@/actions/accounts";
@@ -79,7 +76,6 @@ import type {
   LoanEntryReceipt,
   OfficerPaymentClassification,
   LoanRepaymentSchedule,
-  LedgerAnswer,
 } from "@/types/index";
 import { currentFiscalStartYear } from "@/lib/fiscal";
 import { useRouter } from "next/navigation";
@@ -201,7 +197,8 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
 
   // AI
   const [aiText, setAiText] = useState("");
-  const [aiBusy, setAiBusy] = useState(false);
+  // 押した操作だけが「処理中」になるよう、AIの操作ごとに状態を分ける
+  const [aiBusy, setAiBusy] = useState<null | "text" | "document" | "commit">(null);
   const [drafts, setDrafts] = useState<EditableDraft[]>([]);
   const [excluded, setExcluded] = useState<{ line: string; reason: string }[]>([]);
   const [aiWarnings, setAiWarnings] = useState<string[]>([]);
@@ -538,7 +535,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
 
   async function handleAiText() {
     if (!aiText.trim()) return;
-    setAiBusy(true);
+    setAiBusy("text");
     setError(null);
     setExcluded([]);
     setAiWarnings([]);
@@ -552,12 +549,12 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     } catch (e) {
       setError(e instanceof Error ? e.message : "AIの処理に失敗しました");
     } finally {
-      setAiBusy(false);
+      setAiBusy(null);
     }
   }
 
   async function handleAiDocument(receiptId: string) {
-    setAiBusy(true);
+    setAiBusy("document");
     setError(null);
     try {
       const result = await draftLoanEntriesFromReceipt(id, receiptId);
@@ -567,7 +564,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     } catch (e) {
       setError(e instanceof Error ? e.message : "証憑の読み取りに失敗しました");
     } finally {
-      setAiBusy(false);
+      setAiBusy(null);
     }
   }
 
@@ -576,7 +573,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     const chosenIdx = drafts.map((d, i) => (d.selected ? i : -1)).filter((i) => i >= 0);
     if (chosenIdx.length === 0) return;
 
-    setAiBusy(true);
+    setAiBusy("commit");
     setError(null);
     try {
       const { created, errors } = await commitLoanAiDrafts(
@@ -609,7 +606,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     } catch (e) {
       setError(e instanceof Error ? e.message : "登録に失敗しました");
     } finally {
-      setAiBusy(false);
+      setAiBusy(null);
     }
   }
 
@@ -1373,7 +1370,8 @@ function AiPanel(props: {
   ledgers: LoanLedger[];
   text: string;
   setText: (s: string) => void;
-  busy: boolean;
+  /** どの操作が処理中か。null なら待機中 */
+  busy: null | "text" | "document" | "commit";
   drafts: EditableDraft[];
   setDrafts: (d: EditableDraft[]) => void;
   excluded: { line: string; reason: string }[];
@@ -1441,9 +1439,9 @@ function AiPanel(props: {
             <Button
               className="mt-2"
               onClick={props.onRunText}
-              disabled={props.busy || !props.text.trim()}
+              disabled={props.busy !== null || !props.text.trim()}
             >
-              {props.busy && <Loader2 className="size-4 animate-spin" />}
+              {props.busy === "text" && <Loader2 className="size-4 animate-spin" />}
               下書きを作る
             </Button>
           </div>
@@ -1469,15 +1467,13 @@ function AiPanel(props: {
             <Button
               className="mt-2"
               onClick={() => receiptId && props.onRunDocument(receiptId)}
-              disabled={props.busy || !receiptId}
+              disabled={props.busy !== null || !receiptId}
             >
-              {props.busy && <Loader2 className="size-4 animate-spin" />}
-              読み取る
+              {props.busy === "document" && <Loader2 className="size-4 animate-spin" />}
+              {props.busy === "document" ? "読み取り中…" : "読み取る"}
             </Button>
           </div>
         </div>
-
-        <AskSection clientId={props.clientId} />
 
         <ClassifyPaymentSection
           clientId={props.clientId}
@@ -1685,8 +1681,8 @@ function AiPanel(props: {
             </div>
 
             <div className="flex items-center gap-2">
-              <Button onClick={props.onCommit} disabled={props.busy || chosen === 0}>
-                {props.busy && <Loader2 className="size-4 animate-spin" />}
+              <Button onClick={props.onCommit} disabled={props.busy !== null || chosen === 0}>
+                {props.busy === "commit" && <Loader2 className="size-4 animate-spin" />}
                 選択した{chosen}件を登録
               </Button>
               <Button variant="outline" onClick={props.onCancel}>
@@ -2606,96 +2602,5 @@ function ReconcileSection({ ledger }: { ledger: LoanLedger }) {
         </div>
       )}
     </div>
-  );
-}
-
-// ---------------------------------------------------------------------------
-// 質問応答（要件4-7）
-// ---------------------------------------------------------------------------
-
-function AskSection({ clientId }: { clientId: string }) {
-  const [question, setQuestion] = useState("");
-  const [answer, setAnswer] = useState<LedgerAnswer | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  async function ask() {
-    if (!question.trim()) return;
-    setBusy(true);
-    setError(null);
-    setAnswer(null);
-    try {
-      setAnswer(await askLoanLedger(clientId, question));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "回答の取得に失敗しました");
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  return (
-    <details className="rounded-lg border border-border p-3">
-      <summary className="text-[17px] font-medium cursor-pointer flex items-center gap-2">
-        <MessageCircleQuestion className="size-4 text-primary" />
-        台帳について質問する
-      </summary>
-
-      <div className="mt-3 space-y-3">
-        <p className={bodyCls}>
-          「いま役員借入金はいくら？」「この10万円は何？」のように聞けます。
-          残高の計算はシステム側で確定させてからAIに渡すので、金額が作り話になることはありません。
-        </p>
-
-        <div className="flex gap-2">
-          <input
-            value={question}
-            onChange={(e) => setQuestion(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && !(e.nativeEvent as KeyboardEvent).isComposing) ask();
-            }}
-            className={inputCls}
-            placeholder="いま役員借入金はいくら？"
-          />
-          <Button onClick={ask} disabled={busy || !question.trim()}>
-            {busy && <Loader2 className="size-4 animate-spin" />}
-            聞く
-          </Button>
-        </div>
-
-        {error && <p className="text-[17px] text-destructive">{error}</p>}
-
-        {answer && (
-          <div className="rounded-lg border border-primary/30 bg-primary/5 p-3 space-y-2">
-            <p className="text-[17px] whitespace-pre-wrap">{answer.answer}</p>
-
-            {answer.outOfScope && (
-              <p className="text-[17px] font-medium text-warning">
-                この質問は借入金台帳の範囲では答えられません。
-              </p>
-            )}
-
-            {answer.sources.length > 0 ? (
-              <div>
-                <p className="text-[15px] font-medium">根拠にした明細</p>
-                <ul className="mt-1 space-y-0.5">
-                  {answer.sources.map((s) => (
-                    <li key={s.entry_id} className={bodyCls}>
-                      {s.entry_date} ／ {s.amount != null ? formatCurrency(s.amount) : ""} ／{" "}
-                      {s.label}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ) : (
-              !answer.outOfScope && (
-                <p className="text-[15px] font-medium text-warning">
-                  根拠となる明細を示せていません。回答の内容は必ずご確認ください。
-                </p>
-              )
-            )}
-          </div>
-        )}
-      </div>
-    </details>
   );
 }
