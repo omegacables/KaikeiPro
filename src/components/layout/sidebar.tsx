@@ -345,7 +345,7 @@ export function Sidebar() {
                 )}
               >
                 <Users className="size-5 shrink-0" />
-                <span>顧客管理</span>
+                <span>顧問先管理</span>
               </Link>
             </>
           ) : isClient && user.clientId ? (
