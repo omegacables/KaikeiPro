@@ -21,6 +21,7 @@ import {
   Scale,
   MessageCircleQuestion,
   Printer,
+  Search,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -82,6 +83,7 @@ import type {
 } from "@/types/index";
 import { currentFiscalStartYear } from "@/lib/fiscal";
 import { useRouter } from "next/navigation";
+import { toHalfWidth } from "@/lib/account-reading";
 import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
 
@@ -100,6 +102,18 @@ function today(): string {
 }
 
 const ENTRY_TYPES: LoanEntryType[] = ["borrow", "advance", "repay", "interest"];
+
+/**
+ * 区分ごとのバッジの色。残高を増やすものと減らすものを色で分ける。
+ * 調整は移行時の差額など内容の確認が要るので警告色にする。
+ */
+const ENTRY_TYPE_TONE: Record<LoanEntryType, "default" | "success" | "info" | "warning" | "muted"> = {
+  borrow: "info",     // 元本の発生
+  advance: "info",    // 立替も残高を増やす
+  interest: "muted",  // 利息
+  repay: "success",   // 返済＝残高が減る
+  adjust: "warning",  // 要確認
+};
 
 // ---------------------------------------------------------------------------
 // フォームの状態
@@ -175,6 +189,10 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   // 証憑の紐付け
   const [receiptLinks, setReceiptLinks] = useState<Record<string, LoanEntryReceipt[]>>({});
   const [attachTarget, setAttachTarget] = useState<LoanEntry | null>(null);
+
+  // 相手先の検索・絞り込み
+  const [search, setSearch] = useState("");
+  const [kindFilter, setKindFilter] = useState<"all" | "borrow" | "lend" | "officer" | "institution">("all");
 
   // 追加できたことを短く知らせる（画面が下に伸びるため、成功したか分かりにくい）
   const [notice, setNotice] = useState<string | null>(null);
@@ -287,6 +305,29 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     if (required) return required.alert;
     return lendAlerts[0]?.alert ?? null;
   }, [lendAlerts]);
+
+  // 相手先の絞り込み。名前・メモ・借入理由・返済条件を対象にする。
+  // 全角半角と大文字小文字の違いで引っかからないよう揃えてから比べる
+  const visibleLedgers = useMemo(() => {
+    const q = toHalfWidth(search).trim().toLowerCase();
+    return ledgers.filter((l) => {
+      const { direction, counterparty_kind } = l.loan;
+      if (kindFilter === "borrow" && direction !== "borrow") return false;
+      if (kindFilter === "lend" && direction !== "lend") return false;
+      if (kindFilter === "officer" && counterparty_kind !== "officer") return false;
+      if (kindFilter === "institution" && counterparty_kind !== "institution") return false;
+      if (!q) return true;
+      const haystack = [
+        l.loan.lender_name,
+        l.loan.memo,
+        l.loan.purpose,
+        l.loan.repayment_terms,
+      ]
+        .filter(Boolean)
+        .join(" ");
+      return toHalfWidth(haystack).toLowerCase().includes(q);
+    });
+  }, [ledgers, search, kindFilter]);
 
   // 同一相手先に借入金と貸付金の両方がある場合のみ差引を出す
   const netPositions = useMemo(() => {
@@ -734,7 +775,63 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       {/* 一覧 */}
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">相手先一覧（{ledgers.length}件）</CardTitle>
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <CardTitle className="text-lg">
+              相手先一覧
+              <span className="ml-2 text-[15px] font-normal text-foreground">
+                {visibleLedgers.length === ledgers.length
+                  ? `${ledgers.length}件`
+                  : `${ledgers.length}件中 ${visibleLedgers.length}件`}
+              </span>
+            </CardTitle>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <div className="relative">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 size-4 text-foreground/60" />
+                <input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="相手先を検索"
+                  className={inputCls + " w-56 pl-8"}
+                />
+                {search && (
+                  <button
+                    onClick={() => setSearch("")}
+                    aria-label="検索をやめる"
+                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-0.5 text-foreground/60 hover:bg-muted"
+                  >
+                    <X className="size-4" />
+                  </button>
+                )}
+              </div>
+
+              {/* よく使う切り口だけをボタンにする。細かい条件は検索欄で足りる */}
+              <div className="flex rounded-lg border border-border overflow-hidden">
+                {(
+                  [
+                    ["all", "すべて"],
+                    ["borrow", "借入金"],
+                    ["lend", "貸付金"],
+                    ["officer", "役員"],
+                    ["institution", "金融機関"],
+                  ] as const
+                ).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setKindFilter(key)}
+                    className={
+                      "px-3 py-2 text-[15px] transition-colors " +
+                      (kindFilter === key
+                        ? "bg-primary text-primary-foreground font-medium"
+                        : "text-foreground hover:bg-muted")
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -937,7 +1034,17 @@ function LedgerRow(props: {
 
   return (
     <div className="rounded-lg border border-border overflow-hidden">
-      <div className="flex items-center gap-2 px-4 py-3 bg-muted/20">
+      {/* 左端の色帯で、貸付金（要注意）と借入金を一目で分ける */}
+      <div
+        className={
+          "flex items-center gap-2 px-4 py-3 bg-muted/20 border-l-4 " +
+          (isLend
+            ? "border-l-destructive"
+            : loan.counterparty_kind === "officer"
+              ? "border-l-primary"
+              : "border-l-border")
+        }
+      >
         <IconButton
           label={expanded ? "明細を閉じる" : "明細を開く"}
           className="p-1"
@@ -947,7 +1054,7 @@ function LedgerRow(props: {
         </IconButton>
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[17px] font-medium truncate">{loan.lender_name}</span>
+            <span className="text-xl font-bold">{loan.lender_name}</span>
             <Badge variant={isLend ? "destructive" : loan.counterparty_kind === "officer" ? "default" : "muted"}>
               {isLend
                 ? "役員貸付金"
@@ -959,16 +1066,16 @@ function LedgerRow(props: {
               <Badge variant="warning">要確認（移行時の差額あり）</Badge>
             )}
           </div>
-          <p className="text-[15px] text-foreground mt-0.5">
+          <p className="text-[15px] text-foreground/80 mt-0.5">
             明細 {ledger.entries.length}件
             {loan.interest_rate != null && ` ／ 年利 ${loan.interest_rate}%`}
             {loan.repayment_terms && ` ／ 返済条件 ${loan.repayment_terms}`}
           </p>
         </div>
         <div className="text-right">
-          <p className="text-[15px] font-medium text-foreground">現在残高</p>
+          <p className="text-[13px] font-medium text-foreground/70">現在残高</p>
           <p
-            className={`text-[17px] font-bold tabular-nums ${isLend && ledger.balance > 0 ? "text-destructive" : ""}`}
+            className={`text-2xl font-bold tabular-nums ${isLend && ledger.balance > 0 ? "text-destructive" : "text-foreground"}`}
           >
             {formatCurrency(ledger.balance)}
           </p>
@@ -991,7 +1098,7 @@ function LedgerRow(props: {
       {expanded && (
         <div className="px-4 py-3 border-t border-border space-y-4">
           {/* 区分別の内訳 */}
-          <div className="flex flex-wrap gap-4 text-[15px] text-foreground">
+          <div className="flex flex-wrap gap-x-5 gap-y-1 text-[15px] text-foreground/80">
             <span>
               {isLend ? "貸付" : "借入"}計 {formatCurrency(ledger.byType.borrow)}
             </span>
@@ -1006,7 +1113,7 @@ function LedgerRow(props: {
             )}
           </div>
 
-          <p className="text-[17px] font-bold">明細を追加する</p>
+          <p className="text-[17px] font-bold border-l-4 border-primary pl-2">明細を追加する</p>
 
           {/* 明細の入力
               仕訳入力と同じキー操作にそろえている:
@@ -1123,7 +1230,7 @@ function LedgerRow(props: {
 
           {/* 増減明細と残高推移 */}
           {/* 見出しが無いと、どの表を指しているのか会話で伝わらない */}
-          <p className="text-[17px] font-bold">増減明細（{rows.length}件）</p>
+          <p className="text-[17px] font-bold border-l-4 border-primary pl-2">増減明細（{rows.length}件）</p>
 
           {rows.length === 0 ? (
             <p className={bodyCls}>まだ明細がありません。上のフォームから追加してください。</p>
@@ -1131,8 +1238,8 @@ function LedgerRow(props: {
             <div className="overflow-x-auto">
               <table className="w-full text-[17px]">
                 <thead>
-                  <tr className="border-b border-border text-left">
-                    <th className="py-2 pr-3 font-medium">日付</th>
+                  <tr className="border-b-2 border-border text-left bg-muted/30">
+                    <th className="py-2 pl-2 pr-3 font-medium">日付</th>
                     <th className="py-2 pr-3 font-medium">区分</th>
                     <th className="py-2 pr-3 font-medium text-right">増減</th>
                     <th className="py-2 pr-3 font-medium text-right">利息</th>
@@ -1147,10 +1254,13 @@ function LedgerRow(props: {
                     const links = props.receiptLinks.filter((r) => r.loan_entry_id === entry.id);
                     const journalized = Boolean(entry.journal_entry_id);
                     return (
-                      <tr key={entry.id} className="border-b border-border/60">
-                        <td className="py-2 pr-3 tabular-nums">{entry.entry_date}</td>
+                      <tr
+                        key={entry.id}
+                        className="border-b border-border/60 odd:bg-muted/10 hover:bg-muted/25 transition-colors"
+                      >
+                        <td className="py-2 pl-2 pr-3 tabular-nums">{entry.entry_date}</td>
                         <td className="py-2 pr-3">
-                          <Badge variant={entry.entry_type === "adjust" ? "warning" : "muted"}>
+                          <Badge variant={ENTRY_TYPE_TONE[entry.entry_type]}>
                             {entryTypeLabel(entry.entry_type, loan.direction)}
                           </Badge>
                           {entry.source === "ai_draft" && (
@@ -1159,7 +1269,13 @@ function LedgerRow(props: {
                             </Badge>
                           )}
                         </td>
-                        <td className="py-2 pr-3 text-right tabular-nums">
+                        {/* 増えたか減ったかを色でも示す。金額だけだと符号を見落とす */}
+                        <td
+                          className={
+                            "py-2 pr-3 text-right tabular-nums font-medium " +
+                            (delta >= 0 ? "text-foreground" : "text-destructive")
+                          }
+                        >
                           {delta >= 0 ? "+" : "−"}
                           {formatCurrency(Math.abs(delta))}
                         </td>
@@ -1169,7 +1285,7 @@ function LedgerRow(props: {
                             ? formatCurrency(entry.interest_amount)
                             : ""}
                         </td>
-                        <td className="py-2 pr-3 text-right tabular-nums font-medium">
+                        <td className="py-2 pr-3 text-right tabular-nums font-bold">
                           {formatCurrency(balanceAfter)}
                         </td>
                         <td className="py-2 pr-3 max-w-[20rem] truncate" title={entry.memo ?? ""}>
