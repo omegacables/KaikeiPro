@@ -816,7 +816,7 @@ export default function JournalsPage() {
                             処理中
                           </span>
                         ) : item.status === "done" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-success border border-emerald-500/20">
                             <Check className="size-3" />
                             完了
                           </span>
@@ -907,9 +907,9 @@ export default function JournalsPage() {
             )}>
               <div className="flex items-center gap-2">
                 {receiptSummary.failed > 0 ? (
-                  <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+                  <AlertTriangle className="size-4 shrink-0 text-warning" />
                 ) : (
-                  <Check className="size-4 shrink-0 text-emerald-600" />
+                  <Check className="size-4 shrink-0 text-success" />
                 )}
                 <p className="text-sm">
                   {receiptSummary.done} 件アップロード完了
@@ -1119,8 +1119,8 @@ export default function JournalsPage() {
                       <td className="px-2 py-1 text-center">
                         <span className={cn(
                           "inline-block px-1.5 py-0.5 rounded text-[10px]",
-                          s.confidence >= 0.7 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" :
-                          s.confidence >= 0.5 ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
+                          s.confidence >= 0.7 ? "bg-emerald-500/10 text-success" :
+                          s.confidence >= 0.5 ? "bg-amber-500/10 text-warning" :
                           "bg-destructive/10 text-destructive"
                         )}>
                           {(s.confidence * 100).toFixed(0)}%
@@ -1136,8 +1136,8 @@ export default function JournalsPage() {
           {/* AI警告 */}
           {importWarnings.length > 0 && (
             <div className="mt-3 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 max-h-40 overflow-y-auto">
-              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">AI警告:</p>
-              <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+              <p className="text-xs font-bold text-warning mb-1">AI警告:</p>
+              <ul className="text-xs text-warning space-y-0.5">
                 {importWarnings.map((w, i) => (
                   <li key={i}>・{w}</li>
                 ))}
@@ -1162,15 +1162,15 @@ export default function JournalsPage() {
                   : "bg-amber-500/10 border-amber-500/20"
               )}>
                 {importResult.errors.length === 0 ? (
-                  <Check className="size-4 text-emerald-600 shrink-0" />
+                  <Check className="size-4 text-success shrink-0" />
                 ) : (
-                  <AlertTriangle className="size-4 text-amber-600 shrink-0" />
+                  <AlertTriangle className="size-4 text-warning shrink-0" />
                 )}
                 <p className={cn(
                   "text-sm",
                   importResult.errors.length === 0
-                    ? "text-emerald-700 dark:text-emerald-400"
-                    : "text-amber-700 dark:text-amber-400"
+                    ? "text-success"
+                    : "text-warning"
                 )}>
                   {importResult.created} 件登録
                   {importResult.errors.length > 0 && ` / ${importResult.errors.length} 件エラー`}
@@ -1378,8 +1378,8 @@ export default function JournalsPage() {
                       <td className="px-2 py-1 text-center">
                         <span className={cn(
                           "inline-block px-1.5 py-0.5 rounded text-[10px]",
-                          s.confidence >= 0.7 ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400" :
-                          s.confidence >= 0.5 ? "bg-amber-500/10 text-amber-700 dark:text-amber-400" :
+                          s.confidence >= 0.7 ? "bg-emerald-500/10 text-success" :
+                          s.confidence >= 0.5 ? "bg-amber-500/10 text-warning" :
                           "bg-destructive/10 text-destructive"
                         )}>
                           {(s.confidence * 100).toFixed(0)}%
@@ -1395,8 +1395,8 @@ export default function JournalsPage() {
           {/* 警告 */}
           {bankWarnings.length > 0 && (
             <div className="mt-3 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 max-h-40 overflow-y-auto">
-              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">AI警告:</p>
-              <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+              <p className="text-xs font-bold text-warning mb-1">AI警告:</p>
+              <ul className="text-xs text-warning space-y-0.5">
                 {bankWarnings.map((w, i) => (
                   <li key={i}>・{w}</li>
                 ))}
@@ -1414,7 +1414,7 @@ export default function JournalsPage() {
           {/* 入金消込連携の結果 */}
           {reconcileMsg && (
             <div className="mt-3 p-2.5 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-              <p className="text-sm text-emerald-700 dark:text-emerald-400">{reconcileMsg}</p>
+              <p className="text-sm text-success">{reconcileMsg}</p>
             </div>
           )}
 
@@ -1428,9 +1428,9 @@ export default function JournalsPage() {
                   : "bg-amber-500/10 border-amber-500/20"
               )}>
                 {bankResult.errors.length === 0 ? (
-                  <Check className="size-4 text-emerald-600 shrink-0" />
+                  <Check className="size-4 text-success shrink-0" />
                 ) : (
-                  <AlertTriangle className="size-4 text-amber-600 shrink-0" />
+                  <AlertTriangle className="size-4 text-warning shrink-0" />
                 )}
                 <p className="text-sm">
                   {bankResult.created} 件登録（status: draft）
@@ -1585,7 +1585,7 @@ export default function JournalsPage() {
                       <td colSpan={2} className="py-2 px-1 border-r border-border text-center">
                         <button
                           onClick={addDebitLine}
-                          className="inline-flex items-center justify-center size-7 rounded-full border-2 border-blue-400 dark:border-blue-600 text-blue-500 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
+                          className="inline-flex items-center justify-center size-7 rounded-full border-2 border-blue-400 dark:border-blue-600 text-info hover:bg-blue-50 dark:hover:bg-blue-950/30 transition-colors"
                           title="借方行追加"
                         >
                           <Plus className="size-4" />
@@ -1594,7 +1594,7 @@ export default function JournalsPage() {
                       <td colSpan={2} className="py-2 px-1 border-r border-border text-center">
                         <button
                           onClick={addCreditLine}
-                          className="inline-flex items-center justify-center size-7 rounded-full border-2 border-red-400 dark:border-red-600 text-red-500 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
+                          className="inline-flex items-center justify-center size-7 rounded-full border-2 border-red-400 dark:border-red-600 text-destructive hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
                           title="貸方行追加"
                         >
                           <Plus className="size-4" />

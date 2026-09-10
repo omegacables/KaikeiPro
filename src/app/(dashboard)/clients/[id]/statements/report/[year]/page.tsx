@@ -150,7 +150,7 @@ function BsCells({ row }: { row: BsRow }) {
   return (
     <>
       <td
-        className={`px-2 py-0.5 ${isNote ? "text-gray-600" : ""}`}
+        className={`px-2 py-0.5 ${isNote ? "text-muted-foreground" : ""}`}
         style={indentPad}
       >
         {isNote ? `（${row.label}）` : row.label}
@@ -158,7 +158,7 @@ function BsCells({ row }: { row: BsRow }) {
       <td
         className={`px-2 py-0.5 text-right tabular-nums border-l border-l-gray-300 ${
           isSubtotal ? "border-t border-gray-400" : ""
-        } ${isNote ? "text-gray-600" : ""}`}
+        } ${isNote ? "text-muted-foreground" : ""}`}
       >
         {isNote ? `（${fmtAmt(row.amount)}）` : fmtAmt(row.amount)}
       </td>
@@ -468,7 +468,7 @@ export default function SettlementReportPage({
       </div>
 
       {!data.bs.balanced && (
-        <div className="no-print p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-400">
+        <div className="no-print p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-warning">
           貸借対照表の貸借が一致していません。期首残高・仕訳をご確認ください。
         </div>
       )}
@@ -497,7 +497,7 @@ export default function SettlementReportPage({
                 <p className="text-sm">TEL　{data.company.telephone}</p>
               )}
               {data.preparer && (
-                <p className="text-sm pt-6 text-gray-700">
+                <p className="text-sm pt-6 text-foreground">
                   作成　{data.preparer.name}
                 </p>
               )}
@@ -561,7 +561,7 @@ export default function SettlementReportPage({
             companyName={data.company.name}
           />
           {pl.sga.length === 0 ? (
-            <p className="py-4 text-center text-sm text-gray-500">
+            <p className="py-4 text-center text-sm text-muted-foreground">
               該当する費用はありません。
             </p>
           ) : (

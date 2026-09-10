@@ -23,8 +23,8 @@ const statusMeta: Record<
   ChecklistStatus,
   { label: string; icon: typeof CheckCircle2; cls: string }
 > = {
-  ok: { label: "OK", icon: CheckCircle2, cls: "text-green-600 dark:text-green-400" },
-  warning: { label: "注意", icon: AlertTriangle, cls: "text-amber-600 dark:text-amber-400" },
+  ok: { label: "OK", icon: CheckCircle2, cls: "text-success" },
+  warning: { label: "注意", icon: AlertTriangle, cls: "text-warning" },
   todo: { label: "要対応", icon: Circle, cls: "text-destructive" },
   info: { label: "確認", icon: Info, cls: "text-muted-foreground" },
 };
@@ -133,7 +133,7 @@ export default function ClosingChecklistPage({
         </Card>
         <Card>
           <CardContent className="py-3">
-            <p className="text-xs text-amber-600 dark:text-amber-400">注意</p>
+            <p className="text-xs text-warning">注意</p>
             <p className="text-xl font-bold tabular-nums">{counts.warning}</p>
           </CardContent>
         </Card>
@@ -145,7 +145,7 @@ export default function ClosingChecklistPage({
         </Card>
         <Card>
           <CardContent className="py-3">
-            <p className="text-xs text-green-600 dark:text-green-400">OK</p>
+            <p className="text-xs text-success">OK</p>
             <p className="text-xl font-bold tabular-nums">{counts.ok}</p>
           </CardContent>
         </Card>

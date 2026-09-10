@@ -149,7 +149,7 @@ export default function QuestionsPage() {
         <Card>
           <CardContent className="flex items-center gap-3 p-4">
             <div className="bg-green-500/10 rounded-full p-2">
-              <CheckCircle className="size-5 text-green-500" />
+              <CheckCircle className="size-5 text-success" />
             </div>
             <div>
               <p className="text-sm text-muted-foreground">回答済</p>

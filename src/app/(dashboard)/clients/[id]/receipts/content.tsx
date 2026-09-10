@@ -816,8 +816,8 @@ export function ReceiptsPageContent({
       {(processingOnly || !hideProcessingSection) && processingReceipts.length > 0 && (
         <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <Loader2 className="size-4 animate-spin text-amber-600" />
-            <h3 className="text-sm font-bold text-amber-700">
+            <Loader2 className="size-4 animate-spin text-warning" />
+            <h3 className="text-sm font-bold text-warning">
               処理中（{processingReceipts.length}件）
             </h3>
             <span className="text-xs text-muted-foreground">
@@ -1449,7 +1449,7 @@ export function ReceiptsPageContent({
                         ic === "invalid"
                           ? "text-destructive font-medium"
                           : ic === "none"
-                          ? "text-amber-700 dark:text-amber-500 font-medium"
+                          ? "text-warning font-medium"
                           : "text-muted-foreground";
                       return (
                         <div className={cn("rounded-lg border p-3", boxClass)}>
@@ -2009,7 +2009,7 @@ function StatementLinesSection({
                           <span className="block text-[10px] text-muted-foreground">{l.counterparty}</span>
                         )}
                       </td>
-                      <td className="px-2 py-2 text-right font-mono text-green-600">
+                      <td className="px-2 py-2 text-right font-mono text-success">
                         {isDeposit ? formatCurrency(abs) : ""}
                       </td>
                       <td className="px-2 py-2 text-right font-mono text-foreground">

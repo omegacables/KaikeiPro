@@ -70,7 +70,7 @@ export function FirmAssignment({
         </button>
       )}
       {saved && (
-        <span className="text-xs text-green-600">保存しました</span>
+        <span className="text-xs text-success">保存しました</span>
       )}
     </div>
   );

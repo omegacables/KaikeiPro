@@ -82,7 +82,7 @@ export default function InvoicePrintPage({
       </div>
 
       {!isQualified && (
-        <div className="no-print p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-400">
+        <div className="no-print p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-warning">
           発行者の登録番号（T+13桁）が未設定です。適格請求書として発行するには、設定画面で適格請求書発行事業者の登録番号を登録してください。
         </div>
       )}
@@ -180,7 +180,7 @@ export default function InvoicePrintPage({
               <span className="tabular-nums">{formatCurrency(data.subtotal)}</span>
             </div>
             {data.taxBreakdown.map((b) => (
-              <div key={b.rate} className="flex justify-between py-1 border-b border-gray-300 text-xs text-gray-600">
+              <div key={b.rate} className="flex justify-between py-1 border-b border-gray-300 text-xs text-muted-foreground">
                 <span>
                   {b.rate}% 対象 {formatCurrency(b.base)}（消費税 {formatCurrency(b.tax)}）
                 </span>
@@ -198,7 +198,7 @@ export default function InvoicePrintPage({
         </div>
 
         {isQualified && (
-          <p className="text-xs text-gray-500 mt-8">
+          <p className="text-xs text-muted-foreground mt-8">
             ※ 本書類は適格請求書（インボイス）の記載要件に対応しています。
           </p>
         )}

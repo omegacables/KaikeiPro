@@ -223,7 +223,7 @@ export default function OpeningBalancesPage({
         </div>
       )}
       {success && (
-        <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-sm text-green-700 dark:text-green-400">
+        <div className="p-3 rounded-lg bg-green-500/10 border border-green-500/20 text-sm text-success">
           {success}
         </div>
       )}
@@ -248,7 +248,7 @@ export default function OpeningBalancesPage({
             <p
               className={
                 "text-lg font-bold tabular-nums " +
-                (balanced ? "text-green-600 dark:text-green-400" : "text-destructive")
+                (balanced ? "text-success" : "text-destructive")
               }
             >
               {balanced ? "一致" : formatCurrency(Math.abs(diff))}
@@ -258,7 +258,7 @@ export default function OpeningBalancesPage({
       </div>
 
       {!balanced && (
-        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-amber-700 dark:text-amber-400">
+        <div className="flex items-center gap-2 p-3 rounded-lg bg-amber-500/10 border border-amber-500/20 text-sm text-warning">
           <AlertTriangle className="size-4 shrink-0" />
           貸借が一致していません。差額 {formatCurrency(Math.abs(diff))} を利益剰余金等で調整すると保存できます。
         </div>

@@ -12,11 +12,14 @@
   --color-charcoal: #323736;
   --color-slate-purple: #4e4d5c;
 
-  --color-primary: #527120;
+  /* 文字色として使ったときに背景（クリーム）・カード（白）の両方で
+     4.5:1 以上になる濃さにそろえている。text-primary / text-success の
+     ように「色そのものを文字に使う」箇所が多く、薄いと本文が読めない。 */
+  --color-primary: #527120; /* 背景 4.92:1 / カード 5.61:1 */
   --color-primary-light: #6c992f;
   --color-primary-dark: #4f6913;
   --color-primary-foreground: #ffffff;
-  --color-accent: #66911b;
+  --color-accent: #4f6913; /* 背景 5.48:1 / カード 6.25:1 */
   --color-accent-foreground: #ffffff;
 
   --color-background: #f6f2c5;
@@ -29,10 +32,14 @@
   --color-input: #bec8be;
   --color-ring: #527120;
 
-  --color-destructive: #dc2626;
+  --color-destructive: #b91c1c; /* 背景 5.68:1 / カード 6.47:1 */
   --color-destructive-foreground: #ffffff;
-  --color-warning: #d97706;
-  --color-success: #6c992f;
+  --color-warning: #a04607; /* 背景 5.46:1 / カード 6.22:1 */
+  --color-warning-foreground: #ffffff;
+  --color-success: #4f6913; /* 背景 5.48:1 / カード 6.25:1 */
+  --color-success-foreground: #ffffff;
+  --color-info: #1d4ed8; /* 背景 5.88:1 / カード 6.70:1 */
+  --color-info-foreground: #ffffff;
 
   --color-sidebar-bg: #323736;
   --color-sidebar-foreground: #f6f2c5;
@@ -54,6 +61,14 @@ html[data-theme="dark"] {
   --color-charcoal: #e6ebf2;
   --color-slate-purple: #a9a9c4;
 
+  /* ブランドの緑は文字色としても各画面に散らばっている（text-green-500 など）。
+     暗い面では 3.94:1 まで落ちて読めないため、明度を上げた組に差し替える。
+     カード上でいずれも 6:1 以上。 */
+  --color-green-500: #9ccc4a;
+  --color-green-600: #a8d65c;
+  --color-green-700: #b5dd6e;
+  --color-green-800: #8fbf3f;
+
   /* 明度に段差をつけて、背景・カード・境界を見分けられるようにする。
      以前は背景 #1a1a2e とカード #252540 が近すぎ、境界線も muted と
      同じ色だったため、項目の区切りがほとんど見えなかった。
@@ -67,12 +82,30 @@ html[data-theme="dark"] {
   --color-border: #545488;
   --color-input: #545488;
 
-  --color-destructive: #ef4444;
-  --color-warning: #f59e0b;
-  --color-success: #84cc16;
+  /* 暗い面の上では、明るい文字色に反転させる。
+     色を変えずに使い回すと text-primary が 2.36:1 まで落ちて読めない。
+     色を明るくするぶん、その色を「背景」に使うボタンの文字は
+     白から暗色へ入れ替える（Material Design 3 と同じ考え方）。 */
+  --color-primary: #9ccc4a; /* 背景 10.10:1 / カード 7.04:1 */
+  --color-primary-light: #b5dd6e;
+  --color-primary-dark: #8fbf3f; /* ボタンのホバー */
+  --color-primary-foreground: #0f0f1a; /* 明るい緑のボタンに乗る文字 10.10:1 */
+  --color-accent: #a8d65c; /* 背景 11.27:1 / カード 7.86:1 */
+  --color-accent-foreground: #0f0f1a;
+  --color-ring: #9ccc4a;
+
+  --color-destructive: #fca5a5; /* 背景 10.03:1 / カード 6.99:1 */
+  --color-destructive-foreground: #450a0a; /* 8.51:1 */
+  --color-warning: #f59e0b; /* 背景 8.86:1 / カード 6.18:1 */
+  --color-warning-foreground: #0f0f1a;
+  --color-success: #84cc16; /* 背景 9.63:1 / カード 6.71:1 */
+  --color-success-foreground: #0f0f1a;
+  --color-info: #93c5fd; /* 背景 10.55:1 / カード 7.36:1 */
+  --color-info-foreground: #0f0f1a;
 
   --color-sidebar-bg: #08080f;
   --color-sidebar-muted: #2c2c50;
+  --color-sidebar-accent: #9ccc4a; /* サイドバー地 10.60:1 */
 }
 
 @layer base {

@@ -1743,7 +1743,7 @@ export default function LedgersPage() {
                   <div
                     className={cn(
                       "text-xs font-mono flex justify-between px-1",
-                      editBalanced ? "text-emerald-600 dark:text-emerald-400" : "text-destructive"
+                      editBalanced ? "text-success" : "text-destructive"
                     )}
                   >
                     <span>借方 {formatCurrency(editTotalD)}</span>

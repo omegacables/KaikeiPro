@@ -384,7 +384,7 @@ export default function AllocationsPage() {
         <Card className="border-amber-500/40 bg-amber-500/5">
           <CardContent className="py-4">
             <div className="flex items-start gap-2">
-              <AlertTriangle className="size-5 text-amber-600 shrink-0 mt-0.5" />
+              <AlertTriangle className="size-5 text-warning shrink-0 mt-0.5" />
               <div className="text-sm">
                 <p className="font-bold text-foreground mb-1">法人では家事按分は使用できません</p>
                 <p className="text-muted-foreground">

@@ -586,8 +586,8 @@ export default function PaymentsPage() {
 
           {importWarnings.length > 0 && (
             <div className="mt-3 p-2.5 rounded-lg bg-amber-500/5 border border-amber-500/20 max-h-40 overflow-y-auto">
-              <p className="text-xs font-bold text-amber-700 dark:text-amber-400 mb-1">注意:</p>
-              <ul className="text-xs text-amber-700 dark:text-amber-400 space-y-0.5">
+              <p className="text-xs font-bold text-warning mb-1">注意:</p>
+              <ul className="text-xs text-warning space-y-0.5">
                 {importWarnings.map((w, i) => (<li key={i}>・{w}</li>))}
               </ul>
             </div>

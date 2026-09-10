@@ -6,13 +6,16 @@ const badgeVariants = cva(
   {
     variants: {
       variant: {
+        // 標準パレットの green-500 / blue-500 を直に使っていたため、
+        // テーマごとの明暗調整が効かず、暗い面で読めない色になっていた。
+        // 意味を表すトークン（success / info）に寄せる
         default: "bg-primary/10 text-primary",
-        success: "bg-green-500/10 text-green-500",
+        success: "bg-success/10 text-success",
         warning: "bg-warning/10 text-warning",
         destructive: "bg-destructive/10 text-destructive",
         muted: "bg-muted/50 text-muted-foreground",
         accent: "bg-accent/10 text-accent",
-        info: "bg-blue-500/10 text-blue-500",
+        info: "bg-info/10 text-info",
       },
     },
     defaultVariants: {

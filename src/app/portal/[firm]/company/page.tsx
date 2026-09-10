@@ -127,7 +127,7 @@ function StatRow({ label, value, accent }: { label: string; value: string; accen
       <span
         className={
           "text-sm font-bold tabular-nums " +
-          (accent === "up" ? "text-emerald-600 dark:text-emerald-400" : accent === "down" ? "text-red-600 dark:text-red-400" : "text-foreground")
+          (accent === "up" ? "text-success" : accent === "down" ? "text-destructive" : "text-foreground")
         }
       >
         {value}
@@ -263,7 +263,7 @@ export default function PortalCompanyPage() {
             <p
               className={
                 "text-base font-bold tabular-nums " +
-                (profitUp ? "text-emerald-600 dark:text-emerald-400" : "text-red-600 dark:text-red-400")
+                (profitUp ? "text-success" : "text-destructive")
               }
             >
               {fmt(performance.netIncome)}

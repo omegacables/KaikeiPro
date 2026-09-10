@@ -386,7 +386,7 @@ function ClientsPageContent() {
                 )}
                 {client.needs_review > 0 && (
                   <div className="text-center">
-                    <p className="text-amber-500 font-bold text-base">
+                    <p className="text-warning font-bold text-base">
                       {client.needs_review}
                     </p>
                     <p className="text-muted-foreground">確認待ち</p>

@@ -114,7 +114,7 @@ function TrialBalance({ data }: { data: TrialBalanceRow[] }) {
 
   return (
     <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
-      <table className="w-auto text-sm tabular-nums bg-white text-neutral-900 [&_th]:border-r [&_th]:border-neutral-200 [&_td]:border-r [&_td]:border-neutral-200 [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0">
+      <table className="w-auto text-sm tabular-nums bg-white text-foreground [&_th]:border-r [&_th]:border-neutral-200 [&_td]:border-r [&_td]:border-neutral-200 [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0">
         <thead>
           <tr className="border-b-2 border-neutral-400">
             <th className="text-right px-3 py-1.5 text-xs font-bold">借方残高</th>
@@ -132,7 +132,7 @@ function TrialBalance({ data }: { data: TrialBalanceRow[] }) {
                 <td className="px-3 py-1.5 text-right font-mono">{c.debitBalance > 0 ? formatCurrency(c.debitBalance) : ""}</td>
                 <td className="px-3 py-1.5 text-right font-mono">{c.debitTotal > 0 ? formatCurrency(c.debitTotal) : ""}</td>
                 <td className="px-3 py-1.5 whitespace-nowrap">
-                  {row.name}<span className="font-mono text-xs text-neutral-500">（{row.code}）</span>
+                  {row.name}<span className="font-mono text-xs text-muted-foreground">（{row.code}）</span>
                 </td>
                 <td className="px-3 py-1.5 text-right font-mono">{c.creditTotal > 0 ? formatCurrency(c.creditTotal) : ""}</td>
                 <td className="px-3 py-1.5 text-right font-mono">{c.creditBalance > 0 ? formatCurrency(c.creditBalance) : ""}</td>
@@ -993,7 +993,7 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
         </Button>
       </div>
       <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
-        <table className="w-auto text-sm tabular-nums bg-white text-neutral-900">
+        <table className="w-auto text-sm tabular-nums bg-white text-foreground">
           <thead>
             <tr className="border-b-2 border-neutral-400">
               <th className="text-left px-3 py-1.5 text-xs font-bold">棚卸日</th>
@@ -1007,7 +1007,7 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-3 py-8 text-center text-neutral-500">
+                <td colSpan={6} className="px-3 py-8 text-center text-muted-foreground">
                   品目がありません。「行を追加」で入力してください。
                 </td>
               </tr>
