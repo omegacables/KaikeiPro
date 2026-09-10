@@ -534,9 +534,14 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
     try {
       const { created, errors } = await commitLoanAiDrafts(id, chosen);
       if (errors.length > 0) {
+        // 同じ理由が並ぶと読みにくいので、まとめて件数で示す
+        const counts = new Map<string, number>();
+        for (const e of errors) counts.set(e.message, (counts.get(e.message) ?? 0) + 1);
+        const summary = [...counts.entries()]
+          .map(([msg, n]) => (n > 1 ? `${msg}（${n}件）` : msg))
+          .join("\n");
         setError(
-          `${created}件を登録しました。${errors.length}件は登録できませんでした: ` +
-            errors.map((e) => e.message).join(" / ")
+          `${created}件を登録しました。${errors.length}件は登録できませんでした。\n${summary}`
         );
       }
       setDrafts([]);
@@ -580,7 +585,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       </div>
 
       {error && (
-        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-[17px] text-destructive">
+        <div className="p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-[17px] text-destructive whitespace-pre-wrap">
           {error}
         </div>
       )}
@@ -701,6 +706,11 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           setDrafts([]);
           setExcluded([]);
           setAiWarnings([]);
+        }}
+        onCreateLoan={(name) => {
+          setEditingLoanId(null);
+          setLoanForm({ ...emptyLoanForm, lender_name: name, counterparty_kind: "officer" });
+          setShowLoanForm(true);
         }}
       />
 
@@ -1240,6 +1250,8 @@ function AiPanel(props: {
   onRunDocument: (receiptId: string) => void;
   onCommit: () => void;
   onCancel: () => void;
+  /** 台帳が無い相手先を、その場で登録できるようにする */
+  onCreateLoan: (name: string) => void;
 }) {
   const [receipts, setReceipts] = useState<{ id: string; label: string }[]>([]);
   const [receiptId, setReceiptId] = useState("");
@@ -1379,13 +1391,57 @@ function AiPanel(props: {
                           className="w-36 px-2 py-1 pr-7 rounded border border-border bg-background text-[17px]"
                         />
                       </td>
+                      {/* 通帳に載る名前と台帳の名前は普通ちがう（「アンドウ レン」と「代表取締役 ○○」など）。
+                          突き合わせに失敗したら、その場で台帳を選べるようにする */}
                       <td className="py-2 pr-2 whitespace-nowrap">
-                        {d.counterparty_name}
-                        {!d.loan_id && (
-                          <Badge variant="destructive" className="ml-1">
-                            台帳なし
-                          </Badge>
-                        )}
+                        <div className="flex items-center gap-1">
+                          <select
+                            value={d.loan_id ?? ""}
+                            onChange={(e) => {
+                              const next = [...props.drafts];
+                              const picked = props.ledgers.find(
+                                (l) => l.loan.id === e.target.value
+                              );
+                              next[i] = picked
+                                ? {
+                                    ...d,
+                                    loan_id: picked.loan.id,
+                                    counterparty_name: picked.loan.lender_name,
+                                    direction: picked.loan.direction,
+                                    balance_after:
+                                      picked.balance +
+                                      (d.entry_type === "repay" ? -d.amount : d.amount),
+                                  }
+                                : { ...d, loan_id: null, balance_after: null };
+                              props.setDrafts(next);
+                            }}
+                            className={
+                              "px-2 py-1 rounded border bg-background text-[17px] " +
+                              (d.loan_id ? "border-border" : "border-destructive")
+                            }
+                          >
+                            <option value="">
+                              {d.counterparty_name
+                                ? `${d.counterparty_name}（台帳を選択）`
+                                : "台帳を選択"}
+                            </option>
+                            {props.ledgers.map((l) => (
+                              <option key={l.loan.id} value={l.loan.id}>
+                                {l.loan.lender_name}
+                                {l.loan.direction === "lend" ? "（貸付）" : "（借入）"}
+                              </option>
+                            ))}
+                          </select>
+                          {!d.loan_id && (
+                            <Button
+                              variant="outline"
+                              className="px-2 py-1 text-[15px]"
+                              onClick={() => props.onCreateLoan(d.counterparty_name)}
+                            >
+                              台帳を作る
+                            </Button>
+                          )}
+                        </div>
                       </td>
                       <td className="py-2 pr-2">
                         <select

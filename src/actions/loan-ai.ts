@@ -617,8 +617,11 @@ export async function commitLoanAiDrafts(
     const d = drafts[i];
     try {
       if (!d.loan_id) {
+        // 通帳に載る名前（「アンドウ レン」など）と台帳の名前は普通ちがうため、
+        // 突き合わせに失敗すること自体はよくある。画面で選び直せるよう促す
         throw new Error(
-          `相手先「${d.counterparty_name}」の台帳がありません。先に相手先を登録してください。`
+          `「${d.counterparty_name}」に対応する台帳が選ばれていません。` +
+            `一覧の「相手先」欄で台帳を選ぶか、「台帳を作る」で登録してください。`
         );
       }
       // 台帳がこの顧問先のものであることを都度確認する
