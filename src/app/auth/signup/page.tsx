@@ -115,7 +115,6 @@ export default function SignupPage() {
               onChange={(e) => setName(e.target.value)}
               required
               className="w-full bg-background border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50 placeholder:text-muted-foreground"
-              placeholder="山田 太郎"
             />
           </div>
 

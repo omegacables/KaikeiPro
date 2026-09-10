@@ -109,7 +109,6 @@ export function ClientPortalAccountForm({ clientId }: { clientId: string }) {
               value={name}
               onChange={(e) => setName(e.target.value)}
               required
-              placeholder="山田 太郎"
               className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
             />
           </div>

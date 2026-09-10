@@ -1121,7 +1121,7 @@ export default function SettingsPage() {
                     <div className="grid grid-cols-3 gap-4 mb-4">
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-1">名前</label>
-                        <input type="text" value={inviteData.name} onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })} placeholder="山田 太郎" className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm" />
+                        <input type="text" value={inviteData.name} onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })} className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm" />
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-1">メール</label>
