@@ -1,14 +1,8 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 export type JournalCsvSuggestion = {
   rowIdx: number;
@@ -126,9 +120,8 @@ ${dataText}
 - 数値はカンマ・通貨記号を除去した正数
 - JSONのみ返してください`;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
   const responseText = result.response.text();
 
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);

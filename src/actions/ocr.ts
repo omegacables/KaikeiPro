@@ -1,17 +1,11 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import { resolveClientIdForRecord } from "@/lib/authz";
 import { downloadReceiptImage } from "./receipt-storage";
 import { generateJournalSuggestion } from "./ai-journal";
 import { DOCUMENT_TYPES, type OcrResult } from "@/types/index";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 /**
  * 為替レート取得（外部API）
@@ -94,12 +88,11 @@ export async function processReceiptOcr(
 
     // 5. Gemini API呼び出し（画像・PDF両対応）
     // 1画像内の複数レシートを漏れなく読み取るため精度の高い Pro を使用
-    const genAI = getGeminiClient();
-    const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+    const model = getGeminiModel("vision");
 
     const isPdf = mimeType === "application/pdf";
 
-    const result = await model.generateContent([
+    const result = await callGemini(() => model.generateContent([
       {
         inlineData: {
           mimeType: mimeType as
@@ -141,7 +134,7 @@ payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e
 
 複数のレシートが写っている場合はreceipts配列を複数要素にしてください。`,
       },
-    ]);
+    ]));
 
     const responseText = result.response.text();
 

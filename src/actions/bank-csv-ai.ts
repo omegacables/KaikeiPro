@@ -1,15 +1,9 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
 import { listLearnedRulesForPrompt, recordLearnedRule } from "./learned-rules";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 export type BankCsvSuggestion = {
   rowIdx: number;
@@ -144,9 +138,8 @@ ${dataText}
 - 解析できない行は confidence を低く（0.2以下）、debitAccountCode と creditAccountCode は最も近そうな科目を入れる
 - JSONのみ返してください`;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
   const responseText = result.response.text();
 
   // JSONパース

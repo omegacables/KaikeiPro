@@ -4,17 +4,11 @@
 // 取引先（business_partner）を推定して入金行候補を返す。
 // 抽出後はページのプレビューで取引先を確認・修正し、payments.reconcileDeposits で確定する。
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
 import { toHalfWidth } from "@/lib/account-reading";
 import { reconcileDeposits, type ReconcileResult } from "./payments";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 export type DepositSuggestion = {
   rowIdx: number;
@@ -175,9 +169,8 @@ ${DEPOSIT_INSTRUCTIONS}
 - rowIdx はデータ行の0始まりインデックス
 - JSONのみ返すこと`;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
   const parsed = parseGeminiDeposits(result.response.text());
   // rowIdx を実データ範囲にクランプ
   const safe = parsed.filter((d) => d.rowIdx >= 0 && d.rowIdx < dataRows.length);
@@ -196,10 +189,9 @@ export async function analyzeDepositsPdf(
   const supabase = await createServerSupabaseClient();
   const partners = await getPartnersForClient(supabase, clientId);
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+  const model = getGeminiModel("vision");
 
-  const result = await model.generateContent([
+  const result = await callGemini(() => model.generateContent([
     { inlineData: { mimeType, data: base64 } },
     {
       text: `この書類（入金明細・通帳・振込リスト等）から入金行を抽出してください。
@@ -211,7 +203,7 @@ ${DEPOSIT_INSTRUCTIONS}
 - rowIdx は0始まりの連番
 - JSONのみ返すこと`,
     },
-  ]);
+  ]));
 
   const parsed = parseGeminiDeposits(result.response.text());
   if (parsed.length > MAX_ROWS) {

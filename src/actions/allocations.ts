@@ -1,15 +1,9 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { createJournalEntry } from "./journals";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 export interface AllocatableAccount {
   id: string;
@@ -72,8 +66,7 @@ export async function suggestAllocationRatios(clientId: string): Promise<Allocat
   const accounts = await getAllocatableAccounts(clientId);
   if (accounts.length === 0) return [];
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+  const model = getGeminiModel("text");
 
   const prompt = `あなたは日本の税務に詳しい税理士補助です。個人事業主の「家事按分」における、各勘定科目の事業使用割合（按分率, 0〜100の整数%）の目安を提案してください。
 
@@ -91,7 +84,7 @@ ${accounts.map((a) => `- ${a.name}`).join("\n")}
 必ず次のJSON形式のみで回答（説明文不要）:
 {"suggestions":[{"name":"科目名（入力のまま）","ratio":40,"reason":"一言理由"}]}`;
 
-  const result = await model.generateContent(prompt);
+  const result = await callGemini(() => model.generateContent(prompt));
   const text = result.response.text();
   const match = text.match(/\{[\s\S]*\}/);
   if (!match) throw new Error("AI提案の解析に失敗しました");

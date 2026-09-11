@@ -1,18 +1,12 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
 import { lookupLearnedRules, recordLearnedRule } from "./learned-rules";
 import type { OcrResult, AiJournalSuggestion } from "@/types/index";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 /**
  * OCR結果から仕訳を提案
@@ -215,9 +209,8 @@ JSONのみ返してください。`;
 
   const prompt = isIssued ? issuedPrompt : receivedPrompt;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
   const responseText = result.response.text();
 
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -579,9 +572,8 @@ ${accountList}
 
 JSONのみ返してください。`;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
   const responseText = result.response.text();
 
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -795,9 +787,8 @@ ${accountList}
 
 JSONのみ返してください。`;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const result = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const result = await callGemini(() => model.generateContent(prompt));
   const responseText = result.response.text();
 
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);

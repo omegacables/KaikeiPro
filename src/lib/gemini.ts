@@ -1,11 +1,15 @@
 // Gemini API の共通ラッパー。
 //
-// 既存のAI機能（ocr.ts / ai-journal.ts / bank-csv-ai.ts / journal-csv-ai.ts /
-// deposit-csv-ai.ts / statement-lines.ts / allocations.ts）は同じ
-// getGeminiClient() を各ファイルにコピペしており、モデル名・JSONの取り出し方・
-// プロンプトインジェクション対策の文言がファイルごとに散っている。
-// 新しいAI機能でその8個目を作らないよう、ここに集約する。
-// 既存7ファイルの移行は本改修のスコープ外（差分を借入金機能に閉じるため）。
+// かつては同じ getGeminiClient() が8ファイルにコピペされ、モデル名も
+// "gemini-2.5-flash" のように各所へ直書きされていた。モデルを変えるにも
+// エラー文言を直すにも全ファイルを探して回る必要があり、直し漏れが起きる。
+//
+// AIを呼ぶ処理はすべてここを通す。呼び出し側は次の2つだけを使う:
+//   getGeminiModel("vision" | "text") … 用途からモデルを決める
+//   callGemini(() => model.generateContent(...)) … 失敗を日本語のエラーに変換する
+//
+// 移行済み: ocr / ai-journal / bank-csv-ai / journal-csv-ai / deposit-csv-ai /
+//           statement-lines / allocations / loan-ai
 
 import { GoogleGenerativeAI } from "@google/generative-ai";
 

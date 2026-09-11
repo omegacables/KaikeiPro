@@ -1,6 +1,6 @@
 "use server";
 
-import { GoogleGenerativeAI } from "@google/generative-ai";
+import { getGeminiModel, callGemini } from "@/lib/gemini";
 import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
@@ -8,12 +8,6 @@ import {
 import { resolveClientIdForRecord, assertRecordsAccess } from "@/lib/authz";
 import { downloadReceiptImage } from "./receipt-storage";
 import type { OcrResult, StatementLine } from "@/types/index";
-
-function getGeminiClient() {
-  const apiKey = process.env.GOOGLE_API_KEY;
-  if (!apiKey) throw new Error("GOOGLE_API_KEY が設定されていません");
-  return new GoogleGenerativeAI(apiKey);
-}
 
 type DbRow = Record<string, unknown>;
 
@@ -99,10 +93,9 @@ export async function extractStatementTransactions(
   const isPdf = mimeType === "application/pdf";
 
   // 4. Gemini Pro で明細行を抽出
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-pro" });
+  const model = getGeminiModel("vision");
 
-  const result = await model.generateContent([
+  const result = await callGemini(() => model.generateContent([
     {
       inlineData: {
         mimeType: mimeType as "image/jpeg" | "image/png" | "application/pdf",
@@ -127,7 +120,7 @@ statement_subtype の判定:
 - counterparty: 振込先・利用店名など。不明なら null
 - 合計行・繰越行・見出し行は含めない（実取引行のみ）`,
     },
-  ]);
+  ]));
 
   const responseText = result.response.text();
   const jsonMatch = responseText.match(/\{[\s\S]*\}/);
@@ -348,9 +341,8 @@ ${linePrompts}
 
 JSONのみ返してください。`;
 
-  const genAI = getGeminiClient();
-  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
-  const aiResult = await model.generateContent(prompt);
+  const model = getGeminiModel("text");
+  const aiResult = await callGemini(() => model.generateContent(prompt));
   const aiText = aiResult.response.text();
   const aiMatch = aiText.match(/\{[\s\S]*\}/);
   if (!aiMatch) throw new Error("相手科目の推定に失敗しました");
