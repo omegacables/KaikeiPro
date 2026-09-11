@@ -7,7 +7,7 @@
 import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
-import { toHalfWidth } from "@/lib/account-reading";
+import { findCounterpartyWithKind } from "@/lib/counterparty-match";
 import { reconcileDeposits, type ReconcileResult } from "./payments";
 
 export type DepositSuggestion = {
@@ -28,35 +28,23 @@ export type DepositAnalysis = {
 
 const MAX_ROWS = 100;
 
-function normalizeName(s: string | null | undefined): string {
-  if (!s) return "";
-  return toHalfWidth(s)
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .replace(/(株式会社|有限会社|合同会社|\(株\)|（株）|㈱)/g, "");
-}
+type Partner = { id: string; name: string; aliases?: string[] | null };
 
-type Partner = { id: string; name: string };
-
+/**
+ * 通帳・入金明細に載る振込名義から取引先を選ぶ。
+ *
+ * 以前はこのファイル独自の正規化を持っており、「振込」「フリコミ」や
+ * 半角カタカナ、「カ)」の揺れを落とせず、通帳の表記とはほとんど一致しなかった。
+ * 借入金台帳と同じ突き合わせ（別名つき）に寄せる。
+ */
 function matchPartner(
   payer: string,
   partners: Partner[]
 ): { id: string | null; name: string | null; confidence: number } {
-  const p = normalizeName(payer);
-  if (!p) return { id: null, name: null, confidence: 0 };
-  // 完全一致
-  for (const bp of partners) {
-    if (normalizeName(bp.name) === p) return { id: bp.id, name: bp.name, confidence: 1 };
-  }
-  // 部分一致（どちらかが他方を含む。2文字以上）
-  for (const bp of partners) {
-    const n = normalizeName(bp.name);
-    if (n.length >= 2 && (p.includes(n) || n.includes(p))) {
-      return { id: bp.id, name: bp.name, confidence: 0.6 };
-    }
-  }
-  return { id: null, name: null, confidence: 0 };
+  const { match, kind } = findCounterpartyWithKind(payer, partners);
+  if (!match) return { id: null, name: null, confidence: 0 };
+  // 部分一致は別人を拾うことがあるので、完全一致と同じ確信度にはしない
+  return { id: match.id, name: match.name, confidence: kind === "exact" ? 1 : 0.6 };
 }
 
 async function getPartnersForClient(
@@ -65,7 +53,7 @@ async function getPartnersForClient(
 ): Promise<Partner[]> {
   const { data } = await supabase
     .from("business_partners")
-    .select("id, name")
+    .select("id, name, aliases")
     .eq("client_id", clientId);
   return (data ?? []) as Partner[];
 }

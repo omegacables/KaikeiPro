@@ -427,6 +427,8 @@ export interface Database {
           email: string | null;
           invoice_registration_number: string | null;
           is_invoice_registered: boolean;
+          /** 通帳・入金明細に載る表記。正式名称と結び付けるための照合キー */
+          aliases: string[];
           raqto_partner_id: string | null;
           created_at: string;
         };
@@ -441,6 +443,7 @@ export interface Database {
           email?: string | null;
           invoice_registration_number?: string | null;
           is_invoice_registered?: boolean;
+          aliases?: string[];
           raqto_partner_id?: string | null;
           created_at?: string;
         };
@@ -455,6 +458,7 @@ export interface Database {
           email?: string | null;
           invoice_registration_number?: string | null;
           is_invoice_registered?: boolean;
+          aliases?: string[];
           raqto_partner_id?: string | null;
         };
         Relationships: [];

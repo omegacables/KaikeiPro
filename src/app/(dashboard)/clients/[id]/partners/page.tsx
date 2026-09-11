@@ -75,6 +75,7 @@ export default function PartnersPage() {
     email: "",
     address: "",
     invoice_registration_number: "",
+    aliases: "",
   });
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
@@ -135,9 +136,14 @@ export default function PartnersPage() {
         address: newPartner.address || undefined,
         invoice_registration_number: newPartner.invoice_registration_number || undefined,
         is_invoice_registered: !!newPartner.invoice_registration_number,
+        // 読点・改行・カンマのどれで区切っても受け付ける
+        aliases: newPartner.aliases
+          .split(/[\n,、]/)
+          .map((v) => v.trim())
+          .filter(Boolean),
       });
       setShowNewForm(false);
-      setNewPartner({ name: "", type: "customer", telephone: "", email: "", address: "", invoice_registration_number: "" });
+      setNewPartner({ name: "", type: "customer", telephone: "", email: "", address: "", invoice_registration_number: "", aliases: "" });
       refetch();
     } catch (err) {
       alert(err instanceof Error ? err.message : "登録に失敗しました");
@@ -269,6 +275,22 @@ export default function PartnersPage() {
             <div className="md:col-span-2">
               <label className="block text-xs font-bold text-muted-foreground mb-1">適格請求書登録番号</label>
               <input type="text" value={newPartner.invoice_registration_number} onChange={(e) => setNewPartner({ ...newPartner, invoice_registration_number: e.target.value })} placeholder="T1234567890123" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+            </div>
+            <div className="md:col-span-2">
+              <label className="block text-xs font-bold text-muted-foreground mb-1">通帳での表記（任意）</label>
+              <input
+                type="text"
+                value={newPartner.aliases}
+                onChange={(e) => setNewPartner({ ...newPartner, aliases: e.target.value })}
+                placeholder="ｶ)ｵｵｻｶﾌﾞﾋﾝ、オオサカブヒン"
+                className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm"
+              />
+              {/* 通帳の表記は正式名称と一致しないことが多い。
+                  ここに登録しておくと、入金明細の取り込みで自動的に結び付く */}
+              <p className="mt-1 text-xs text-muted-foreground">
+                通帳や入金明細に載る名前が正式名称と違う場合に登録します。
+                読点・カンマで複数書けます。入金明細の取り込みで自動的に結び付きます。
+              </p>
             </div>
             <div className="md:col-span-2 flex justify-end gap-2">
               <Button type="button" variant="ghost" onClick={() => setShowNewForm(false)}>キャンセル</Button>

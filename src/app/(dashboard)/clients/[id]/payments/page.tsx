@@ -25,7 +25,8 @@ import { useData } from "@/lib/use-data";
 import { getPayments, createPayment, allocatePayment, reconcileDeposits } from "@/actions/payments";
 import { analyzeDepositsRows, analyzeDepositsPdf, type DepositSuggestion } from "@/actions/deposit-csv-ai";
 import { parseTabularFile } from "@/lib/parse-tabular";
-import { getPartners } from "@/actions/partners";
+import { getPartners, addPartnerAlias } from "@/actions/partners";
+import { matchesCounterparty } from "@/lib/counterparty-match";
 import { getUnpaidInvoices } from "@/actions/invoices";
 import { getBankAccounts, createBankAccount } from "@/actions/bank";
 import { BankSelectModal } from "@/components/bank-select-modal";
@@ -76,7 +77,12 @@ export default function PaymentsPage() {
   const [selectedInvoice, setSelectedInvoice] = useState<string | null>(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [partnerList, setPartnerList] = useState<{ id: string; name: string }[]>([]);
+  const [partnerList, setPartnerList] = useState<
+    { id: string; name: string; aliases?: string[] | null }[]
+  >([]);
+  // 「この表記を登録」を押した行。二重に押させないための目印
+  const [aliasSaving, setAliasSaving] = useState<number | null>(null);
+  const [aliasSaved, setAliasSaved] = useState<Record<number, boolean>>({});
   const [newPayment, setNewPayment] = useState({
     payment_date: "",
     amount: "",
@@ -99,7 +105,8 @@ export default function PaymentsPage() {
   async function loadPartners() {
     try {
       const ps = await getPartners(id);
-      setPartnerList(ps.map((p) => ({ id: p.id, name: p.name })));
+      // aliases も持ってくる。通帳の表記と突き合わせるのに使う
+      setPartnerList(ps.map((p) => ({ id: p.id, name: p.name, aliases: p.aliases })));
     } catch { /* ignore */ }
   }
 
@@ -563,6 +570,48 @@ export default function PaymentsPage() {
                               <option key={p.id} value={p.id}>{p.name}</option>
                             ))}
                           </select>
+
+                          {/* 自動で当たらなかった振込名義を、その場で取引先に覚えさせる。
+                              登録しておくと次回から同じ表記が自動で結び付く。
+                              学習に任せず明示的に登録するのは、後から
+                              「なぜこの取引先に当たったのか」を説明できるようにするため */}
+                          {(() => {
+                            const picked = partnerList.find((p) => p.id === d.business_partner_id);
+                            if (!picked || !d.payer) return null;
+                            if (matchesCounterparty(d.payer, picked)) return null;
+                            if (aliasSaved[d.rowIdx]) {
+                              return (
+                                <p className="mt-1 text-xs text-success">
+                                  「{d.payer}」を登録しました
+                                </p>
+                              );
+                            }
+                            return (
+                              <button
+                                type="button"
+                                disabled={aliasSaving !== null}
+                                onClick={async () => {
+                                  setAliasSaving(d.rowIdx);
+                                  try {
+                                    const next = await addPartnerAlias(picked.id, d.payer);
+                                    setPartnerList((prev) =>
+                                      prev.map((p) =>
+                                        p.id === picked.id ? { ...p, aliases: next } : p
+                                      )
+                                    );
+                                    setAliasSaved((prev) => ({ ...prev, [d.rowIdx]: true }));
+                                  } catch (e) {
+                                    alert(e instanceof Error ? e.message : "登録に失敗しました");
+                                  } finally {
+                                    setAliasSaving(null);
+                                  }
+                                }}
+                                className="mt-1 text-xs text-primary underline underline-offset-2 disabled:opacity-50"
+                              >
+                                「{d.payer}」をこの取引先の表記として登録
+                              </button>
+                            );
+                          })()}
                         </td>
                       </tr>
                     ))}

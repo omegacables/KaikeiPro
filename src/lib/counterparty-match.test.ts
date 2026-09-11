@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { normalizeName, matchesCounterparty, findCounterparty } from "./counterparty-match";
+import { normalizeName, matchesCounterparty, findCounterparty, findCounterpartyWithKind } from "./counterparty-match";
 
 describe("normalizeName（比べられる形にそろえる）", () => {
   it("全角英数字を半角にする", () => {
@@ -28,7 +28,7 @@ describe("normalizeName（比べられる形にそろえる）", () => {
 });
 
 describe("matchesCounterparty（台帳のものかを判定）", () => {
-  const loan = { lender_name: "検証用社長", aliases: ["アンドウ レン", "安藤蓮"] };
+  const loan = { name: "検証用社長", aliases: ["アンドウ レン", "安藤蓮"] };
 
   it("別名に一致すれば同じ相手先とみなす", () => {
     expect(matchesCounterparty("振込 アンドウ レン", loan)).toBe(true);
@@ -51,15 +51,15 @@ describe("matchesCounterparty（台帳のものかを判定）", () => {
   });
 
   it("別名が無くても名前だけで判定できる", () => {
-    expect(matchesCounterparty("○○銀行", { lender_name: "○○銀行" })).toBe(true);
+    expect(matchesCounterparty("○○銀行", { name: "○○銀行" })).toBe(true);
   });
 });
 
 describe("findCounterparty（当てはまる台帳を選ぶ）", () => {
   const loans = [
-    { id: "A", lender_name: "検証用社長", aliases: ["アンドウ レン"] },
-    { id: "B", lender_name: "○○銀行", aliases: [] },
-    { id: "C", lender_name: "安藤", aliases: [] },
+    { id: "A", name: "検証用社長", aliases: ["アンドウ レン"] },
+    { id: "B", name: "○○銀行", aliases: [] },
+    { id: "C", name: "安藤", aliases: [] },
   ];
 
   it("別名から正しい台帳を選ぶ", () => {
@@ -73,5 +73,30 @@ describe("findCounterparty（当てはまる台帳を選ぶ）", () => {
 
   it("当てはまるものが無ければ null", () => {
     expect(findCounterparty("チュウブデンリョク", loans)).toBeNull();
+  });
+});
+
+describe("取引先マスタでの突き合わせ（借入金台帳と同じ規則）", () => {
+  const partners = [
+    { id: "p1", name: "株式会社大阪部品", aliases: ["ｶ)ｵｵｻｶﾌﾞﾋﾝ"] },
+    { id: "p2", name: "山田商事", aliases: [] as string[] },
+  ];
+
+  it("通帳の半角カタカナ表記から取引先を当てられる", () => {
+    expect(findCounterparty("振込 ｶ)ｵｵｻｶﾌﾞﾋﾝ", partners)?.id).toBe("p1");
+  });
+
+  it("別名が無くても正式名称と一致すれば当たる", () => {
+    expect(findCounterparty("ﾌﾘｺﾐ 山田商事", partners)?.id).toBe("p2");
+  });
+
+  it("完全一致と部分一致を区別して返す", () => {
+    expect(findCounterpartyWithKind("株式会社大阪部品", partners).kind).toBe("exact");
+    expect(findCounterpartyWithKind("大阪部品の入金", partners).kind).toBe("partial");
+    expect(findCounterpartyWithKind("まったく別の会社", partners).kind).toBe("none");
+  });
+
+  it("当てはまらない振込名義には取引先を割り当てない", () => {
+    expect(findCounterparty("ﾀﾅｶ ﾀﾛｳ", partners)).toBeNull();
   });
 });

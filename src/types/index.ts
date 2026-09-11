@@ -287,6 +287,8 @@ export interface BusinessPartner {
   email?: string;
   invoice_registration_number?: string;
   is_invoice_registered: boolean;
+  /** 通帳・入金明細での表記。正式名称と結び付けるための照合キー */
+  aliases?: string[];
 }
 
 // ===== 請求書 =====

@@ -277,10 +277,7 @@ function toDraft(raw: RawDraft, ctx: LedgerContext, model: string): LoanAiDraft 
   const name = (raw.counterparty_name ?? "").trim();
   // 通帳の表記と台帳の名前は一致しないため、登録された別名も含めて突き合わせる。
   // 全角半角・「振込」「株式会社」などの揺れは正規化して吸収する
-  const matched = findCounterparty(
-    name,
-    ctx.loans.map((l) => ({ ...l, lender_name: l.name }))
-  );
+  const matched = findCounterparty(name, ctx.loans);
 
   const expenseAccount = raw.expense_account_name
     ? (ctx.expenseAccounts.find((a) => a.name === raw.expense_account_name) ??
