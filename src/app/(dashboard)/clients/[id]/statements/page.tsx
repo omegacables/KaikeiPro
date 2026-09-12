@@ -117,7 +117,7 @@ function TrialBalance({ data }: { data: TrialBalanceRow[] }) {
   const balanced = debitTotalAll === creditTotalAll && debitBalanceAll === creditBalanceAll;
 
   return (
-    <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
+    <div className="paper w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
       <table className="w-auto text-sm tabular-nums bg-white text-foreground [&_th]:border-r [&_th]:border-neutral-200 [&_td]:border-r [&_td]:border-neutral-200 [&_th:last-child]:border-r-0 [&_td:last-child]:border-r-0">
         <thead>
           <tr className="border-b-2 border-neutral-400">
@@ -996,7 +996,7 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
           行を追加
         </Button>
       </div>
-      <div className="w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
+      <div className="paper w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
         <table className="w-auto text-sm tabular-nums bg-white text-foreground">
           <thead>
             <tr className="border-b-2 border-neutral-400">

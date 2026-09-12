@@ -54,7 +54,7 @@ function fmtAmt(n: number): string {
 function Sheet({ children }: { children: React.ReactNode }) {
   return (
     <div
-      className="sheet mx-auto max-w-[820px] bg-white text-black border border-border rounded-lg shadow-sm p-12 mb-6"
+      className="paper sheet mx-auto max-w-[820px] bg-white text-black border border-border rounded-lg shadow-sm p-12 mb-6"
       style={{ fontFamily: SERIF_FONT }}
     >
       {children}

@@ -123,7 +123,7 @@ export default function LoanBreakdownPage({
 
       <div id="breakdown-root">
         <div
-          className="sheet mx-auto w-full max-w-[820px] bg-white text-black p-10 shadow"
+          className="paper sheet mx-auto w-full max-w-[820px] bg-white text-black p-10 shadow"
           style={{ fontFamily: SERIF }}
         >
           <h1 className="text-center text-xl font-bold tracking-widest">

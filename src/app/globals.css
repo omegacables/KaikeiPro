@@ -108,6 +108,37 @@ html[data-theme="dark"] {
   --color-sidebar-accent: #9ccc4a; /* サイドバー地 10.60:1 */
 }
 
+/* ---------------------------------------------------------------------------
+   印刷用の紙面（決算書・内訳明細書・請求書・試算表）
+   ---------------------------------------------------------------------------
+   これらは「紙に印刷したときの見た目」を再現するため、背景を白で固定している。
+   ところが中の文字色にテーマ連動の色（text-foreground など）を使うと、
+   ダークテーマでは白い紙に白い文字が乗って読めなくなる。
+
+   個々の箇所で固定色を書くと、書き忘れ・後からの一括置換で必ず崩れる。
+   そこで紙面の中だけ**色の変数そのもの**を紙の値に差し替える。
+   こうすると中で使う色は常に紙の上で読める値になり、
+   text-foreground のような書き方をそのまま使える。 */
+.paper {
+  --color-background: #ffffff;
+  --color-card: #ffffff;
+  --color-foreground: #171717;      /* 白地に 17.9:1 */
+  --color-card-foreground: #171717;
+  --color-muted: #f5f5f5;
+  --color-muted-foreground: #4b5563; /* 白地に 7.6:1 */
+  --color-border: #d4d4d4;
+  --color-input: #d4d4d4;
+  --color-primary: #527120;         /* 白地に 5.6:1 */
+  --color-primary-foreground: #ffffff;
+  --color-accent: #4f6913;
+  --color-success: #4f6913;
+  --color-warning: #a04607;
+  --color-destructive: #b91c1c;
+  --color-info: #1d4ed8;
+  --color-cream: #171717;
+  --color-charcoal: #171717;
+}
+
 @layer base {
   *,
   ::after,

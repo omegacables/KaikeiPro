@@ -90,7 +90,7 @@ export default function InvoicePrintPage({
       {/* ===== A4 請求書シート ===== */}
       <div
         id="invoice-sheet"
-        className="mx-auto max-w-[800px] bg-white text-black border border-border rounded-lg shadow-sm p-10"
+        className="paper mx-auto max-w-[800px] bg-white text-black border border-border rounded-lg shadow-sm p-10"
       >
         {/* タイトル */}
         <h1 className="text-center text-2xl font-bold tracking-[0.3em] mb-8">{title}</h1>
