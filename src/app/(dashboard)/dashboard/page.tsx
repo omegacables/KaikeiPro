@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { AlertTriangle, ChevronRight, CheckCircle, Loader2, CalendarClock, Wallet, Layers, Receipt, CreditCard, TrendingUp } from "lucide-react";
+import { AlertTriangle, ChevronRight, CheckCircle, Loader2, CalendarClock, Wallet, Layers, Receipt, CreditCard, TrendingUp, ListChecks } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useData } from "@/lib/use-data";
 import { getReviewCountsByClient } from "@/actions/receipts";
+import { getPendingWorkByClient, type PendingWork } from "@/actions/dashboard";
 import { getTaxCalendar, getClients } from "@/actions/clients";
 import { getInvoiceStatusByClient, getPayableStatusByClient } from "@/actions/invoices";
 import { getBalanceSummary, type BalanceSummary } from "@/actions/ledgers";
@@ -136,8 +137,49 @@ function MonthlyTrendChart({ months }: { months: MonthPoint[] }) {
   );
 }
 
+/**
+ * 「未処理の作業」に出す種類。
+ * どれも処理すれば数が減って消えるものだけを載せる。
+ * why はなぜ放置してはいけないかを一言で示す（数字だけでは動機が伝わらない）。
+ */
+const PENDING_KINDS: {
+  key: string;
+  label: string;
+  why: string;
+  count: (w: PendingWork) => number;
+  href: (clientId: string) => string;
+}[] = [
+  {
+    key: "journals",
+    label: "要確認の仕訳",
+    why: "決算書の集計に入りません",
+    count: (w) => w.needsReviewJournals,
+    href: (id) => `/clients/${id}/journals`,
+  },
+  {
+    key: "comments",
+    label: "未回答の質問",
+    why: "顧問先が返事を待っています",
+    count: (w) => w.openComments,
+    href: (id) => `/clients/${id}/questions`,
+  },
+  {
+    key: "statement",
+    label: "未仕訳の銀行・カード明細",
+    why: "取り込んだまま仕訳になっていません",
+    count: (w) => w.pendingStatementLines,
+    // 明細行は証憑管理の画面で扱う（専用ページは無い）
+    href: (id) => `/clients/${id}/receipts`,
+  },
+];
+
 export default function DashboardPage() {
   const { data: reviewCounts, loading: reviewLoading } = useData(getReviewCountsByClient, []);
+  const { data: pendingWork, loading: pendingLoading } = useData(getPendingWorkByClient, []);
+  const pendingTotal = pendingWork.reduce(
+    (n, w) => n + w.needsReviewJournals + w.openComments + w.pendingStatementLines,
+    0
+  );
   const { data: taxItems, loading: taxLoading } = useData(getTaxCalendar, []);
   const { data: invoiceStatus, loading: invoiceLoading } = useData(getInvoiceStatusByClient, []);
   const { data: payableStatus, loading: payableLoading } = useData(getPayableStatusByClient, []);
@@ -200,6 +242,69 @@ export default function DashboardPage() {
       </div>
 
       <div className="grid gap-4 lg:grid-cols-3 max-w-6xl items-stretch">
+        {/* 未処理の作業。
+            どれも「処理すれば数が減って消える」もの。
+            要確認の仕訳は決算書の集計から外れているため、放置すると
+            決算書が不完全なまま進む。最初に出す */}
+        <Card className="p-4">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-1.5">
+              <ListChecks className="size-5 text-warning" />
+              <h2 className="text-lg font-bold text-foreground">未処理の作業</h2>
+            </div>
+            {!pendingLoading && (
+              <Badge variant={pendingTotal > 0 ? "warning" : "muted"} className="text-xs">
+                全{pendingTotal}件
+              </Badge>
+            )}
+          </div>
+
+          {pendingLoading ? (
+            <div className="flex items-center justify-center py-6">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+            </div>
+          ) : pendingTotal === 0 ? (
+            <div className="flex items-center gap-2 py-6">
+              <CheckCircle className="size-4 text-success" />
+              <p className="text-xs text-muted-foreground">未処理の作業はありません</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {PENDING_KINDS.map((kind) => {
+                const rows = pendingWork.filter((w) => kind.count(w) > 0);
+                if (rows.length === 0) return null;
+                const sum = rows.reduce((n, w) => n + kind.count(w), 0);
+                return (
+                  <div key={kind.key}>
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs font-bold text-foreground">{kind.label}</p>
+                      <span className="text-xs font-bold tabular-nums text-warning">{sum}件</span>
+                    </div>
+                    <p className="text-[11px] text-muted-foreground mt-0.5">{kind.why}</p>
+                    <div className="mt-1 space-y-0.5">
+                      {rows
+                        .sort((a, b) => kind.count(b) - kind.count(a))
+                        .map((w) => (
+                          <Link
+                            key={w.client_id}
+                            href={kind.href(w.client_id)}
+                            className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-muted/30 transition-colors"
+                          >
+                            <span className="text-xs text-foreground truncate">{w.client_name}</span>
+                            <span className="flex items-center gap-0.5 shrink-0 text-xs tabular-nums text-muted-foreground">
+                              {kind.count(w)}件
+                              <ChevronRight className="size-3" />
+                            </span>
+                          </Link>
+                        ))}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </Card>
+
         {/* 要確認の証憑 */}
         <Card className="p-4">
           <div className="flex items-center justify-between mb-3">
