@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
-import { HelpCircle, Sun, Moon, Menu, MessageSquare, Building2, ChevronDown } from "lucide-react";
+import { Sun, Moon, Menu, MessageSquare, Building2, ChevronDown } from "lucide-react";
 import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/components/providers/auth-provider";
 import { useMobileNav } from "@/components/layout/mobile-nav";
@@ -244,10 +244,6 @@ export function Header() {
             title={theme === "dark" ? "ライトモードに切り替え" : "ダークモードに切り替え"}
           >
             {theme === "dark" ? <Sun className="size-5" /> : <Moon className="size-5" />}
-          </button>
-
-          <button className="p-2 rounded-lg bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors">
-            <HelpCircle className="size-5" />
           </button>
         </div>
 
