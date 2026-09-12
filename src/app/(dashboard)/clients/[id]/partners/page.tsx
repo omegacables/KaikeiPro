@@ -18,8 +18,9 @@ import {
   Package,
   Trash2,
   AlertTriangle,
+  Pencil,
 } from "lucide-react";
-import { createPartner, deletePartner, deleteAllPartners } from "@/actions/partners";
+import { createPartner, updatePartner, deletePartner, deleteAllPartners } from "@/actions/partners";
 import { syncRaqtoPartners, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -39,6 +40,8 @@ type Partner = {
   email: string;
   invoiceRegistrationNumber: string;
   isInvoiceRegistered: boolean;
+  /** 通帳・入金明細での表記。編集フォームの初期値に使う */
+  aliases: string[];
   totalSales: number;
   totalPurchases: number;
   address: string;
@@ -79,6 +82,8 @@ export default function PartnersPage() {
   });
 
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  // 編集中の取引先。null なら新規登録。同じフォームを使い回す
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [clearingAll, setClearingAll] = useState(false);
 
   const handleDeletePartner = async (partnerId: string) => {
@@ -123,12 +128,28 @@ export default function PartnersPage() {
     }
   };
 
-  async function handleCreatePartner(e: React.FormEvent) {
+  const emptyPartnerForm = {
+    name: "",
+    type: "customer" as "customer" | "vendor" | "both",
+    telephone: "",
+    email: "",
+    address: "",
+    invoice_registration_number: "",
+    aliases: "",
+  };
+
+  function closePartnerForm() {
+    setShowNewForm(false);
+    setEditingId(null);
+    setNewPartner(emptyPartnerForm);
+  }
+
+  /** 登録と更新で同じフォームを使う。編集できないと「通帳での表記」を後から足せない */
+  async function handleSavePartner(e: React.FormEvent) {
     e.preventDefault();
     setSaving(true);
     try {
-      await createPartner({
-        client_id: id,
+      const payload = {
         name: newPartner.name,
         type: newPartner.type,
         telephone: newPartner.telephone || undefined,
@@ -141,12 +162,16 @@ export default function PartnersPage() {
           .split(/[\n,、]/)
           .map((v) => v.trim())
           .filter(Boolean),
-      });
-      setShowNewForm(false);
-      setNewPartner({ name: "", type: "customer", telephone: "", email: "", address: "", invoice_registration_number: "", aliases: "" });
+      };
+      if (editingId) {
+        await updatePartner(editingId, payload);
+      } else {
+        await createPartner({ client_id: id, ...payload });
+      }
+      closePartnerForm();
       refetch();
     } catch (err) {
-      alert(err instanceof Error ? err.message : "登録に失敗しました");
+      alert(err instanceof Error ? err.message : editingId ? "更新に失敗しました" : "登録に失敗しました");
     } finally {
       setSaving(false);
     }
@@ -163,6 +188,7 @@ export default function PartnersPage() {
           email: r.email ?? "",
           invoiceRegistrationNumber: r.invoice_registration_number ?? "",
           isInvoiceRegistered: r.is_invoice_registered,
+          aliases: (r.aliases ?? []) as string[],
           totalSales: 0,
           totalPurchases: 0,
           address: r.address ?? "",
@@ -216,7 +242,18 @@ export default function PartnersPage() {
             {raqtoSyncing ? <Loader2 className="size-4 animate-spin" /> : <Package className="size-4" />}
             受発注と同期
           </Button>
-          <Button onClick={() => setShowNewForm(!showNewForm)}>
+          <Button
+            onClick={() => {
+              // 編集中に押されたら新規登録に切り替える（入力が混ざらないようにする）
+              if (showNewForm && !editingId) {
+                closePartnerForm();
+                return;
+              }
+              setEditingId(null);
+              setNewPartner(emptyPartnerForm);
+              setShowNewForm(true);
+            }}
+          >
             <Plus className="size-4" />
             取引先登録
           </Button>
@@ -246,8 +283,10 @@ export default function PartnersPage() {
 
       {showNewForm && (
         <Card className="mb-6 p-6">
-          <h3 className="text-sm font-bold text-foreground mb-4">新規取引先登録</h3>
-          <form onSubmit={handleCreatePartner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <h3 className="text-sm font-bold text-foreground mb-4">
+            {editingId ? "取引先を編集" : "新規取引先登録"}
+          </h3>
+          <form onSubmit={handleSavePartner} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取引先名 *</label>
               <input type="text" required value={newPartner.name} onChange={(e) => setNewPartner({ ...newPartner, name: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
@@ -293,9 +332,9 @@ export default function PartnersPage() {
               </p>
             </div>
             <div className="md:col-span-2 flex justify-end gap-2">
-              <Button type="button" variant="ghost" onClick={() => setShowNewForm(false)}>キャンセル</Button>
+              <Button type="button" variant="ghost" onClick={closePartnerForm}>キャンセル</Button>
               <Button type="submit" disabled={saving}>
-                {saving ? <><Loader2 className="size-4 animate-spin" />保存中...</> : "登録"}
+                {saving ? <><Loader2 className="size-4 animate-spin" />保存中...</> : editingId ? "更新" : "登録"}
               </Button>
             </div>
           </form>
@@ -466,6 +505,30 @@ export default function PartnersPage() {
                     </td>
                     <td className="px-4 py-3 text-center">
                       <button
+                        title="編集する"
+                        aria-label={`${partner.name} を編集する`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingId(partner.id);
+                          setNewPartner({
+                            name: partner.name,
+                            // 一覧では仕入先を supplier に読み替えているので戻す
+                            type: partner.type === "supplier" ? "vendor" : partner.type,
+                            telephone: partner.phone,
+                            email: partner.email,
+                            address: partner.address,
+                            invoice_registration_number: partner.invoiceRegistrationNumber,
+                            aliases: partner.aliases.join("、"),
+                          });
+                          setShowNewForm(true);
+                          window.scrollTo({ top: 0, behavior: "smooth" });
+                        }}
+                        className="p-1.5 rounded text-foreground hover:bg-muted transition-colors"
+                      >
+                        <Pencil className="size-4" />
+                      </button>
+                      <button
+                        title="削除する"
                         onClick={(e) => { e.stopPropagation(); handleDeletePartner(partner.id); }}
                         disabled={deletingId === partner.id}
                         className="text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
