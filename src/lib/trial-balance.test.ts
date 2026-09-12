@@ -4,6 +4,7 @@ import {
   isRetainedEarningsAccount,
   type AggregatableAccount,
   type AggregatableLine,
+  needsReviewSummary,
 } from "./trial-balance";
 
 // 3月決算（期首4/1）を前提としたテスト用の勘定科目
@@ -157,5 +158,77 @@ describe("isRetainedEarningsAccount", () => {
     expect(isRetainedEarningsAccount({ code: "3100", name: "資本金", category: "equity" })).toBe(false);
     // 純資産以外は対象外
     expect(isRetainedEarningsAccount({ code: "3310", name: "繰越利益剰余金", category: "asset" })).toBe(false);
+  });
+});
+
+describe("要確認の仕訳を集計から除く", () => {
+  const accounts = [
+    { id: "cash", code: "1110", name: "現金", category: "asset" as const },
+    { id: "sales", code: "4110", name: "売上高", category: "revenue" as const },
+  ];
+
+  it("要確認の印が立った仕訳は当期の発生高に入らない", () => {
+    const agg = aggregateTrialBalance(
+      accounts,
+      [
+        { account_id: "cash", debit_amount: 10000, credit_amount: 0, entry_date: "2026-05-01", journal_entry_id: "j1" },
+        { account_id: "sales", debit_amount: 0, credit_amount: 10000, entry_date: "2026-05-01", journal_entry_id: "j1" },
+        // 要確認（AIの信頼度が低いなど）
+        { account_id: "cash", debit_amount: 99999, credit_amount: 0, entry_date: "2026-05-02", needs_review: true, journal_entry_id: "j2" },
+        { account_id: "sales", debit_amount: 0, credit_amount: 99999, entry_date: "2026-05-02", needs_review: true, journal_entry_id: "j2" },
+      ],
+      "2026-04-01",
+      "2027-03-31"
+    );
+    expect(agg.get("cash")?.debitTotal).toBe(10000);
+    expect(agg.get("sales")?.creditTotal).toBe(10000);
+  });
+
+  it("要確認の印が立った前期の仕訳は前期繰越にも入らない", () => {
+    const agg = aggregateTrialBalance(
+      accounts,
+      [
+        { account_id: "cash", debit_amount: 5000, credit_amount: 0, entry_date: "2026-01-10", journal_entry_id: "j1" },
+        { account_id: "cash", debit_amount: 70000, credit_amount: 0, entry_date: "2026-01-11", needs_review: true, journal_entry_id: "j2" },
+      ],
+      "2026-04-01",
+      "2027-03-31"
+    );
+    expect(agg.get("cash")?.prevBalance).toBe(5000);
+  });
+
+  it("除外した件数と金額を数えられる（仕訳の件数で数える）", () => {
+    const lines = [
+      { account_id: "cash", debit_amount: 30000, credit_amount: 0, entry_date: "2026-05-02", needs_review: true, journal_entry_id: "j2" },
+      { account_id: "sales", debit_amount: 0, credit_amount: 30000, entry_date: "2026-05-02", needs_review: true, journal_entry_id: "j2" },
+      { account_id: "cash", debit_amount: 4000, credit_amount: 0, entry_date: "2026-06-01", needs_review: true, journal_entry_id: "j3" },
+      { account_id: "sales", debit_amount: 0, credit_amount: 4000, entry_date: "2026-06-01", needs_review: true, journal_entry_id: "j3" },
+      // 要確認でないものは数えない
+      { account_id: "cash", debit_amount: 10000, credit_amount: 0, entry_date: "2026-05-01", journal_entry_id: "j1" },
+    ];
+    expect(needsReviewSummary(lines, "2026-04-01", "2027-03-31")).toEqual({
+      entryCount: 2,
+      amount: 34000,
+    });
+  });
+
+  it("期間外の要確認は数えない", () => {
+    const lines = [
+      { account_id: "cash", debit_amount: 8000, credit_amount: 0, entry_date: "2025-12-31", needs_review: true, journal_entry_id: "j9" },
+    ];
+    expect(needsReviewSummary(lines, "2026-04-01", "2027-03-31")).toEqual({
+      entryCount: 0,
+      amount: 0,
+    });
+  });
+
+  it("要確認が無ければ0件", () => {
+    const lines = [
+      { account_id: "cash", debit_amount: 10000, credit_amount: 0, entry_date: "2026-05-01", journal_entry_id: "j1" },
+    ];
+    expect(needsReviewSummary(lines, "2026-04-01", "2027-03-31")).toEqual({
+      entryCount: 0,
+      amount: 0,
+    });
   });
 });

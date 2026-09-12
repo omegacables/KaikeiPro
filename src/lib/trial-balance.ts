@@ -28,6 +28,14 @@ export type AggregatableLine = {
   credit_amount: number;
   entry_date: string;
   source?: string | null;
+  /**
+   * 要確認の印。AIの読み取りで信頼度が低い・貸借が合わない・
+   * 証憑の合計と金額が合わない仕訳に立つ。
+   * 人が中身を見るまで決算書の数字には入れない。
+   */
+  needs_review?: boolean | null;
+  /** 要確認が何件あるかを数えるために使う */
+  journal_entry_id?: string | null;
 };
 
 export type AggregatedAccount = {
@@ -76,6 +84,11 @@ export function aggregateTrialBalance(
 
   for (const line of lines) {
     if (line.entry_date > endDate) continue;
+    // 要確認の仕訳は集計に入れない。
+    // 人の目を通していない金額を決算書に載せないため。
+    // 除外した分は needsReviewSummary で件数と金額を出し、画面で知らせる
+    // （黙って除くと、帳簿の一覧と決算書の数字が合わない理由が分からなくなる）。
+    if (line.needs_review) continue;
     const isOpeningEntry = line.entry_date === startDate && line.source === "closing";
     if (line.entry_date < startDate || isOpeningEntry) {
       const prev = prevBalanceMap.get(line.account_id) ?? 0;
@@ -115,4 +128,32 @@ export function aggregateTrialBalance(
     });
   }
   return result;
+}
+
+
+/**
+ * 集計から除外した「要確認」の仕訳をまとめる。
+ *
+ * 金額を黙って落とすと、帳簿の一覧と決算書の数字が合わない理由が
+ * 利用者に分からない。何件・いくら除いたかを画面に出すために使う。
+ *
+ * 金額は借方の合計（＝貸方の合計と同額のはず）を取る。
+ * 期間外の仕訳は数えない。
+ */
+export function needsReviewSummary(
+  lines: AggregatableLine[],
+  startDate: string,
+  endDate: string
+): { entryCount: number; amount: number } {
+  const entryIds = new Set<string>();
+  let amount = 0;
+
+  for (const line of lines) {
+    if (!line.needs_review) continue;
+    if (line.entry_date < startDate || line.entry_date > endDate) continue;
+    amount += line.debit_amount;
+    if (line.journal_entry_id) entryIds.add(line.journal_entry_id);
+  }
+
+  return { entryCount: entryIds.size, amount };
 }

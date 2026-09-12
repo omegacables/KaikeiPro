@@ -15,7 +15,9 @@ import {
   Trash2,
   Loader2,
   FileSpreadsheet,
+  AlertTriangle,
 } from "lucide-react";
+import Link from "next/link";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
@@ -24,6 +26,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { printPage, downloadCSV } from "@/lib/export";
 import {
   getTrialBalance,
+  getNeedsReviewSummary,
   getMonthlyTrend,
   getInventorySchedule,
   type TrialBalanceRow,
@@ -1249,14 +1252,25 @@ export default function StatementsPage() {
     return getFiscalPeriod(fiscalStartMonth, y, m).endDate;
   }, [period, fiscalStartMonth]);
 
+  // 集計から除いた「要確認」の仕訳。数字を黙って落とすと、
+  // 帳簿の一覧と決算書が合わない理由が分からないため画面で知らせる
+  const [needsReview, setNeedsReview] = useState<{ entryCount: number; amount: number } | null>(
+    null
+  );
+
   const fetchTrialBalance = useCallback(async () => {
     setTrialLoading(true);
     try {
-      const data = await getTrialBalance(id, startDate, endDate);
+      const [data, review] = await Promise.all([
+        getTrialBalance(id, startDate, endDate),
+        getNeedsReviewSummary(id, startDate, endDate),
+      ]);
       setTrialData(data);
+      setNeedsReview(review);
     } catch (e) {
       console.error("Trial balance fetch error:", e);
       setTrialData([]);
+      setNeedsReview(null);
     } finally {
       setTrialLoading(false);
     }
@@ -1378,6 +1392,38 @@ export default function StatementsPage() {
           </div>
         </CardContent>
       </Card>
+
+      {/* 集計から除いた「要確認」の仕訳を知らせる。
+          AIの読み取りで信頼度が低い・貸借が合わない・証憑の合計と金額が
+          合わない仕訳は、人の目を通すまで決算書の数字に入れない。
+          帳簿の一覧には出ているので、除いたことを伝えないと
+          「一覧と決算書が合わない」という不審な差になる */}
+      {needsReview && needsReview.entryCount > 0 &&
+        (activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") && (
+          <div className="mb-4 flex flex-wrap items-start gap-3 rounded-xl border border-warning/40 bg-warning/10 p-4">
+            <AlertTriangle className="size-5 shrink-0 text-warning mt-0.5" />
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-bold text-foreground">
+                要確認の仕訳 {needsReview.entryCount}件
+                {/* 金額が0の仕訳（AIが金額を読めなかった等）では「¥0」を出さない。
+                    除外によって金額が減ったかのように読めてしまうため */}
+                {needsReview.amount > 0 && `（${formatCurrency(needsReview.amount)}）`}
+                をこの集計に含めていません
+              </p>
+              <p className="mt-1 text-sm text-foreground">
+                AIの読み取りで信頼度が低い、貸借が合わない、証憑の合計と金額が合わない仕訳です。
+                {needsReview.amount === 0 && "金額が読み取れていない仕訳のため、金額の差はありません。"}
+                内容を確認して直すと、この表の金額に反映されます。
+              </p>
+            </div>
+            <Link
+              href={`/clients/${id}/journals`}
+              className="shrink-0 rounded-lg border border-border px-3 py-1.5 text-sm font-bold text-foreground hover:bg-muted/30"
+            >
+              仕訳を確認する
+            </Link>
+          </div>
+        )}
 
       {/* Content */}
       {(activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") && trialLoading ? (

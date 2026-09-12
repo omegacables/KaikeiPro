@@ -118,6 +118,8 @@ export async function getExecutiveSummary(clientId: string): Promise<ExecutiveSu
           "account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )"
         )
         .eq("journal_entries.client_id", clientId)
+        // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
+        .eq("journal_entries.needs_review", false)
         .lte("journal_entries.entry_date", asOf)
         .range(from, to) as unknown as PromiseLike<{ data: Record<string, unknown>[] | null; error: { message: string } | null }>
     ),

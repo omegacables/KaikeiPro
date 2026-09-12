@@ -2,7 +2,7 @@
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
 import { fetchAllRows } from "@/lib/fetch-all";
-import { aggregateTrialBalance, CATEGORY_BY_DB_TYPE } from "@/lib/trial-balance";
+import { aggregateTrialBalance, needsReviewSummary, CATEGORY_BY_DB_TYPE } from "@/lib/trial-balance";
 import { assertClientAccess } from "@/lib/authz";
 import type { PlClassification } from "@/types/database";
 
@@ -94,12 +94,20 @@ export async function getTrialBalance(
     account_id: string;
     debit_amount: number;
     credit_amount: number;
-    journal_entries: { client_id: string; entry_date: string; source?: string };
+    journal_entry_id: string;
+    journal_entries: {
+      client_id: string;
+      entry_date: string;
+      source?: string;
+      needs_review?: boolean | null;
+    };
   };
   const linesQuery = fetchAllRows<LineRow>((from, to) =>
     supabase
       .from("journal_entry_lines")
-      .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date, source )`)
+      .select(
+        `account_id, debit_amount, credit_amount, journal_entry_id, journal_entries!inner ( client_id, entry_date, source, needs_review )`
+      )
       .eq("journal_entries.client_id", clientId)
       .lte("journal_entries.entry_date", endDate)
       .range(from, to) as unknown as PromiseLike<{ data: LineRow[] | null; error: { message: string } | null }>
@@ -115,18 +123,18 @@ export async function getTrialBalance(
     category:
       CATEGORY_BY_DB_TYPE[(a.account_categories as unknown as { type: string }).type] ?? "expense",
   }));
-  const aggregated = aggregateTrialBalance(
-    aggregatable,
-    lines.map((l) => ({
-      account_id: l.account_id,
-      debit_amount: l.debit_amount,
-      credit_amount: l.credit_amount,
-      entry_date: l.journal_entries.entry_date,
-      source: l.journal_entries.source ?? null,
-    })),
-    startDate,
-    endDate
-  );
+  // 要確認の仕訳は集計から除く（aggregateTrialBalance 側で判定）。
+  // 除外した分は画面で知らせるため、件数と金額も出しておく
+  const aggregatableLines = lines.map((l) => ({
+    account_id: l.account_id,
+    debit_amount: l.debit_amount,
+    credit_amount: l.credit_amount,
+    entry_date: l.journal_entries.entry_date,
+    source: l.journal_entries.source ?? null,
+    needs_review: l.journal_entries.needs_review ?? false,
+    journal_entry_id: l.journal_entry_id,
+  }));
+  const aggregated = aggregateTrialBalance(aggregatable, aggregatableLines, startDate, endDate);
 
   const rows: TrialBalanceRow[] = [];
   for (const acct of accounts ?? []) {
@@ -207,6 +215,8 @@ export async function getInventorySchedule(
     .from("journal_entry_lines")
     .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
     .eq("journal_entries.client_id", clientId)
+    // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
+    .eq("journal_entries.needs_review", false)
     .lte("journal_entries.entry_date", beforeDate);
 
   // Get journal lines for the current period
@@ -214,6 +224,8 @@ export async function getInventorySchedule(
     .from("journal_entry_lines")
     .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
     .eq("journal_entries.client_id", clientId)
+    // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
+    .eq("journal_entries.needs_review", false)
     .gte("journal_entries.entry_date", fiscalYearStart)
     .lte("journal_entries.entry_date", endDate);
 
@@ -320,6 +332,8 @@ export async function getMonthlyTrend(
     .from("journal_entry_lines")
     .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
     .eq("journal_entries.client_id", clientId)
+    // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
+    .eq("journal_entries.needs_review", false)
     .lte("journal_entries.entry_date", fiscalYearEnd);
   if (isPl) q = q.gte("journal_entries.entry_date", priorStartDate);
   const { data: lines } = await q;
@@ -397,4 +411,56 @@ export async function getMonthlyTrend(
 
   rows.sort((a, b) => a.code.localeCompare(b.code));
   return { rows, monthLabels };
+}
+
+/**
+ * 集計から除外した「要確認」の仕訳の件数と金額。
+ *
+ * 要確認の仕訳（AIの信頼度が低い・貸借が合わない・証憑の合計と金額が合わない）は
+ * 試算表・決算書の集計に入れていない。人の目を通していない金額を
+ * 決算書に載せないためである。
+ * ただし黙って落とすと、帳簿の一覧と決算書の数字が合わない理由が分からない。
+ * 画面に「N件・¥X を集計に含めていません」と出すためにこれを使う。
+ *
+ * getTrialBalance の戻り値に混ぜず別のアクションにしているのは、
+ * 既存の呼び出し側（決算書・申告書・開始残高）の型を変えないため。
+ */
+export async function getNeedsReviewSummary(
+  clientId: string,
+  startDate: string,
+  endDate: string
+): Promise<{ entryCount: number; amount: number }> {
+  await assertClientAccess(clientId);
+  const supabase = createAdminSupabaseClient();
+
+  type Row = {
+    debit_amount: number;
+    journal_entry_id: string;
+    journal_entries: { client_id: string; entry_date: string; needs_review?: boolean | null };
+  };
+  const rows = await fetchAllRows<Row>((from, to) =>
+    supabase
+      .from("journal_entry_lines")
+      .select(
+        `debit_amount, journal_entry_id, journal_entries!inner ( client_id, entry_date, needs_review )`
+      )
+      .eq("journal_entries.client_id", clientId)
+      .eq("journal_entries.needs_review", true)
+      .gte("journal_entries.entry_date", startDate)
+      .lte("journal_entries.entry_date", endDate)
+      .range(from, to) as unknown as PromiseLike<{ data: Row[] | null; error: { message: string } | null }>
+  );
+
+  return needsReviewSummary(
+    rows.map((r) => ({
+      account_id: "",
+      debit_amount: r.debit_amount,
+      credit_amount: 0,
+      entry_date: r.journal_entries.entry_date,
+      needs_review: true,
+      journal_entry_id: r.journal_entry_id,
+    })),
+    startDate,
+    endDate
+  );
 }
