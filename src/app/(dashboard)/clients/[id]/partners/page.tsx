@@ -128,6 +128,23 @@ export default function PartnersPage() {
     }
   };
 
+  /** 編集フォームを開く。表とカードの両方の一覧から呼ぶ */
+  function startEditPartner(partner: Partner) {
+    setEditingId(partner.id);
+    setNewPartner({
+      name: partner.name,
+      // 一覧では仕入先を supplier に読み替えているので戻す
+      type: partner.type === "supplier" ? "vendor" : partner.type,
+      telephone: partner.phone,
+      email: partner.email,
+      address: partner.address,
+      invoice_registration_number: partner.invoiceRegistrationNumber,
+      aliases: partner.aliases.join("、"),
+    });
+    setShowNewForm(true);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
   const emptyPartnerForm = {
     name: "",
     type: "customer" as "customer" | "vendor" | "both",
@@ -411,8 +428,108 @@ export default function PartnersPage() {
 
       {/* Partners table */}
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
+        {/* 画面が狭いときは表をやめてカードで並べる。
+            9列を画面幅に押し込むと各セルの文字が折り返し、1行の高さが
+            何倍にもなって一覧が異常に縦長になる（w-full だけで min-width が
+            無いと、表は素直に縮んで overflow-x-auto が働かない）。
+            横スクロールにはしない。目的の列に着くまで何度もスワイプが必要になる */}
+        <div className="lg:hidden divide-y divide-border">
+          {filteredPartners.map((partner) => {
+            const config = typeConfig[partner.type];
+            const facts: { label: string; value: React.ReactNode }[] = [];
+            if (partner.phone) facts.push({ label: "電話番号", value: partner.phone });
+            if (partner.email) facts.push({ label: "メール", value: partner.email });
+            if (partner.invoiceRegistrationNumber)
+              facts.push({
+                label: "登録番号",
+                value: <span className="font-mono">{partner.invoiceRegistrationNumber}</span>,
+              });
+            if (partner.totalSales > 0)
+              facts.push({
+                label: "売上高",
+                value: <span className="font-mono">{formatCurrency(partner.totalSales)}</span>,
+              });
+            if (partner.totalPurchases > 0)
+              facts.push({
+                label: "仕入高",
+                value: <span className="font-mono">{formatCurrency(partner.totalPurchases)}</span>,
+              });
+
+            return (
+              <div key={partner.id} className="p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    {/* 長い会社名でも横に溢れさせない */}
+                    <p className="font-bold text-foreground break-words">{partner.name}</p>
+                    {partner.address && (
+                      <p className="text-xs text-muted-foreground mt-0.5 break-words">
+                        {partner.address}
+                      </p>
+                    )}
+                    <div className="flex items-center gap-2 mt-1.5">
+                      <Badge variant={config.variant}>{config.label}</Badge>
+                      {partner.isInvoiceRegistered ? (
+                        <span className="inline-flex items-center gap-1 text-xs text-success">
+                          <Check className="size-3.5" />
+                          適格請求書
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          <X className="size-3.5" />
+                          未登録
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1 shrink-0">
+                    <button
+                      title="編集する"
+                      aria-label={`${partner.name} を編集する`}
+                      onClick={() => startEditPartner(partner)}
+                      className="p-2 rounded text-foreground hover:bg-muted transition-colors"
+                    >
+                      <Pencil className="size-4" />
+                    </button>
+                    <button
+                      title="削除する"
+                      aria-label={`${partner.name} を削除する`}
+                      onClick={() => handleDeletePartner(partner.id)}
+                      disabled={deletingId === partner.id}
+                      className="p-2 rounded text-muted-foreground hover:text-destructive transition-colors disabled:opacity-50"
+                    >
+                      {deletingId === partner.id ? (
+                        <Loader2 className="size-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="size-4" />
+                      )}
+                    </button>
+                  </div>
+                </div>
+
+                {facts.length > 0 && (
+                  <dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-sm">
+                    {facts.map((f) => (
+                      <div key={f.label} className="contents">
+                        <dt className="text-muted-foreground whitespace-nowrap">{f.label}</dt>
+                        <dd className="text-foreground break-all">{f.value}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                )}
+              </div>
+            );
+          })}
+          {filteredPartners.length === 0 && (
+            <p className="px-4 py-12 text-center text-muted-foreground">
+              該当する取引先が見つかりません
+            </p>
+          )}
+        </div>
+
+        {/* 広い画面では表のまま。列が潰れないよう最低幅を持たせ、
+            足りないぶんはこの枠の中だけで横スクロールさせる */}
+        <div className="hidden lg:block overflow-x-auto">
+          <table className="w-full min-w-[900px] text-sm">
             <thead>
               <tr className="bg-muted/20 border-b border-border">
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">
@@ -507,22 +624,7 @@ export default function PartnersPage() {
                       <button
                         title="編集する"
                         aria-label={`${partner.name} を編集する`}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setEditingId(partner.id);
-                          setNewPartner({
-                            name: partner.name,
-                            // 一覧では仕入先を supplier に読み替えているので戻す
-                            type: partner.type === "supplier" ? "vendor" : partner.type,
-                            telephone: partner.phone,
-                            email: partner.email,
-                            address: partner.address,
-                            invoice_registration_number: partner.invoiceRegistrationNumber,
-                            aliases: partner.aliases.join("、"),
-                          });
-                          setShowNewForm(true);
-                          window.scrollTo({ top: 0, behavior: "smooth" });
-                        }}
+                        onClick={(e) => { e.stopPropagation(); startEditPartner(partner); }}
                         className="p-1.5 rounded text-foreground hover:bg-muted transition-colors"
                       >
                         <Pencil className="size-4" />
