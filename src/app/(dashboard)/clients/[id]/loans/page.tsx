@@ -1246,6 +1246,7 @@ function LedgerRow(props: {
               <div className="w-36">
                 <label className={labelCls}>同時に払う利息</label>
                 <AmountInput
+                  inputRef={(el) => setCellRef(3, el)}
                   value={entryForm.interest_amount}
                   onChange={(v) => setEntryForm({ ...entryForm, interest_amount: v })}
                   onKeyDown={(e) => handleCellKeyDown(3, e)}
