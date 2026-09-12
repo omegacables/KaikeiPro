@@ -13,6 +13,7 @@ import {
   Banknote,
 } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -515,10 +516,9 @@ export default function PayrollPage({
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">総支給額</label>
-                  <input
-                    type="number"
+                  <AmountInput
                     value={form.gross_salary}
-                    onChange={(e) => setForm({ ...form, gross_salary: e.target.value })}
+                    onChange={(v) => setForm({ ...form, gross_salary: v })}
                     className={inputCls + " text-right"}
                     placeholder="0"
                   />
@@ -531,10 +531,9 @@ export default function PayrollPage({
                   {deductionFields.map((f) => (
                     <div key={f.key}>
                       <label className="block text-xs text-muted-foreground mb-1">{f.label}</label>
-                      <input
-                        type="number"
+                      <AmountInput
                         value={form[f.key] as string}
-                        onChange={(e) => setForm({ ...form, [f.key]: e.target.value })}
+                        onChange={(v) => setForm({ ...form, [f.key]: v })}
                         className={inputCls + " text-right"}
                         placeholder="0"
                       />

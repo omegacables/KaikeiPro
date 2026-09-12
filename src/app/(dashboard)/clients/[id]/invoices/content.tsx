@@ -23,6 +23,7 @@ import {
   ChevronDown,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -584,8 +585,8 @@ export function InvoicesPageContent({
                       />
                     </td>
                     <td className="py-2 px-2">
-                      <input type="number" value={item.unit_price || ""}
-                        onChange={(e) => updateItem(idx, "unit_price", Number(e.target.value) || 0)}
+                      <AmountInput value={item.unit_price ? String(item.unit_price) : ""}
+                        onChange={(v) => updateItem(idx, "unit_price", Number(v) || 0)}
                         placeholder="0"
                         className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right font-mono"
                       />

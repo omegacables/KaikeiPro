@@ -16,6 +16,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -188,7 +189,7 @@ export default function AssetsPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取得金額 *</label>
-              <input type="number" required min="1" value={newAsset.acquisition_cost} onChange={(e) => setNewAsset({ ...newAsset, acquisition_cost: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              <AmountInput value={newAsset.acquisition_cost} onChange={(v) => setNewAsset({ ...newAsset, acquisition_cost: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right" />
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">耐用年数 *</label>

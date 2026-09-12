@@ -17,6 +17,7 @@ import {
   FileSpreadsheet,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -1039,10 +1040,9 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
                     />
                   </td>
                   <td className="px-3 py-1.5">
-                    <input
-                      type="number"
-                      value={row.unit_price}
-                      onChange={(e) => setField(idx, { unit_price: e.target.value === "" ? 0 : Number(e.target.value) })}
+                    <AmountInput
+                      value={row.unit_price ? String(row.unit_price) : ""}
+                      onChange={(v) => setField(idx, { unit_price: v === "" ? 0 : Number(v) })}
                       className={cn(inputCls, "text-right w-28")}
                     />
                   </td>

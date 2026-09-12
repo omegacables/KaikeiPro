@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "next/navigation";
 import { Home, Loader2, Plus, FileSpreadsheet, FileText, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
@@ -519,7 +520,7 @@ export default function AllocationsPage() {
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">取引金額（税込）</label>
-                <input type="number" min={0} value={jAmount} onChange={(e) => setJAmount(e.target.value)} placeholder="11000" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right no-spinner" />
+                <AmountInput value={jAmount} onChange={setJAmount} placeholder="11000" className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right" />
               </div>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">支払元（貸方）</label>

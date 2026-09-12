@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -396,7 +397,7 @@ export default function PaymentsPage() {
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">金額 *</label>
-              <input type="number" required min="1" value={newPayment.amount} onChange={(e) => setNewPayment({ ...newPayment, amount: e.target.value })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
+              <AmountInput value={newPayment.amount} onChange={(v) => setNewPayment({ ...newPayment, amount: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm text-right" />
             </div>
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">取引先 *</label>

@@ -47,6 +47,7 @@ import { processReceiptOcr } from "@/actions/ocr";
 import { useAuth } from "@/components/providers/auth-provider";
 import Link from "next/link";
 import { DateInput } from "@/components/ui/date-input";
+import { AmountInput } from "@/components/ui/amount-input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -513,6 +514,22 @@ export default function JournalsPage() {
     const grid = gridRefs.current;
     // ArrowUp/ArrowDown: let native behavior handle (date increment, select dropdown, amount increment)
     if (e.key === "ArrowUp" || e.key === "ArrowDown") return;
+
+    // 金額欄（借方2・貸方4）では、まず文字カーソルの移動に使う。
+    // カーソルが端まで来てから隣の欄へ移る。こうすると
+    // 「数字の途中を直す」と「隣の欄へ移る」が同じキーで両立する（借入金台帳と同じ挙動）
+    if (e.key === "ArrowRight" || e.key === "ArrowLeft") {
+      if (col === 2 || col === 4) {
+        const el = e.target as HTMLInputElement;
+        if (typeof el.selectionStart === "number") {
+          const start = el.selectionStart ?? 0;
+          const end = el.selectionEnd ?? start;
+          if (start !== end) return; // 選択中は移動しない
+          const atEdge = e.key === "ArrowLeft" ? start === 0 : end === (el.value?.length ?? 0);
+          if (!atEdge) return;
+        }
+      }
+    }
 
     let targetRow = row;
     let targetCol = col;
@@ -1083,10 +1100,9 @@ export default function JournalsPage() {
                         <span className="text-muted-foreground text-[10px] block">{s.debitAccountName}</span>
                       </td>
                       <td className="px-2 py-1 text-right">
-                        <input
-                          type="number"
-                          value={s.debitAmount}
-                          onChange={(e) => updateImportSuggestion(s.rowIdx, { debitAmount: Number(e.target.value) })}
+                        <AmountInput
+                          value={String(s.debitAmount ?? "")}
+                          onChange={(v) => updateImportSuggestion(s.rowIdx, { debitAmount: Number(v || 0) })}
                           className="bg-transparent border-0 text-xs w-24 text-right"
                         />
                       </td>
@@ -1101,10 +1117,9 @@ export default function JournalsPage() {
                         <span className="text-muted-foreground text-[10px] block">{s.creditAccountName}</span>
                       </td>
                       <td className="px-2 py-1 text-right">
-                        <input
-                          type="number"
-                          value={s.creditAmount}
-                          onChange={(e) => updateImportSuggestion(s.rowIdx, { creditAmount: Number(e.target.value) })}
+                        <AmountInput
+                          value={String(s.creditAmount ?? "")}
+                          onChange={(v) => updateImportSuggestion(s.rowIdx, { creditAmount: Number(v || 0) })}
                           className="bg-transparent border-0 text-xs w-24 text-right"
                         />
                       </td>
@@ -1348,10 +1363,9 @@ export default function JournalsPage() {
                         />
                       </td>
                       <td className="px-2 py-1 text-right">
-                        <input
-                          type="number"
-                          value={s.amount}
-                          onChange={(e) => updateSuggestion(s.rowIdx, { amount: Number(e.target.value) })}
+                        <AmountInput
+                          value={String(s.amount ?? "")}
+                          onChange={(v) => updateSuggestion(s.rowIdx, { amount: Number(v || 0) })}
                           className="bg-transparent border-0 text-xs w-24 text-right"
                         />
                       </td>
@@ -1512,16 +1526,13 @@ export default function JournalsPage() {
                           {/* 借方金額 */}
                           <td className="py-1.5 px-1 border-r border-border w-[15%]">
                             {dl ? (
-                              <input
-                                ref={(el) => setGridRef(idx, 2, el)}
-                                type="number"
-                                min="0"
-                                step="1"
+                              <AmountInput
+                                inputRef={(el) => setGridRef(idx, 2, el)}
                                 value={dl.amount}
-                                onChange={(e) => updateDebitLine(idx, "amount", toHalfWidth(e.target.value))}
-                                onKeyDown={(e) => { if (e.key === "e" || e.key === "E" || e.key === "+" || e.key === "-") e.preventDefault(); handleGridKeyDown(idx, 2, e); }}
+                                onChange={(v) => updateDebitLine(idx, "amount", v)}
+                                onKeyDown={(e) => handleGridKeyDown(idx, 2, e)}
                                 placeholder="0"
-                                className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right font-mono"
                               />
                             ) : null}
                           </td>
@@ -1541,16 +1552,13 @@ export default function JournalsPage() {
                           {/* 貸方金額 */}
                           <td className="py-1.5 px-1 border-r border-border w-[15%]">
                             {cl ? (
-                              <input
-                                ref={(el) => setGridRef(idx, 4, el)}
-                                type="number"
-                                min="0"
-                                step="1"
+                              <AmountInput
+                                inputRef={(el) => setGridRef(idx, 4, el)}
                                 value={cl.amount}
-                                onChange={(e) => updateCreditLine(idx, "amount", toHalfWidth(e.target.value))}
-                                onKeyDown={(e) => { if (e.key === "e" || e.key === "E" || e.key === "+" || e.key === "-") e.preventDefault(); handleGridKeyDown(idx, 4, e); }}
+                                onChange={(v) => updateCreditLine(idx, "amount", v)}
+                                onKeyDown={(e) => handleGridKeyDown(idx, 4, e)}
                                 placeholder="0"
-                                className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                                className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm text-right font-mono"
                               />
                             ) : null}
                           </td>

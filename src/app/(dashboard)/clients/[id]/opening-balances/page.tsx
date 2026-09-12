@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, use, useMemo } from "react";
 import { Scale, Loader2, Save, AlertTriangle, RefreshCw } from "lucide-react";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -292,13 +293,12 @@ export default function OpeningBalancesPage({
                         <span className="text-sm flex-1 truncate" title={r.name}>
                           {r.name}
                         </span>
-                        <input
-                          type="number"
+                        <AmountInput
                           value={values[r.account_id] ?? ""}
-                          onChange={(e) =>
+                          onChange={(v) =>
                             setValues((prev) => ({
                               ...prev,
-                              [r.account_id]: e.target.value,
+                              [r.account_id]: v,
                             }))
                           }
                           className={inputCls + " w-32"}

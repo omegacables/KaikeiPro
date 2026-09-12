@@ -31,6 +31,7 @@ import {
   AlertTriangle,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
@@ -1306,12 +1307,11 @@ export function ReceiptsPageContent({
                         <label className="text-xs text-muted-foreground">原通貨金額</label>
                         <div className="flex items-center gap-1 mt-0.5">
                           <span className="text-xs text-muted-foreground font-mono">{editForm.currency}</span>
-                          <input
-                            type="number"
-                            step="0.01"
-                            className="flex-1 px-2 py-1.5 text-sm border border-border rounded bg-background font-mono"
-                            value={editForm.original_amount || ""}
-                            onChange={(e) => setEditForm((f) => ({ ...f, original_amount: parseFloat(e.target.value) || 0 }))}
+                          <AmountInput
+                            allowDecimal
+                            className="flex-1 px-2 py-1.5 text-sm border border-border rounded bg-background font-mono text-right"
+                            value={editForm.original_amount ? String(editForm.original_amount) : ""}
+                            onChange={(v) => setEditForm((f) => ({ ...f, original_amount: parseFloat(v) || 0 }))}
                           />
                         </div>
                       </div>
@@ -1337,22 +1337,20 @@ export function ReceiptsPageContent({
                   ) : (
                     <div>
                       <label className="text-xs text-muted-foreground">合計金額（税込）</label>
-                      <input
-                        type="number"
-                        className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background font-mono"
-                        value={editForm.amount_total || ""}
-                        onChange={(e) => setEditForm((f) => ({ ...f, amount_total: parseInt(e.target.value) || 0 }))}
+                      <AmountInput
+                        className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background font-mono text-right"
+                        value={editForm.amount_total ? String(editForm.amount_total) : ""}
+                        onChange={(v) => setEditForm((f) => ({ ...f, amount_total: parseInt(v) || 0 }))}
                       />
                     </div>
                   )}
                   <div className="grid grid-cols-2 gap-2">
                     <div>
                       <label className="text-xs text-muted-foreground">税額</label>
-                      <input
-                        type="number"
-                        className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background font-mono"
-                        value={editForm.tax_amount || ""}
-                        onChange={(e) => setEditForm((f) => ({ ...f, tax_amount: parseInt(e.target.value) || 0 }))}
+                      <AmountInput
+                        className="w-full mt-0.5 px-2 py-1.5 text-sm border border-border rounded bg-background font-mono text-right"
+                        value={editForm.tax_amount ? String(editForm.tax_amount) : ""}
+                        onChange={(v) => setEditForm((f) => ({ ...f, tax_amount: parseInt(v) || 0 }))}
                       />
                     </div>
                     <div>

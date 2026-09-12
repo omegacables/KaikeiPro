@@ -30,6 +30,7 @@ import {
   ChevronUp,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
@@ -1711,21 +1712,17 @@ export default function LedgersPage() {
                             onChange={(v) => updateEditLine(i, "account_id", v)}
                           />
                           <div className="grid grid-cols-2 gap-1">
-                            <input
-                              type="number"
-                              min="0"
+                            <AmountInput
                               placeholder="借方"
                               value={l.debit}
-                              onChange={(e) => updateEditLine(i, "debit", e.target.value)}
-                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onChange={(v) => updateEditLine(i, "debit", v)}
+                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono"
                             />
-                            <input
-                              type="number"
-                              min="0"
+                            <AmountInput
                               placeholder="貸方"
                               value={l.credit}
-                              onChange={(e) => updateEditLine(i, "credit", e.target.value)}
-                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                              onChange={(v) => updateEditLine(i, "credit", v)}
+                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono"
                             />
                           </div>
                         </div>

@@ -27,6 +27,7 @@ import {
   type DepreciationSummary,
 } from "@/actions/closing";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
@@ -437,12 +438,11 @@ export default function ClosingPage() {
               </div>
               <div className="mb-3">
                 <label className="block text-sm font-medium text-foreground mb-1">金額</label>
-                <input
-                  type="number"
-                  value={newAdjustment.amount || ""}
-                  onChange={(e) => setNewAdjustment({ ...newAdjustment, amount: Number(e.target.value) || 0 })}
+                <AmountInput
+                  value={newAdjustment.amount ? String(newAdjustment.amount) : ""}
+                  onChange={(v) => setNewAdjustment({ ...newAdjustment, amount: Number(v) || 0 })}
                   placeholder="0"
-                  className="w-48 bg-card border border-border rounded-lg px-3 py-2 text-sm font-mono"
+                  className="w-48 bg-card border border-border rounded-lg px-3 py-2 text-sm font-mono text-right"
                 />
               </div>
               <div className="flex gap-2 justify-end">
