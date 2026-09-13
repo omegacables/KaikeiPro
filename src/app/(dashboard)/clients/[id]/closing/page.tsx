@@ -18,6 +18,7 @@ import {
   X,
 } from "lucide-react";
 import { createJournalEntry } from "@/actions/journals";
+import { getClient } from "@/actions/clients";
 import {
   getActiveFiscalYear,
   getClosingEntries,
@@ -31,6 +32,7 @@ import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
+import { retentionYears, retentionEndDate } from "@/lib/retention";
 import { useData } from "@/lib/use-data";
 import { useAuth } from "@/components/providers/auth-provider";
 
@@ -65,6 +67,14 @@ export default function ClosingPage() {
   );
 
   const isLocked = fiscalYear?.status === "locked";
+
+  // 法人か個人かで法定保存期間が変わる（法人は会社法の10年、個人は7年）
+  const { data: client } = useData(
+    useCallback(() => getClient(clientId), [clientId]),
+    null
+  );
+  const clientEntityType = (client as { entity_type?: "individual" | "corporation" } | null)
+    ?.entity_type;
 
   // Fetch closing entries
   const { data: adjustmentEntries, refetch: refetchEntries } = useData(
@@ -192,11 +202,19 @@ export default function ClosingPage() {
         const start = new Date(fiscalYear.start_date);
         const end = new Date(fiscalYear.end_date);
         const fy = start.getFullYear();
+        // 帳簿書類の法定保存期間。満了日まではデータを消してはいけない。
+        // 期間は電子帳簿保存法ではなく各税法と会社法で決まる
+        const retention = {
+          entityType: (clientEntityType ?? "corporation") as "individual" | "corporation",
+          fiscalYearEnd: fiscalYear.end_date,
+        };
         return {
           name: `${fy}年度`,
           startDate: fiscalYear.start_date.replace(/-/g, "/"),
           endDate: fiscalYear.end_date.replace(/-/g, "/"),
           status: fiscalYear.status,
+          retentionYears: retentionYears(retention),
+          retentionEnd: retentionEndDate(retention).replace(/-/g, "/"),
         };
       })()
     : null;
@@ -309,6 +327,18 @@ export default function ClosingPage() {
                 <Badge variant={fiscalYearDisplay.status === "open" ? "success" : "muted"}>
                   {fiscalYearDisplay.status === "open" ? "進行中" : fiscalYearDisplay.status === "locked" ? "ロック済" : "締め済"}
                 </Badge>
+              </div>
+              {/* 何年保存すればよいかを画面に出す。
+                  これまでどこにも表示が無く、いつまで消せないのか分からなかった */}
+              <div>
+                <p className="text-xs text-muted-foreground">帳簿書類の保存期限</p>
+                <p className="text-sm font-bold text-foreground">
+                  {fiscalYearDisplay.retentionEnd} まで
+                </p>
+                <p className="text-xs text-muted-foreground mt-0.5">
+                  この年度の帳簿・証憑は{fiscalYearDisplay.retentionYears}年間の保存が必要です。
+                  期限までは削除しないでください。
+                </p>
               </div>
             </div>
           ) : (
