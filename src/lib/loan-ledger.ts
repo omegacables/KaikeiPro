@@ -823,3 +823,84 @@ export function entryFromJournalLines(params: {
 
   return { entry_type, amount: Math.abs(net), interest_amount };
 }
+
+// ---------------------------------------------------------------------------
+// 借入金及び支払利子の内訳書：記載対象の判定
+// ---------------------------------------------------------------------------
+
+/** 各別に記入する基準（記載要領）。期末現在高がこの額以上なら各別記入 */
+export const BREAKDOWN_BALANCE_THRESHOLD = 500_000;
+/** 期末残高が無くても、期中の支払利子がこの額以上なら各別記入 */
+export const BREAKDOWN_INTEREST_THRESHOLD = 30_000;
+/** 各別に記入できる口数の上限。超える分は最後の行にまとめる */
+export const BREAKDOWN_MAX_ROWS = 100;
+
+export type BreakdownCandidate = {
+  closingBalance: number;
+  interestPaid: number;
+  /** 役員・株主・関係会社かどうか。該当すれば金額に関わらず各別記入 */
+  isRelatedParty: boolean;
+};
+
+/**
+ * その借入先を各別に記入するかを判定する。
+ *
+ * 記載要領:
+ *   1. 借入先別の期末現在高が50万円以上のものは各別記入
+ *   2. **役員・株主・関係会社**のものは50万円未満でも全て各別記入。
+ *      期末現在高が無くても、期中の支払利子額（未払利子を含む）が
+ *      3万円以上のものも各別記入
+ *   3. それ以外は一括して記入
+ *
+ * これまでは「役員なら出す、残高か利子があれば出す」だけで、
+ * 50万円・3万円の基準を見ていなかった。
+ */
+export function isSeparatelyListed(c: BreakdownCandidate): boolean {
+  if (c.isRelatedParty) return true;
+  if (c.closingBalance >= BREAKDOWN_BALANCE_THRESHOLD) return true;
+  if (c.interestPaid >= BREAKDOWN_INTEREST_THRESHOLD) return true;
+  return false;
+}
+
+/**
+ * 内訳書に載せる行を組み立てる。
+ *
+ * 各別記入の対象を期末現在高の多い順に並べ、100口を超える場合は
+ * 100行目に残り全てをまとめる。関連者は必ず100口の枠内に含める。
+ * 各別記入にならないものは「その他」として1行にまとめる。
+ */
+export function buildBreakdownRows<T extends BreakdownCandidate>(
+  candidates: T[]
+): { separate: T[]; othersBalance: number; othersInterest: number; othersCount: number } {
+  const separate: T[] = [];
+  let othersBalance = 0;
+  let othersInterest = 0;
+  let othersCount = 0;
+
+  for (const c of candidates) {
+    if (isSeparatelyListed(c)) separate.push(c);
+    else {
+      othersBalance += c.closingBalance;
+      othersInterest += c.interestPaid;
+      othersCount++;
+    }
+  }
+
+  // 関連者を先に確保し、残りを期末現在高の多い順に埋める
+  separate.sort((a, b) => {
+    if (a.isRelatedParty !== b.isRelatedParty) return a.isRelatedParty ? -1 : 1;
+    return b.closingBalance - a.closingBalance;
+  });
+
+  // 100口を超える分は「その他」に寄せる（最後の1行を残額用に空ける）
+  if (separate.length > BREAKDOWN_MAX_ROWS) {
+    const overflow = separate.splice(BREAKDOWN_MAX_ROWS - 1);
+    for (const c of overflow) {
+      othersBalance += c.closingBalance;
+      othersInterest += c.interestPaid;
+      othersCount++;
+    }
+  }
+
+  return { separate, othersBalance, othersInterest, othersCount };
+}

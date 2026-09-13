@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import {
   signOf,
+  isSeparatelyListed,
+  buildBreakdownRows,
   entryFromJournalLines,
   deltaOf,
   runningBalances,
@@ -1131,5 +1133,68 @@ describe("entryFromJournalLines", () => {
         ],
       })
     ).toEqual({ entry_type: "borrow", amount: 500000, interest_amount: 0 });
+  });
+});
+
+describe("内訳書に各別記入するかの判定", () => {
+  const c = (closingBalance: number, interestPaid = 0, isRelatedParty = false) => ({
+    closingBalance,
+    interestPaid,
+    isRelatedParty,
+  });
+
+  it("期末現在高が50万円以上なら各別記入", () => {
+    expect(isSeparatelyListed(c(500_000))).toBe(true);
+    expect(isSeparatelyListed(c(499_999))).toBe(false);
+  });
+
+  it("役員・株主・関係会社は金額に関わらず各別記入", () => {
+    expect(isSeparatelyListed(c(0, 0, true))).toBe(true);
+    expect(isSeparatelyListed(c(1, 0, true))).toBe(true);
+  });
+
+  it("残高が無くても期中の支払利子が3万円以上なら各別記入", () => {
+    expect(isSeparatelyListed(c(0, 30_000))).toBe(true);
+    expect(isSeparatelyListed(c(0, 29_999))).toBe(false);
+  });
+
+  it("どれにも当たらないものは各別記入しない", () => {
+    expect(isSeparatelyListed(c(100_000, 5_000))).toBe(false);
+  });
+});
+
+describe("内訳書の行の組み立て", () => {
+  const mk = (closingBalance: number, interestPaid = 0, isRelatedParty = false) => ({
+    closingBalance,
+    interestPaid,
+    isRelatedParty,
+  });
+
+  it("各別記入にならないものは「その他」にまとめる", () => {
+    const r = buildBreakdownRows([mk(600_000), mk(100_000, 1_000), mk(200_000, 2_000)]);
+    expect(r.separate).toHaveLength(1);
+    expect(r.othersCount).toBe(2);
+    expect(r.othersBalance).toBe(300_000);
+    expect(r.othersInterest).toBe(3_000);
+  });
+
+  it("関連者を先頭に、残りは期末現在高の多い順に並べる", () => {
+    const r = buildBreakdownRows([mk(900_000), mk(600_000), mk(1_000, 0, true)]);
+    expect(r.separate.map((x) => x.closingBalance)).toEqual([1_000, 900_000, 600_000]);
+  });
+
+  it("100口を超える分は「その他」へ寄せ、関連者は枠内に残す", () => {
+    const many = Array.from({ length: 150 }, (_, i) => mk(500_000 + i));
+    const r = buildBreakdownRows([...many, mk(1, 0, true)]);
+    expect(r.separate).toHaveLength(99);
+    expect(r.separate[0].isRelatedParty).toBe(true);
+    expect(r.othersCount).toBe(52); // 151 - 99
+  });
+
+  it("全部が各別記入の対象でも「その他」は0件", () => {
+    const r = buildBreakdownRows([mk(600_000), mk(700_000)]);
+    expect(r.separate).toHaveLength(2);
+    expect(r.othersCount).toBe(0);
+    expect(r.othersBalance).toBe(0);
   });
 });

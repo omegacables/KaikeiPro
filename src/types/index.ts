@@ -494,8 +494,15 @@ export interface Loan {
   repayment_terms: string | null;
   /** 通帳・振込明細での表記ゆれ。読み取った名前をこの台帳に結び付けるのに使う */
   aliases: string[];
-  /** 借入理由（内訳明細書の記載項目） */
+  /**
+   * 社内メモ。かつて「借入理由」として内訳明細書に出していたが、
+   * 同欄は令和元年度の簡素化で様式から削除されたため出力しない
+   */
   purpose: string | null;
+  /** 法人・代表者との関係（内訳明細書③）。役員・株主・関係会社など */
+  relationship: string | null;
+  /** 担保の内容（内訳明細書⑦） */
+  collateral: string | null;
   status: LoanStatus;
   memo: string | null;
   created_at: string;
@@ -642,10 +649,17 @@ export interface LoanBreakdownRow {
   interest_paid: number;
   /** 年利(%) */
   interest_rate: number | null;
-  /** 借入理由 */
-  purpose: string | null;
-  /** 役員借入金かどうか（内訳書では必ず記載対象になる） */
-  is_officer: boolean;
+  /** 法人・代表者との関係（内訳書③） */
+  relationship: string | null;
+  /** 担保の内容（内訳書⑦） */
+  collateral: string | null;
+  /**
+   * 役員・株主・関係会社かどうか。
+   * 該当すれば金額に関わらず各別記入の対象になる（記載要領2）
+   */
+  is_related_party: boolean;
+  /** 「その他」としてまとめた行か。まとめた口数を持つ */
+  merged_count?: number;
 }
 
 export interface LoanBreakdownReport {

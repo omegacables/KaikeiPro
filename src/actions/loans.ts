@@ -16,6 +16,7 @@ import {
   entryFromJournalLines,
   generateRepaymentSchedule,
   reconcileLoanLedger,
+  buildBreakdownRows,
   type RepaymentMethod,
   type DueDateMode,
   type ReconcileResult,
@@ -54,6 +55,8 @@ function rowToLoan(r: DbRow): Loan {
     repayment_terms: (r.repayment_terms as string) ?? null,
     aliases: (r.aliases as string[]) ?? [],
     purpose: (r.purpose as string) ?? null,
+    relationship: (r.relationship as string) ?? null,
+    collateral: (r.collateral as string) ?? null,
     status: (r.status as Loan["status"]) ?? "active",
     memo: (r.memo as string) ?? null,
     created_at: (r.created_at as string) ?? "",
@@ -192,6 +195,8 @@ export async function createLoan(input: LoanInput): Promise<Loan> {
       repayment_terms: input.repayment_terms,
       aliases: input.aliases ?? [],
       purpose: input.purpose,
+      relationship: input.relationship,
+      collateral: input.collateral,
       memo: input.memo,
       status: "active",
       // 非推奨カラム。旧コードが読んでも壊れないよう 0 を入れておく
@@ -220,6 +225,8 @@ export async function updateLoan(id: string, input: Partial<LoanInput>): Promise
     "repayment_terms",
     "aliases",
     "purpose",
+    "relationship",
+    "collateral",
     "memo",
     "status",
   ] as const;
@@ -1027,15 +1034,45 @@ export async function getLoanBreakdownReport(
       // 前者を数え漏らすと、銀行返済では常に0になってしまう。
       interest_paid: interestTotals(es, { from: startDate, to: endDate }).total,
       interest_rate: loan.interest_rate,
-      purpose: loan.purpose,
-      is_officer: loan.counterparty_kind === "officer",
+      relationship: loan.relationship,
+      collateral: loan.collateral,
+      // 役員からの借入は関連者。ほかに株主・関係会社があれば
+      // 「法人・代表者との関係」欄への記入で関連者として扱う
+      is_related_party:
+        loan.counterparty_kind === "officer" || Boolean(loan.relationship?.trim()),
     };
   });
 
-  // 役員借入金は残高0でも記載対象。それ以外は残高も利子もなければ省く
-  const visible = rows.filter(
-    (r) => r.is_officer || r.closing_balance !== 0 || r.interest_paid !== 0
+  // 記載要領に沿って各別記入と一括記入を分ける。
+  // 以前は「役員なら出す、残高か利子があれば出す」だけで、
+  // 50万円・3万円・100口の基準を見ていなかった。
+  const built = buildBreakdownRows(
+    rows.map((r) => ({
+      ...r,
+      closingBalance: r.closing_balance,
+      interestPaid: r.interest_paid,
+      isRelatedParty: r.is_related_party,
+    }))
   );
+
+  const visible: LoanBreakdownRow[] = built.separate.map(
+    ({ closingBalance: _b, interestPaid: _i, isRelatedParty: _r, ...row }) => row
+  );
+
+  // 各別記入にならなかったものは1行にまとめる（記載要領3）
+  if (built.othersCount > 0) {
+    visible.push({
+      lender_name: `その他（${built.othersCount}口）`,
+      address: null,
+      closing_balance: built.othersBalance,
+      interest_paid: built.othersInterest,
+      interest_rate: null,
+      relationship: null,
+      collateral: null,
+      is_related_party: false,
+      merged_count: built.othersCount,
+    });
+  }
 
   return {
     clientName: ((client as DbRow | null)?.name as string) ?? "",

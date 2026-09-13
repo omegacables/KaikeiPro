@@ -140,13 +140,16 @@ export default function LoanBreakdownPage({
           <table className="mt-4 w-full border-collapse text-[14px]">
             <thead>
               <tr>
+                {/* 現行様式（令和6年3月1日以後終了事業年度用）の記載欄。
+                    「借入理由」は令和元年度の簡素化で削除されているため出さない */}
                 {[
-                  "借入先",
-                  "所在地",
+                  "名称（氏名）",
+                  "所在地（住所）",
+                  "法人・代表者との関係",
                   "期末現在高",
                   "期中の支払利子額",
                   "利率",
-                  "借入理由",
+                  "担保の内容",
                 ].map((h) => (
                   <th
                     key={h}
@@ -160,12 +163,9 @@ export default function LoanBreakdownPage({
             <tbody>
               {report.rows.map((r, i) => (
                 <tr key={i}>
-                  <td className="border border-black px-2 py-1.5">
-                    {r.lender_name}
-                    {/* 役員借入金は必ず記載対象になるため、明示しておく */}
-                    {r.is_officer && <span className="ml-1 text-[12px]">（役員）</span>}
-                  </td>
+                  <td className="border border-black px-2 py-1.5">{r.lender_name}</td>
                   <td className="border border-black px-2 py-1.5">{r.address ?? ""}</td>
+                  <td className="border border-black px-2 py-1.5">{r.relationship ?? ""}</td>
                   <td className="border border-black px-2 py-1.5 text-right tabular-nums">
                     {fmt(r.closing_balance)}
                   </td>
@@ -175,14 +175,14 @@ export default function LoanBreakdownPage({
                   <td className="border border-black px-2 py-1.5 text-right tabular-nums">
                     {r.interest_rate != null ? `${r.interest_rate}%` : ""}
                   </td>
-                  <td className="border border-black px-2 py-1.5">{r.purpose ?? ""}</td>
+                  <td className="border border-black px-2 py-1.5">{r.collateral ?? ""}</td>
                 </tr>
               ))}
 
               {/* 用紙らしく見せるため、行が少ないときは空行で埋める */}
               {Array.from({ length: Math.max(0, 8 - report.rows.length) }).map((_, i) => (
                 <tr key={`blank-${i}`}>
-                  {Array.from({ length: 6 }).map((__, c) => (
+                  {Array.from({ length: 7 }).map((__, c) => (
                     <td key={c} className="border border-black px-2 py-1.5">
                       &nbsp;
                     </td>
@@ -192,7 +192,7 @@ export default function LoanBreakdownPage({
 
               <tr>
                 <td
-                  colSpan={2}
+                  colSpan={3}
                   className="border border-black px-2 py-1.5 text-center font-bold bg-gray-100"
                 >
                   計
@@ -213,7 +213,9 @@ export default function LoanBreakdownPage({
             ※ 期末現在高は決算日（{report.periodEnd}）時点の増減明細の積み上げ、
             支払利子額は当該事業年度（{report.periodStart} 〜 {report.periodEnd}）に
             支払った利息と元本に加算した利息の合計です。
-            役員からの借入金は残高が無い場合も記載対象として表示しています。
+            記載要領に従い、期末現在高50万円以上のもの、役員・株主・関係会社からのもの
+            （金額を問わず）、期中の支払利子額が3万円以上のものを各別に記載し、
+            それ以外は「その他」としてまとめています。
           </p>
         </div>
       </div>

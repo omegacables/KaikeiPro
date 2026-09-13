@@ -124,6 +124,8 @@ type LoanFormState = {
   interest_rate: string;
   repayment_terms: string;
   purpose: string;
+  relationship: string;
+  collateral: string;
   memo: string;
   /** 通帳での表記。カンマ区切りで複数 */
   aliases: string;
@@ -136,6 +138,8 @@ const emptyLoanForm: LoanFormState = {
   interest_rate: "",
   repayment_terms: "",
   purpose: "",
+  relationship: "",
+  collateral: "",
   memo: "",
   aliases: "",
 };
@@ -378,6 +382,8 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
       repayment_terms: l.loan.repayment_terms ?? "",
       aliases: (l.loan.aliases ?? []).join(", "),
       purpose: l.loan.purpose ?? "",
+      relationship: l.loan.relationship ?? "",
+      collateral: l.loan.collateral ?? "",
       memo: l.loan.memo ?? "",
     });
     setShowLoanForm(true);
@@ -412,6 +418,8 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           .map((v) => v.trim())
           .filter(Boolean),
         purpose: loanForm.purpose.trim() || null,
+        relationship: loanForm.relationship.trim() || null,
+        collateral: loanForm.collateral.trim() || null,
         memo: loanForm.memo.trim() || null,
       };
       if (editingLoanId) await updateLoan(editingLoanId, payload);
@@ -2116,16 +2124,46 @@ function LoanFormModal(props: {
             />
           </div>
 
+          {/* 内訳明細書の記載欄。「借入理由」は令和元年度の簡素化で
+              様式から削除されたため、社内メモ扱いにしている */}
           <div>
-            <label className={labelCls}>借入理由</label>
+            <label className={labelCls}>法人・代表者との関係</label>
             <input
               ref={(el) => setCellRef(6, el)}
-              value={form.purpose}
-              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+              value={form.relationship}
+              onChange={(e) => setForm({ ...form, relationship: e.target.value })}
               onKeyDown={(e) => handleKeyDown(6, e)}
               className={inputCls}
-              placeholder="運転資金 など（勘定科目内訳明細書の記載項目）"
+              placeholder={isOfficer ? "役員" : "株主 / 関係会社 など（無ければ空欄）"}
             />
+            <p className="mt-1 text-[15px] text-foreground">
+              内訳明細書に出ます。ここに記入した相手先は、期末残高が50万円未満でも
+              各別に記載する対象になります。
+            </p>
+          </div>
+
+          <div>
+            <label className={labelCls}>担保の内容</label>
+            <input
+              value={form.collateral}
+              onChange={(e) => setForm({ ...form, collateral: e.target.value })}
+              className={inputCls}
+              placeholder="なし / 代表者保証 / 不動産 など"
+            />
+          </div>
+
+          <div>
+            <label className={labelCls}>借入理由（社内メモ）</label>
+            <input
+              value={form.purpose}
+              onChange={(e) => setForm({ ...form, purpose: e.target.value })}
+              className={inputCls}
+              placeholder="運転資金 など"
+            />
+            <p className="mt-1 text-[15px] text-foreground">
+              内訳明細書の「借入理由」欄は令和元年度の様式簡素化で削除されたため、
+              この内容は出力されません。社内の記録としてお使いください。
+            </p>
           </div>
 
           <div>
