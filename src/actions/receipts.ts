@@ -1,6 +1,7 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all";
 import { assertRecordsAccess } from "@/lib/authz";
 import type { Database } from "@/types/database";
 import { getReviewReasons } from "@/lib/receipt-review";
@@ -15,27 +16,40 @@ export async function getReceipts(clientId: string): Promise<ReceiptWithReview[]
   const supabase = await createServerSupabaseClient();
 
   // レシート一覧を取得
-  const { data: receipts, error } = await supabase
-    .from("receipts")
-    .select("*")
-    .eq("client_id", clientId)
-    .order("uploaded_at", { ascending: false });
-
-  if (error) throw new Error(error.message);
-
-  // needs_review=true の仕訳に紐づく receipt_id を取得
-  const { data: reviewEntries } = await supabase
-    .from("journal_entries")
-    .select("receipt_id")
-    .eq("client_id", clientId)
-    .eq("needs_review", true)
-    .not("receipt_id", "is", null);
-
-  const reviewReceiptIds = new Set(
-    (reviewEntries ?? []).map((e) => e.receipt_id).filter(Boolean)
+  // 1000行の取得上限で黙って打ち切られないよう全件取得する。
+  // 打ち切られると、証憑の検索が古いものに当たらなくなる
+  // （電子帳簿保存法の検索要件を満たせなくなる）
+  const receipts = await fetchAllRows<ReceiptRow>((from, to) =>
+    supabase
+      .from("receipts")
+      .select("*")
+      .eq("client_id", clientId)
+      .order("uploaded_at", { ascending: false })
+      .range(from, to) as unknown as PromiseLike<{
+      data: ReceiptRow[] | null;
+      error: { message: string } | null;
+    }>
   );
 
-  return (receipts ?? []).map((r) => ({
+  // needs_review=true の仕訳に紐づく receipt_id を取得
+  const reviewEntries = await fetchAllRows<{ receipt_id: string | null }>((from, to) =>
+    supabase
+      .from("journal_entries")
+      .select("receipt_id")
+      .eq("client_id", clientId)
+      .eq("needs_review", true)
+      .not("receipt_id", "is", null)
+      .range(from, to) as unknown as PromiseLike<{
+      data: { receipt_id: string | null }[] | null;
+      error: { message: string } | null;
+    }>
+  );
+
+  const reviewReceiptIds = new Set(
+    reviewEntries.map((e) => e.receipt_id).filter(Boolean)
+  );
+
+  return receipts.map((r) => ({
     ...r,
     needs_review: reviewReceiptIds.has(r.id),
   })) as ReceiptWithReview[];

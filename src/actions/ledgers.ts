@@ -72,9 +72,22 @@ export async function getJournalLedger(
   await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
-  const { data: entries, error } = await supabase
-    .from("journal_entries")
-    .select(`
+  // 1000行の取得上限で黙って打ち切られないよう全件取得する。
+  // 打ち切られると仕訳帳に古い仕訳が出てこなくなる
+  type LedgerEntryRow = {
+    id: string;
+    entry_date: string;
+    created_at: string;
+    description: string | null;
+    source: string | null;
+    receipt_id: string | null;
+    receipts: { payment_method: string | null } | null;
+    journal_entry_lines: unknown[] | null;
+  };
+  const entries = await fetchAllRows<LedgerEntryRow>((from, to) =>
+    supabase
+      .from("journal_entries")
+      .select(`
       id, entry_date, created_at, description, source, receipt_id,
       receipts:receipt_id ( payment_method ),
       journal_entry_lines (
@@ -82,16 +95,19 @@ export async function getJournalLedger(
         accounts:account_id ( code, name )
       )
     `)
-    .eq("client_id", clientId)
-    .eq("needs_review", false)
-    .gte("entry_date", dateFrom)
-    .lte("entry_date", dateTo)
-    .order("entry_date", { ascending: true });
-
-  if (error) throw new Error(error.message);
+      .eq("client_id", clientId)
+      .eq("needs_review", false)
+      .gte("entry_date", dateFrom)
+      .lte("entry_date", dateTo)
+      .order("entry_date", { ascending: true })
+      .range(from, to) as unknown as PromiseLike<{
+      data: LedgerEntryRow[] | null;
+      error: { message: string } | null;
+    }>
+  );
 
   const rows: JournalLedgerRow[] = [];
-  for (const entry of entries ?? []) {
+  for (const entry of entries) {
     const rawLines = (entry.journal_entry_lines ?? []) as {
       debit_amount: number;
       credit_amount: number;

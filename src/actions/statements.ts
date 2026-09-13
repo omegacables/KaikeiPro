@@ -211,29 +211,42 @@ export async function getInventorySchedule(
   dayBefore.setDate(dayBefore.getDate() - 1);
   const beforeDate = dayBefore.toISOString().slice(0, 10);
 
-  const { data: priorLines } = await supabase
-    .from("journal_entry_lines")
-    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
-    .eq("journal_entries.client_id", clientId)
-    // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
-    .eq("journal_entries.needs_review", false)
-    .lte("journal_entries.entry_date", beforeDate);
+  // 1000行の取得上限で黙って打ち切られないよう全件取得する。
+  // 打ち切られると集計金額が過少になる
+  type AggLine = {
+    account_id: string;
+    debit_amount: number;
+    credit_amount: number;
+    journal_entries: { client_id: string; entry_date: string };
+  };
+  const priorLines = await fetchAllRows<AggLine>((from, to) =>
+    supabase
+      .from("journal_entry_lines")
+      .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
+      .eq("journal_entries.client_id", clientId)
+      // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
+      .eq("journal_entries.needs_review", false)
+      .lte("journal_entries.entry_date", beforeDate)
+      .range(from, to) as unknown as PromiseLike<{ data: AggLine[] | null; error: { message: string } | null }>
+  );
 
   // Get journal lines for the current period
-  const { data: periodLines } = await supabase
-    .from("journal_entry_lines")
-    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
-    .eq("journal_entries.client_id", clientId)
-    // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
-    .eq("journal_entries.needs_review", false)
-    .gte("journal_entries.entry_date", fiscalYearStart)
-    .lte("journal_entries.entry_date", endDate);
+  const periodLines = await fetchAllRows<AggLine>((from, to) =>
+    supabase
+      .from("journal_entry_lines")
+      .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
+      .eq("journal_entries.client_id", clientId)
+      .eq("journal_entries.needs_review", false)
+      .gte("journal_entries.entry_date", fiscalYearStart)
+      .lte("journal_entries.entry_date", endDate)
+      .range(from, to) as unknown as PromiseLike<{ data: AggLine[] | null; error: { message: string } | null }>
+  );
 
   const inventoryIds = new Set(inventoryAccounts.map((a) => a.id));
 
   // Calculate opening balances
   const openingMap = new Map<string, number>();
-  for (const line of priorLines ?? []) {
+  for (const line of priorLines) {
     if (!inventoryIds.has(line.account_id)) continue;
     const prev = openingMap.get(line.account_id) ?? 0;
     openingMap.set(line.account_id, prev + line.debit_amount - line.credit_amount);
@@ -242,7 +255,7 @@ export async function getInventorySchedule(
   // Calculate period movements
   const increaseMap = new Map<string, number>();
   const decreaseMap = new Map<string, number>();
-  for (const line of periodLines ?? []) {
+  for (const line of periodLines) {
     if (!inventoryIds.has(line.account_id)) continue;
     const prevInc = increaseMap.get(line.account_id) ?? 0;
     const prevDec = decreaseMap.get(line.account_id) ?? 0;
@@ -328,15 +341,27 @@ export async function getMonthlyTrend(
     isPl ? t === "revenue" || t === "expenses" : t === "assets" || t === "liabilities" || t === "equity";
 
   // BSは累計残高のため全期間、PLは前期期首以降を取得
-  let q = supabase
-    .from("journal_entry_lines")
-    .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
-    .eq("journal_entries.client_id", clientId)
-    // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
-    .eq("journal_entries.needs_review", false)
-    .lte("journal_entries.entry_date", fiscalYearEnd);
-  if (isPl) q = q.gte("journal_entries.entry_date", priorStartDate);
-  const { data: lines } = await q;
+  // 1000行の取得上限で黙って打ち切られないよう全件取得する
+  type TrendLine = {
+    account_id: string;
+    debit_amount: number;
+    credit_amount: number;
+    journal_entries: { client_id: string; entry_date: string };
+  };
+  const lines = await fetchAllRows<TrendLine>((from, to) => {
+    let q = supabase
+      .from("journal_entry_lines")
+      .select(`account_id, debit_amount, credit_amount, journal_entries!inner ( client_id, entry_date )`)
+      .eq("journal_entries.client_id", clientId)
+      // 要確認の仕訳は数字に入れない（試算表・決算書と同じルール）
+      .eq("journal_entries.needs_review", false)
+      .lte("journal_entries.entry_date", fiscalYearEnd);
+    if (isPl) q = q.gte("journal_entries.entry_date", priorStartDate);
+    return q.range(from, to) as unknown as PromiseLike<{
+      data: TrendLine[] | null;
+      error: { message: string } | null;
+    }>;
+  });
 
   // 当期・前期の各月の値（PL=フロー / BS=フローを後で累積）
   const curArr = new Map<string, number[]>();
@@ -349,7 +374,7 @@ export async function getMonthlyTrend(
     return m.get(id)!;
   };
 
-  for (const line of lines ?? []) {
+  for (const line of lines) {
     const info = accountInfo.get(line.account_id);
     if (!info || !wantType(info.type)) continue;
     const entry = line.journal_entries as unknown as { entry_date: string };
