@@ -16,10 +16,15 @@ export const TAX_CATEGORIES = [
   { code: "sales_non", name: "不課税", rate: 0, is_purchase: false },
   { code: "purchase_10", name: "課税仕入10%", rate: 0.1, is_purchase: true },
   { code: "purchase_8", name: "課税仕入8%（軽減）", rate: 0.08, is_purchase: true },
-  { code: "purchase_10_80", name: "課税仕入10%（経過措置80%）", rate: 0.1, is_purchase: true, transition_rate: 0.8 },
-  { code: "purchase_10_50", name: "課税仕入10%（経過措置50%）", rate: 0.1, is_purchase: true, transition_rate: 0.5 },
-  { code: "purchase_8_80", name: "課税仕入8%（経過措置80%）", rate: 0.08, is_purchase: true, transition_rate: 0.8 },
-  { code: "purchase_8_50", name: "課税仕入8%（経過措置50%）", rate: 0.08, is_purchase: true, transition_rate: 0.5 },
+  // 免税事業者等からの仕入れに係る経過措置。令和8年度改正で 80→70→50→30 の4段階になった
+  { code: "purchase_10_trans_80", name: "課税仕入10%（経過措置80%）", rate: 0.1, is_purchase: true, transition_rate: 0.8 },
+  { code: "purchase_10_trans_70", name: "課税仕入10%（経過措置70%）", rate: 0.1, is_purchase: true, transition_rate: 0.7 },
+  { code: "purchase_10_trans_50", name: "課税仕入10%（経過措置50%）", rate: 0.1, is_purchase: true, transition_rate: 0.5 },
+  { code: "purchase_10_trans_30", name: "課税仕入10%（経過措置30%）", rate: 0.1, is_purchase: true, transition_rate: 0.3 },
+  { code: "purchase_08_trans_80", name: "課税仕入8%（経過措置80%）", rate: 0.08, is_purchase: true, transition_rate: 0.8 },
+  { code: "purchase_08_trans_70", name: "課税仕入8%（経過措置70%）", rate: 0.08, is_purchase: true, transition_rate: 0.7 },
+  { code: "purchase_08_trans_50", name: "課税仕入8%（経過措置50%）", rate: 0.08, is_purchase: true, transition_rate: 0.5 },
+  { code: "purchase_08_trans_30", name: "課税仕入8%（経過措置30%）", rate: 0.08, is_purchase: true, transition_rate: 0.3 },
 ] as const;
 
 // ===== 簡易課税 みなし仕入率 =====
@@ -33,14 +38,49 @@ export const SIMPLIFIED_TAX_RATES = [
 ] as const;
 
 // ===== インボイス経過措置 =====
-export function getInvoiceTransitionRate(date: Date): number {
-  const d = date.getTime();
-  const phase1End = new Date("2026-09-30").getTime();
-  const phase2End = new Date("2029-09-30").getTime();
+//
+// 免税事業者等からの課税仕入れについて、仕入税額の一定割合を控除できる経過措置
+// （平成28年改正法附則52・53）。
+//
+// 令和8年度改正で**期限が2年延長され4段階**になった。
+// 改正前は「80%（3年）→50%（3年）→終了」で、この実装もそれに合わせていたが、
+// そのままだと令和8年10月1日以降に**控除できる額を少なく計算**してしまい、
+// 顧問先が本来より多く消費税を納めることになる。
+//
+//   〜令和8年9月30日        80%
+//   令和8年10月1日〜令和10年9月30日   70%
+//   令和10年10月1日〜令和12年9月30日  50%
+//   令和12年10月1日〜令和13年9月30日  30%
+//   令和13年10月1日以後      なし
+//
+// 割合は「課税仕入れを行った日」で判定する（役務は完了日、物品は引渡日）。
+// 期間で按分するのではない。
+const INVOICE_TRANSITION_PHASES: { until: string; rate: number }[] = [
+  { until: "2026-09-30", rate: 0.8 },
+  { until: "2028-09-30", rate: 0.7 },
+  { until: "2030-09-30", rate: 0.5 },
+  { until: "2031-09-30", rate: 0.3 },
+];
 
-  if (d <= phase1End) return 0.8;
-  if (d <= phase2End) return 0.5;
+/**
+ * 課税仕入れを行った日から、経過措置の控除割合を返す。
+ * 経過措置の期間を過ぎていれば 0（控除できない）。
+ */
+export function getInvoiceTransitionRate(date: Date): number {
+  // その日の終わりまでを含める（境界日そのものは経過措置の対象）
+  const d = date.getTime();
+  for (const phase of INVOICE_TRANSITION_PHASES) {
+    if (d <= new Date(`${phase.until}T23:59:59.999Z`).getTime()) return phase.rate;
+  }
   return 0;
+}
+
+/** 控除割合に対応する税区分コードを返す（10%用・8%用）。割合が0なら null */
+export function transitionTaxCategoryCode(rate: number, taxRate: 0.1 | 0.08): string | null {
+  const pct = Math.round(rate * 100);
+  if (pct === 0) return null;
+  // コードは税区分マスタ（tax_categories テーブル）の命名に合わせる
+  return taxRate === 0.1 ? `purchase_10_trans_${pct}` : `purchase_08_trans_${pct}`;
 }
 
 // ===== 支払方法 =====

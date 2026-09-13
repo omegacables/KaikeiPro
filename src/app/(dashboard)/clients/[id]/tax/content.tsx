@@ -32,10 +32,16 @@ const simplifiedRates = [
   { type: "第6種", label: "不動産業", rate: 40 },
 ];
 
+// 免税事業者等からの仕入れに係る経過措置。
+// 令和8年度改正で期限が2年延長され4段階になった（改正前は 80%→50% の2段階）。
+// 割合そのものは src/lib/constants.ts の getInvoiceTransitionRate が唯一の正で、
+// ここは表示用。期間の区切りは同じものを使う。
 const invoiceTransition = [
-  { period: "2023/10 〜 2026/9", rate: 80, description: "仕入税額の80%控除可能" },
-  { period: "2026/10 〜 2029/9", rate: 50, description: "仕入税額の50%控除可能" },
-  { period: "2029/10 〜", rate: 0, description: "控除不可（全額自己負担）" },
+  { period: "2023/10 〜 2026/9", start: "2023-10-01", end: "2026-09-30", rate: 80 },
+  { period: "2026/10 〜 2028/9", start: "2026-10-01", end: "2028-09-30", rate: 70 },
+  { period: "2028/10 〜 2030/9", start: "2028-10-01", end: "2030-09-30", rate: 50 },
+  { period: "2030/10 〜 2031/9", start: "2030-10-01", end: "2031-09-30", rate: 30 },
+  { period: "2031/10 〜", start: "2031-10-01", end: null, rate: 0 },
 ];
 
 const emptyTaxSummary: TaxSummary = {
@@ -481,28 +487,33 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
             免税事業者等からの課税仕入れについて、仕入税額控除の経過措置が適用されます。
           </p>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-            {invoiceTransition.map((item) => (
+            {invoiceTransition.map((item) => {
+              // 「現在適用中」は 80% に固定されていた。日付で判定する
+              const today = new Date().toISOString().slice(0, 10);
+              const current = today >= item.start && (item.end === null || today <= item.end);
+              return (
               <div
                 key={item.period}
                 className={cn(
                   "p-4 rounded-lg border border-border",
-                  item.rate === 80
-                    ? "bg-primary/5 border-primary/30"
-                    : "bg-muted/20"
+                  current ? "bg-primary/5 border-primary/30" : "bg-muted/20"
                 )}
               >
                 <div className="flex items-center justify-between mb-2">
                   <span className="text-xs text-muted-foreground">{item.period}</span>
-                  {item.rate === 80 && (
-                    <Badge variant="default">現在適用中</Badge>
-                  )}
+                  {current && <Badge variant="default">現在適用中</Badge>}
                 </div>
                 <p className="text-2xl font-bold text-foreground mb-1">
                   {item.rate}%
                 </p>
-                <p className="text-xs text-muted-foreground">{item.description}</p>
+                <p className="text-xs text-muted-foreground">
+                  {item.rate > 0
+                    ? `仕入税額の${item.rate}%を控除できます`
+                    : "控除できません（全額が自己負担）"}
+                </p>
               </div>
-            ))}
+              );
+            })}
           </div>
         </CardContent>
       </Card>
