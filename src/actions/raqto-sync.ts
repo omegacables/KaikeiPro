@@ -355,7 +355,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
             journalEntryId = entry.id;
             await supabase.from("journal_entry_lines").insert([
               { journal_entry_id: entry.id, account_id: receivableAccountId, debit_amount: doc.total_amount, credit_amount: 0, sort_order: 0 },
-              { journal_entry_id: entry.id, account_id: salesAccountId, debit_amount: 0, credit_amount: doc.total_amount, tax_category: "taxable_sales", tax_rate: 10, sort_order: 1 },
+              { journal_entry_id: entry.id, account_id: salesAccountId, debit_amount: 0, credit_amount: doc.total_amount, tax_category: "sales_10", tax_rate: 0.1, sort_order: 1 },
             ]);
           }
         }
@@ -450,7 +450,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
           journalEntryId = entry.id;
           await supabase.from("journal_entry_lines").insert([
             { journal_entry_id: entry.id, account_id: receivableAccountId, debit_amount: order.total_amount, credit_amount: 0, sort_order: 0 },
-            { journal_entry_id: entry.id, account_id: salesAccountId, debit_amount: 0, credit_amount: order.total_amount, tax_category: "taxable_sales", tax_rate: 10, sort_order: 1 },
+            { journal_entry_id: entry.id, account_id: salesAccountId, debit_amount: 0, credit_amount: order.total_amount, tax_category: "sales_10", tax_rate: 0.1, sort_order: 1 },
           ]);
         }
       }
@@ -625,7 +625,7 @@ export async function importRaqtoPurchaseOrders(clientId: string): Promise<Raqto
       const { error: linesError } = await supabase
         .from("journal_entry_lines")
         .insert([
-          { journal_entry_id: entry.id, account_id: purchaseAccountId, debit_amount: po.total_amount, credit_amount: 0, tax_category: "taxable_purchase", tax_rate: 10, sort_order: 0 },
+          { journal_entry_id: entry.id, account_id: purchaseAccountId, debit_amount: po.total_amount, credit_amount: 0, tax_category: "purchase_10", tax_rate: 0.1, sort_order: 0 },
           { journal_entry_id: entry.id, account_id: payableAccountId, debit_amount: 0, credit_amount: po.total_amount, sort_order: 1 },
         ]);
 

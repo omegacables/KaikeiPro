@@ -6,6 +6,19 @@ import {
   createAdminSupabaseClient,
 } from "@/lib/supabase";
 import { lookupLearnedRules, recordLearnedRule } from "./learned-rules";
+import { TAX_CATEGORY_LIST, sanitizeTaxCategory } from "@/lib/tax-category";
+
+/**
+ * AIに渡す税区分の一覧。
+ *
+ * 以前は「purchase_10等」とだけ書いて自由に書かせていたため、
+ * purchase_80_percent_deductible / non_taxable / なし / no_tax など
+ * 13通りの表記が生まれ、集計側と一つも一致しなかった。
+ * 選択肢をその場で示し、この中から選ばせる。
+ */
+const TAX_CATEGORY_PROMPT = TAX_CATEGORY_LIST.map(
+  (c) => `   - ${c.code}: ${c.name}`
+).join("\n");
 import type { OcrResult, AiJournalSuggestion } from "@/types/index";
 
 /**
@@ -133,7 +146,14 @@ ${accountList}
    - e_money → （電子マネー）
    - bank_transfer → （振込）
    - 不明の場合は省略
-6. インボイス番号がない場合はインボイス経過措置の税区分を使用
+6. tax_category は次の**一覧の中から必ず選ぶ**こと。一覧に無い語を作らないこと。
+   判断できない場合は null にすること（推測で課税取引にしない）。
+${TAX_CATEGORY_PROMPT}
+   - tax_category を付けるのは**費用・収益の科目の行だけ**。
+     現金・預金・未払金・仮払消費税の行は必ず null にすること
+     （同じ取引を何重にも数えることになるため）
+   - tax_rate は小数で書くこと（10% は 0.1、8% は 0.08）
+   - インボイス登録番号（T＋13桁）が無い課税仕入れは経過措置の区分を使う
 7. 外貨建て取引の場合:
    - 金額は全て円換算後の値を使用すること
    - 摘要に原通貨金額とレートを記載（例: 「$40.98 @150.32」）
@@ -149,7 +169,7 @@ ${accountList}
       "account_code": "科目コード",
       "debit_amount": 数値,
       "credit_amount": 0,
-      "tax_category": "purchase_10等",
+      "tax_category": "一覧のコード または null",
       "tax_rate": 0.10
     }
   ],
@@ -197,7 +217,7 @@ ${accountList}
       "account_code": "科目コード",
       "debit_amount": 数値,
       "credit_amount": 0,
-      "tax_category": "sales_10等",
+      "tax_category": "一覧のコード または null",
       "tax_rate": 0.10
     }
   ],
@@ -300,7 +320,7 @@ async function autoCreateJournalFromSuggestion(
     account_id: accountMap.get(line.account_name)!,
     debit_amount: line.debit_amount,
     credit_amount: line.credit_amount,
-    tax_category: line.tax_category ?? null,
+    tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
     sort_order: i,
   }));
@@ -397,7 +417,7 @@ export async function approveJournalSuggestion(
     account_id: accountMap.get(line.account_name)!,
     debit_amount: line.debit_amount,
     credit_amount: line.credit_amount,
-    tax_category: line.tax_category ?? null,
+    tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
     sort_order: i,
   }));
@@ -552,6 +572,13 @@ ${accountList}
    - 売上入金 → 売上高 or 売掛金
 5. 消費税が推定できる場合は仮払消費税/仮受消費税を計上
 
+税区分（tax_category）について:
+- 次の一覧の中から必ず選ぶこと。一覧に無い語を作らないこと。判断できない場合は null（推測で課税取引にしない）
+${TAX_CATEGORY_PROMPT}
+- 付けるのは**費用・収益の科目の行だけ**。現金・預金・未払金・仮払消費税／仮受消費税の行は必ず null
+  （同じ取引を何重にも数えることになるため）
+- tax_rate は小数で書くこと（10% は 0.1、8% は 0.08）
+
 以下のJSON形式で回答してください:
 {
   "description": "摘要（取引内容の簡潔な説明）",
@@ -617,7 +644,7 @@ JSONのみ返してください。`;
     account_id: accountMap.get(line.account_name)!,
     debit_amount: line.debit_amount,
     credit_amount: line.credit_amount,
-    tax_category: line.tax_category ?? null,
+    tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
     sort_order: i,
   }));
@@ -767,6 +794,13 @@ ${accountList}
 5. 消費税10%を含むと仮定し、必要であれば仮払消費税で分離（約1.1で割って10%部分を算出）
 6. 摘要末尾に「（カード）」を付ける
 
+税区分（tax_category）について:
+- 次の一覧の中から必ず選ぶこと。一覧に無い語を作らないこと。判断できない場合は null（推測で課税取引にしない）
+${TAX_CATEGORY_PROMPT}
+- 付けるのは**費用・収益の科目の行だけ**。現金・預金・未払金・仮払消費税／仮受消費税の行は必ず null
+  （同じ取引を何重にも数えることになるため）
+- tax_rate は小数で書くこと（10% は 0.1、8% は 0.08）
+
 以下のJSON形式で回答してください:
 {
   "description": "摘要（利用店舗 + 内容 + （カード））",
@@ -777,7 +811,7 @@ ${accountList}
       "account_code": "科目コード",
       "debit_amount": 数値,
       "credit_amount": 数値,
-      "tax_category": "purchase_10等 or null",
+      "tax_category": "一覧のコード または null",
       "tax_rate": 0.10 or null
     }
   ],
@@ -832,7 +866,7 @@ JSONのみ返してください。`;
     account_id: accountMap.get(line.account_name)!,
     debit_amount: line.debit_amount,
     credit_amount: line.credit_amount,
-    tax_category: line.tax_category ?? null,
+    tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
     sort_order: i,
   }));

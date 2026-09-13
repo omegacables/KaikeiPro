@@ -50,6 +50,7 @@ const emptyTaxSummary: TaxSummary = {
   purchase10: 0, purchase10Tax: 0,
   purchase8: 0, purchase8Tax: 0,
   salesExempt: 0, salesTaxFree: 0, salesOutOfScope: 0,
+  transitionNotDeductible: 0, uncategorizedLines: 0,
 };
 
 export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean }) {

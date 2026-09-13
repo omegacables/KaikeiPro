@@ -1,6 +1,7 @@
 "use server";
 
 import { getGeminiModel, callGemini } from "@/lib/gemini";
+import { sanitizeTaxCategory } from "@/lib/tax-category";
 import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
@@ -429,7 +430,7 @@ JSONのみ返してください。`;
           account_id: debitId,
           debit_amount: absAmount,
           credit_amount: 0,
-          tax_category: sugg?.tax_category ?? null,
+          tax_category: sanitizeTaxCategory(sugg?.tax_category),
           tax_rate: sugg?.tax_rate ?? null,
           sort_order: 0,
         },
