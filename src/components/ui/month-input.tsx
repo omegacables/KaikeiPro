@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useRef, useState, memo } from "react";
-import { CalendarDays } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useSegmentWheel, SegmentHighlight } from "./segment-wheel";
+import { DrumPicker, DrumFooterButton, type DrumColumn } from "./drum-picker";
 
 const MONTH_SEGMENTS = [[0, 4], [5, 7]] as const; // "YYYY/MM"
 
@@ -65,7 +66,7 @@ interface MonthInputProps {
 
 /**
  * 年月の入力欄。日付入力欄（DateInput）と同じ操作ができる。
- *   打ち込み（202604 / 2026/4 / 4）・カレンダー・↑↓キー・ホイール（クリック不要）
+ *   打ち込み（202604 / 2026/4 / 4）・ドラムロール（クリック・▼・Alt+↓）・↑↓キー・ホイール（クリック不要）
  */
 export const MonthInput = memo(function MonthInput({
   value,
@@ -77,7 +78,9 @@ export const MonthInput = memo(function MonthInput({
   wrapperClassName = "w-full",
 }: MonthInputProps) {
   const innerRef = useRef<HTMLInputElement | null>(null);
-  const pickerRef = useRef<HTMLInputElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const [open, setOpen] = useState(false);
+  const [yearCenter, setYearCenter] = useState(() => new Date().getFullYear());
   const [draft, setDraft] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
 
@@ -136,6 +139,32 @@ export const MonthInput = memo(function MonthInput({
     return start <= 4 ? 0 : 1;
   };
 
+  const openPicker = () => {
+    setYearCenter(year);
+    setOpen(true);
+  };
+  const pick = (y: number, m: number) => {
+    setDraft(null);
+    setInvalid(false);
+    onChange(`${y}-${pad2(m)}`);
+  };
+  const drumColumns: DrumColumn[] = [
+    {
+      key: "y",
+      label: "年",
+      items: Array.from({ length: 31 }, (_, i) => yearCenter - 15 + i).map((v) => ({ value: v, label: `${v}` })),
+      selected: year,
+      onSelect: (v) => pick(v, month),
+    },
+    {
+      key: "m",
+      label: "月",
+      items: Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}月` })),
+      selected: month,
+      onSelect: (v) => pick(year, v),
+    },
+  ];
+
   const wheelHighlight = useSegmentWheel(innerRef, {
     text: display || `${year}/${pad2(month)}`,
     segments: MONTH_SEGMENTS,
@@ -144,7 +173,7 @@ export const MonthInput = memo(function MonthInput({
   });
 
   return (
-    <div className={`relative inline-flex items-center ${wrapperClassName}`}>
+    <div ref={wrapperRef} className={`relative inline-flex items-center ${wrapperClassName}`}>
       <input
         ref={innerRef}
         type="text"
@@ -157,22 +186,35 @@ export const MonthInput = memo(function MonthInput({
         }}
         onKeyDown={(e) => {
           if ((e.nativeEvent as KeyboardEvent).isComposing) return;
-          if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+          if (e.key === "ArrowDown" && e.altKey) {
+            e.preventDefault();
+            openPicker();
+          } else if (e.key === "ArrowUp" || e.key === "ArrowDown") {
             e.preventDefault();
             if (!commitDraft()) {
               setDraft(null);
               setInvalid(false);
             }
             adjust(e.key === "ArrowUp" ? 1 : -1, segmentAtCaret());
-          } else if (e.key === "Enter") {
-            if (!commitDraft()) e.preventDefault();
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            setOpen(false);
+            if (!commitDraft() && e.key === "Enter") e.preventDefault();
+          } else if (e.key === "Escape" && open) {
+            e.preventDefault();
+            setOpen(false);
           } else if (e.key === "Escape" && draft !== null) {
             e.preventDefault();
             setDraft(null);
             setInvalid(false);
           }
         }}
-        onBlur={() => commitDraft()}
+        onClick={() => {
+          if (!open) openPicker();
+        }}
+        onBlur={() => {
+          setOpen(false);
+          commitDraft();
+        }}
         onFocus={(e) => e.currentTarget.select()}
         onMouseUp={(e) => {
           if (draft === null) {
@@ -184,42 +226,53 @@ export const MonthInput = memo(function MonthInput({
         title={
           invalid
             ? "年月として読み取れません。202604 / 2026/4 / 4 のように入力してください"
-            : "年・月の上でマウスホイールを回すと、クリックせずに変えられます"
+            : "年・月の上でマウスホイールを回すと、クリックせずに変えられます（クリックで選択パネル）"
         }
         className={(className ?? "") + (invalid ? " !border-destructive ring-2 ring-destructive/40" : "")}
       />
       <SegmentHighlight at={wheelHighlight} />
 
-      <input
-        ref={pickerRef}
-        type="month"
-        value={isEmpty ? "" : value}
-        tabIndex={-1}
-        aria-hidden
-        onChange={(e) => {
-          const v = e.target.value;
-          if (v || allowEmpty) onChange(v);
-        }}
-        className="absolute right-1 size-6 opacity-0 pointer-events-none"
-      />
       <button
         type="button"
         tabIndex={-1}
-        title="カレンダーから選ぶ"
-        onClick={() => {
-          const el = pickerRef.current;
-          if (!el) return;
-          try {
-            if (typeof el.showPicker === "function") el.showPicker();
-            else el.focus();
-          } catch {
-            el.focus();
+        title="年・月を選ぶ"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          if (open) setOpen(false);
+          else {
+            innerRef.current?.focus();
+            openPicker();
           }
         }}
         className="absolute right-0.5 p-0.5 rounded text-foreground/70 hover:text-foreground hover:bg-muted"
       >
-        <CalendarDays className="size-3.5" />
+        <ChevronDown className={"size-3.5 transition-transform " + (open ? "rotate-180" : "")} />
       </button>
+
+      <DrumPicker
+        anchorRef={wrapperRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        columns={drumColumns}
+        footer={
+          <>
+            <DrumFooterButton onClick={() => pick(now.getFullYear(), now.getMonth() + 1)}>今月</DrumFooterButton>
+            {allowEmpty && (
+              <DrumFooterButton
+                onClick={() => {
+                  setDraft(null);
+                  setInvalid(false);
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
+                クリア
+              </DrumFooterButton>
+            )}
+            <DrumFooterButton onClick={() => setOpen(false)}>閉じる</DrumFooterButton>
+          </>
+        }
+      />
     </div>
   );
 });

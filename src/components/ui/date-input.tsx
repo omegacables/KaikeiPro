@@ -1,8 +1,9 @@
 "use client";
 
 import { useRef, useCallback, useState, memo } from "react";
-import { CalendarDays } from "lucide-react";
+import { ChevronDown } from "lucide-react";
 import { useSegmentWheel, SegmentHighlight } from "./segment-wheel";
+import { DrumPicker, DrumFooterButton, type DrumColumn } from "./drum-picker";
 
 const DATE_SEGMENTS = [[0, 4], [5, 7], [8, 10]] as const; // "YYYY/MM/DD"
 
@@ -112,7 +113,7 @@ export function parseDateInput(raw: string, base: { y: number; m: number; d: num
  * 日付入力欄。次の3つの方法すべてで入力できる。
  *
  *   1. 打ち込み  … 20260410 / 0410 / 4/10 など。確定は Enter・Tab・フォーカスを外したとき
- *   2. カレンダー … 右のアイコンから日付を選ぶ
+ *   2. ドラムロール … 欄のクリック・右の ▼・Alt+↓ で開き、年・月・日の列を回して選ぶ
  *   3. 上下キー   … カーソルのある区画（年・月・日）を1つずつ増減
  *   4. ホイール   … クリックせずに、年・月・日の上でホイールを回して増減
  *
@@ -129,7 +130,11 @@ export const DateInput = memo(function DateInput({
   placeholder,
 }: DateInputProps) {
   const innerRef = useRef<HTMLInputElement | null>(null);
-  const pickerRef = useRef<HTMLInputElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
+  // ドラムロールのパネルを開いているか
+  const [open, setOpen] = useState(false);
+  // 開いた時点の年を中心に年の列を作る（回すたびに範囲が動くと列が止まって見えるため）
+  const [yearCenter, setYearCenter] = useState(() => new Date().getFullYear());
   // 打ち込み途中の文字列。null なら確定値を表示している
   const [draft, setDraft] = useState<string | null>(null);
   // 日付として読み取れなかったときの目印。黙って元に戻すと理由が分からないため
@@ -248,6 +253,51 @@ export const DateInput = memo(function DateInput({
     onStep: adjust,
   });
 
+  const openPicker = useCallback(() => {
+    setYearCenter(year);
+    setOpen(true);
+  }, [year]);
+
+  /** ドラムで年・月・日のどれかを選んだとき。月末は月末のまま保つ（adjust と同じ考え方） */
+  const setPart = useCallback(
+    (seg: number, v: number) => {
+      setDraft(null);
+      setInvalid(false);
+      let y = year, m = month;
+      const d = day;
+      const wasMonthEnd = !isEmpty && d === new Date(y, m, 0).getDate();
+      if (seg === 0) y = v;
+      else if (seg === 1) m = v;
+      const nd = seg === 2 ? v : wasMonthEnd ? new Date(y, m, 0).getDate() : clampDayToMonthEnd(y, m, d);
+      onChange(format(y, m, nd));
+    },
+    [year, month, day, isEmpty, onChange]
+  );
+
+  const drumColumns: DrumColumn[] = [
+    {
+      key: "y",
+      label: "年",
+      items: Array.from({ length: 31 }, (_, i) => yearCenter - 15 + i).map((v) => ({ value: v, label: `${v}` })),
+      selected: year,
+      onSelect: (v) => setPart(0, v),
+    },
+    {
+      key: "m",
+      label: "月",
+      items: Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}月` })),
+      selected: month,
+      onSelect: (v) => setPart(1, v),
+    },
+    {
+      key: "d",
+      label: "日",
+      items: Array.from({ length: new Date(year, month, 0).getDate() }, (_, i) => ({ value: i + 1, label: `${i + 1}日` })),
+      selected: day,
+      onSelect: (v) => setPart(2, v),
+    },
+  ];
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       // IME変換中はキー操作を横取りしない
@@ -261,6 +311,10 @@ export const DateInput = memo(function DateInput({
           return;
         case "ArrowDown":
           e.preventDefault();
+          if (e.altKey) {
+            openPicker();
+            return;
+          }
           if (!commitDraft()) discardDraft();
           adjust(-1);
           return;
@@ -279,6 +333,7 @@ export const DateInput = memo(function DateInput({
         }
         case "Enter":
         case "Tab":
+          setOpen(false);
           // 打ち込み内容を確定してから、親（Enterで次の欄へ）に処理を渡す。
           // 読み取れないときは次の欄へ進ませない。進んでしまうと
           // 打った日付が消えたことに気づけない
@@ -290,6 +345,11 @@ export const DateInput = memo(function DateInput({
           }
           break;
         case "Escape":
+          if (open) {
+            e.preventDefault();
+            setOpen(false);
+            return;
+          }
           if (draft !== null) {
             e.preventDefault();
             setDraft(null);
@@ -299,11 +359,11 @@ export const DateInput = memo(function DateInput({
       }
       onKeyDown?.(e);
     },
-    [adjust, commitDraft, discardDraft, draft, onKeyDown]
+    [adjust, commitDraft, discardDraft, draft, onKeyDown, open, openPicker]
   );
 
   return (
-    <div className="relative inline-flex w-full items-center">
+    <div ref={wrapperRef} className="relative inline-flex w-full items-center">
       <input
         ref={(el) => {
           innerRef.current = el;
@@ -318,7 +378,12 @@ export const DateInput = memo(function DateInput({
           setInvalid(false);
         }}
         onKeyDown={handleKeyDown}
+        onClick={() => {
+          // ドロップダウンと同じく、欄をクリックするとドラムロールを開く（打ち込みもそのままできる）
+          if (!open) openPicker();
+        }}
         onBlur={() => {
+          setOpen(false);
           // 読み取れないまま欄を離れても、打った内容と赤枠は残す。
           // 黙って元に戻すと、間違った日付のまま登録されたことに気づけない。
           // 打ち直しをやめたいときは Esc で戻せる
@@ -347,7 +412,7 @@ export const DateInput = memo(function DateInput({
             ? "日付として読み取れません。20260430 / 0430 / 4/30 のように入力してください"
             : isEmpty
               ? undefined
-              : "年・月・日の上でマウスホイールを回すと、クリックせずに変えられます"
+              : "年・月・日の上でマウスホイールを回すと、クリックせずに変えられます（クリックで選択パネル）"
         }
         className={
           (className ?? "") +
@@ -357,41 +422,57 @@ export const DateInput = memo(function DateInput({
 
       <SegmentHighlight at={wheelHighlight} />
 
-      {/* カレンダーから選ぶ経路。ネイティブの日付ピッカーを呼び出すだけの隠し入力を使う */}
-      <input
-        ref={pickerRef}
-        type="date"
-        value={isEmpty ? "" : value}
-        tabIndex={-1}
-        aria-hidden
-        onChange={(e) => {
-          // カレンダーの「消去」を押すと空で通知される。
-          // 空を無視していたため、カレンダーからは日付を消せなかった。
-          // 未入力を許す欄では、空もそのまま反映する
-          const v = e.target.value;
-          if (v || allowEmpty) onChange(v);
-        }}
-        className="absolute right-1 size-6 opacity-0 pointer-events-none"
-      />
       <button
         type="button"
         tabIndex={-1}
-        title="カレンダーから選ぶ"
-        onClick={() => {
-          const el = pickerRef.current;
-          if (!el) return;
-          // showPicker はブラウザや表示状態によっては例外を投げるため保護する
-          try {
-            if (typeof el.showPicker === "function") el.showPicker();
-            else el.focus();
-          } catch {
-            el.focus();
+        title="年・月・日を選ぶ"
+        onMouseDown={(e) => {
+          // 入力欄のフォーカスを保ったまま開閉する
+          e.preventDefault();
+          if (open) setOpen(false);
+          else {
+            innerRef.current?.focus();
+            openPicker();
           }
         }}
         className="absolute right-0.5 p-0.5 rounded text-foreground/70 hover:text-foreground hover:bg-muted"
       >
-        <CalendarDays className="size-3.5" />
+        <ChevronDown className={"size-3.5 transition-transform " + (open ? "rotate-180" : "")} />
       </button>
+
+      <DrumPicker
+        anchorRef={wrapperRef}
+        open={open}
+        onClose={() => setOpen(false)}
+        columns={drumColumns}
+        footer={
+          <>
+            <DrumFooterButton
+              onClick={() => {
+                const t = new Date();
+                setDraft(null);
+                setInvalid(false);
+                onChange(format(t.getFullYear(), t.getMonth() + 1, t.getDate()));
+              }}
+            >
+              今日
+            </DrumFooterButton>
+            {allowEmpty && (
+              <DrumFooterButton
+                onClick={() => {
+                  setDraft(null);
+                  setInvalid(false);
+                  onChange("");
+                  setOpen(false);
+                }}
+              >
+                クリア
+              </DrumFooterButton>
+            )}
+            <DrumFooterButton onClick={() => setOpen(false)}>閉じる</DrumFooterButton>
+          </>
+        }
+      />
     </div>
   );
 });
