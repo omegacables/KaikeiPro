@@ -39,7 +39,7 @@ function raqtoTaxCategory(kind: "sales" | "purchase", rate: number): { code: str
   return { code: `${prefix}_10`, rate: 0.1 };
 }
 
-/** Raqto側の明細を税率ごとの税込額にまとめる（明細が無い・合計が合わないときは帳票合計を10%の1行） */
+/** Raqto側の明細を税率ごとの税込額にまとめる（明細が無いときは帳票合計を10%の1行） */
 function raqtoAmountsByRate(
   items: Array<{ tax_rate: number; subtotal: number; tax_amount: number }>,
   total: number
@@ -53,8 +53,15 @@ function raqtoAmountsByRate(
     .filter(([, amount]) => amount > 0)
     .sort((a, b) => b[0] - a[0])
     .map(([rate, amount]) => ({ rate, amount }));
-  const sum = rows.reduce((acc, r) => acc + r.amount, 0);
-  if (rows.length === 0 || sum !== total) return [{ rate: 10, amount: total }];
+  if (rows.length === 0) return [{ rate: 10, amount: total }];
+  // 明細の合計が帳票合計と違う（PDF取込で原本の合計を優先した・端数の違い等）ときは、
+  // 差額を金額の最も大きい税率に寄せて帳票合計に合わせる（8%だけの請求書を10%にしない）
+  const diff = total - rows.reduce((acc, r) => acc + r.amount, 0);
+  if (diff !== 0) {
+    const largest = rows.reduce((a, b) => (b.amount > a.amount ? b : a));
+    largest.amount += diff;
+    if (rows.some((r) => r.amount <= 0)) return [{ rate: largest.rate, amount: total }];
+  }
   return rows;
 }
 
