@@ -28,9 +28,12 @@ import {
 import type { CompanyDocument, CompanyDocType } from "@/types/index";
 import { DateInput } from "@/components/ui/date-input";
 
-const docTypeLabel: Record<CompanyDocType, string> = {
+export const docTypeLabel: Record<CompanyDocType, string> = {
   articles: "定款",
   registry: "登記簿謄本",
+  minutes: "議事録",
+  shareholder_register: "株主名簿",
+  ledger: "台帳",
   tax_filing: "届出控え",
   license: "許認可",
   other: "その他",
@@ -38,6 +41,9 @@ const docTypeLabel: Record<CompanyDocType, string> = {
 const docTypeOrder: CompanyDocType[] = [
   "articles",
   "registry",
+  "minutes",
+  "shareholder_register",
+  "ledger",
   "tax_filing",
   "license",
   "other",
@@ -192,7 +198,7 @@ export function CompanyDocumentsPageContent({ hideHeader = false }: { hideHeader
       </div>
 
       <p className="text-sm text-muted-foreground">
-        定款・登記簿謄本・税務署等への届出控え・許認可など、取引に紐づかない会社の参照書類を保管します（PDF / JPG / PNG・最大10MB）。
+        定款・登記簿謄本・株主総会や取締役会の議事録・株主名簿などの台帳・税務署等への届出控え・許認可など、取引に紐づかない会社の書類を保管します（PDF / JPG / PNG・最大10MB）。
       </p>
 
       {/* 機密性に関する案内 */}
@@ -370,7 +376,7 @@ export function CompanyDocumentsPageContent({ hideHeader = false }: { hideHeader
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
                   className={inputCls}
-                  placeholder="例: 定款（2024年改定）"
+                  placeholder="例: 定時株主総会議事録（2026年6月）"
                 />
               </div>
               <div>

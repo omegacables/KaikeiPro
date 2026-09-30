@@ -987,7 +987,7 @@ export interface Database {
         Row: {
           id: string;
           client_id: string;
-          doc_type: "articles" | "registry" | "tax_filing" | "license" | "other";
+          doc_type: "articles" | "registry" | "minutes" | "shareholder_register" | "ledger" | "tax_filing" | "license" | "other";
           title: string;
           file_path: string;
           original_filename: string | null;
@@ -1003,7 +1003,7 @@ export interface Database {
         Insert: {
           id?: string;
           client_id: string;
-          doc_type?: "articles" | "registry" | "tax_filing" | "license" | "other";
+          doc_type?: "articles" | "registry" | "minutes" | "shareholder_register" | "ledger" | "tax_filing" | "license" | "other";
           title: string;
           file_path: string;
           original_filename?: string | null;
@@ -1019,7 +1019,7 @@ export interface Database {
         Update: {
           id?: string;
           client_id?: string;
-          doc_type?: "articles" | "registry" | "tax_filing" | "license" | "other";
+          doc_type?: "articles" | "registry" | "minutes" | "shareholder_register" | "ledger" | "tax_filing" | "license" | "other";
           title?: string;
           file_path?: string;
           original_filename?: string | null;
@@ -1030,6 +1030,54 @@ export interface Database {
           issued_date?: string | null;
           memo?: string | null;
           uploaded_by?: string | null;
+          created_at?: string;
+        };
+        Relationships: [];
+      };
+      fiscal_month_changes: {
+        Row: {
+          id: string;
+          client_id: string;
+          old_start_month: number;
+          new_start_month: number;
+          resolution_date: string | null;
+          fiscal_year_id: string | null;
+          old_period_end: string | null;
+          new_period_end: string | null;
+          document_ids: string[];
+          memo: string | null;
+          changed_by: string | null;
+          changed_by_name: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          old_start_month: number;
+          new_start_month: number;
+          resolution_date?: string | null;
+          fiscal_year_id?: string | null;
+          old_period_end?: string | null;
+          new_period_end?: string | null;
+          document_ids?: string[];
+          memo?: string | null;
+          changed_by?: string | null;
+          changed_by_name?: string | null;
+          created_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          old_start_month?: number;
+          new_start_month?: number;
+          resolution_date?: string | null;
+          fiscal_year_id?: string | null;
+          old_period_end?: string | null;
+          new_period_end?: string | null;
+          document_ids?: string[];
+          memo?: string | null;
+          changed_by?: string | null;
+          changed_by_name?: string | null;
           created_at?: string;
         };
         Relationships: [];

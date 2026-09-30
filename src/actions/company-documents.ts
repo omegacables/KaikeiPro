@@ -16,6 +16,9 @@ const ALLOWED_TYPES = ["image/jpeg", "image/png", "application/pdf"];
 const DOC_TYPES: CompanyDocType[] = [
   "articles",
   "registry",
+  "minutes",
+  "shareholder_register",
+  "ledger",
   "tax_filing",
   "license",
   "other",

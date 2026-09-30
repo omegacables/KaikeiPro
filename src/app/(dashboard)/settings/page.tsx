@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
+import Link from "next/link";
 import {
   Building2,
   Users,
@@ -52,7 +53,7 @@ import { getInitials } from "@/lib/utils";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { runFullRaqtoSync, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { getRaqtoIntegrations, linkRaqtoAccount, unlinkRaqtoAccount, type RaqtoIntegrationWithClient } from "@/actions/raqto-integration";
-import { settlementMonth, startMonthFromSettlement } from "@/lib/fiscal";
+import { settlementMonth } from "@/lib/fiscal";
 
 const firmTabs = [
   { key: "firm", label: "事務所情報", icon: Building2 },
@@ -340,7 +341,6 @@ export default function SettingsPage() {
         telephone: clientData.telephone || null,
         email: clientData.email || null,
         invoice_registration_number: clientData.invoice_registration_number || null,
-        fiscal_year_start_month: clientData.fiscal_year_start_month,
       });
       alert("保存しました");
     } catch (e) {
@@ -1026,18 +1026,16 @@ export default function SettingsPage() {
                   </div>
                   <div>
                     <label className="block text-sm font-medium text-foreground mb-1.5">決算月</label>
-                    <select
-                      value={settlementMonth(clientData.fiscal_year_start_month)}
-                      onChange={(e) => setClientData({ ...clientData, fiscal_year_start_month: startMonthFromSettlement(Number(e.target.value)) })}
-                      className="w-full bg-card border border-border rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
-                    >
-                      {Array.from({ length: 12 }, (_, i) => i + 1).map((m) => (
-                        <option key={m} value={m}>{m}月</option>
-                      ))}
-                    </select>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      会計年度: {clientData.fiscal_year_start_month}月 〜 {clientData.fiscal_year_start_month === 1 ? "" : "翌"}{settlementMonth(clientData.fiscal_year_start_month)}月
+                    <p className="px-4 py-2.5 text-sm">
+                      {settlementMonth(clientData.fiscal_year_start_month)}月
+                      （会計年度: {clientData.fiscal_year_start_month}月 〜 {clientData.fiscal_year_start_month === 1 ? "" : "翌"}{settlementMonth(clientData.fiscal_year_start_month)}月）
                     </p>
+                    {/* 決算月の変更は議事録等の添付と変更履歴が残る専用画面で行う */}
+                    {clientData.id && (
+                      <Link href={`/clients/${clientData.id}/settings?tab=fiscal`} className="text-sm text-primary underline underline-offset-2">
+                        決算月を変更する
+                      </Link>
+                    )}
                   </div>
                 </div>
                 <div className="mt-6 flex justify-end">

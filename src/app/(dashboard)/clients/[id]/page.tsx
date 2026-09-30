@@ -133,6 +133,9 @@ export default async function ClientDetailPage({
               <Badge variant="muted">{clientData.business_type}</Badge>
               <span className="text-muted-foreground text-sm">
                 決算月: {settlementMonth(clientData.fiscal_year_start_month)}月
+                <Link href={`/clients/${id}/settings?tab=fiscal`} className="ml-1.5 text-primary underline underline-offset-2">
+                  変更
+                </Link>
               </span>
               <span className="text-muted-foreground text-sm">•</span>
               <span className="text-muted-foreground text-sm">

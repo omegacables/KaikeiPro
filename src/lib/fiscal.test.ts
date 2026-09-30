@@ -7,6 +7,7 @@ import {
   currentFiscalStartYear,
   DEFAULT_FISCAL_START_MONTH,
   toJstDate,
+  transitionalPeriodEnd,
 } from "./fiscal";
 
 describe("fiscalRangeFromStartYear", () => {
@@ -100,5 +101,23 @@ describe("toJstDate", () => {
     expect(toJstDate(null)).toBe("");
     expect(toJstDate("")).toBe("");
     expect(toJstDate("not-a-date")).toBe("");
+  });
+});
+
+describe("transitionalPeriodEnd", () => {
+  it("3月決算→12月決算: 当期は期首4月のまま12月末で締める（9ヶ月）", () => {
+    expect(transitionalPeriodEnd("2026-04-01", startMonthFromSettlement(12))).toBe("2026-12-31");
+  });
+
+  it("3月決算→2月決算: 翌年2月末（うるう年も月末に合わせる）", () => {
+    expect(transitionalPeriodEnd("2027-04-01", startMonthFromSettlement(2))).toBe("2028-02-29");
+  });
+
+  it("決算月が変わらなければ元の期末日と同じ", () => {
+    expect(transitionalPeriodEnd("2026-04-01", 4)).toBe("2027-03-31");
+  });
+
+  it("期首月と同じ月を決算月にすると1ヶ月の期間になる", () => {
+    expect(transitionalPeriodEnd("2026-04-01", startMonthFromSettlement(4))).toBe("2026-04-30");
   });
 });

@@ -49,6 +49,23 @@ export function startMonthFromSettlement(settlement: number): number {
   return (Number(settlement) % 12) + 1;
 }
 
+/**
+ * 決算月を変えたときの、締めていない当期の新しい期末日。
+ *
+ * 期首日はそのままに、期首日以降で最初に来る「新しい決算月の末日」を期末日とする。
+ * 会社法上の事業年度変更と同じく、当期は12ヶ月以内の変則期間になる。
+ * 例: 期首 2026-04-01 のまま 12月決算へ → 2026-12-31（9ヶ月決算）
+ */
+export function transitionalPeriodEnd(
+  periodStartDate: string,
+  newStartMonth: number | null | undefined
+): string {
+  const [y, m] = periodStartDate.split("-").map(Number);
+  const settlement = settlementMonth(newStartMonth);
+  const offset = (settlement - m + 12) % 12; // 期首月から新しい決算月までの月数
+  return fmt(new Date(y, m - 1 + offset + 1, 0));
+}
+
 // 現在日付が属する会計年度の開始年（期首月基準）
 export function currentFiscalStartYear(
   startMonth: number | null | undefined,

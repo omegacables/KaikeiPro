@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { useAuth } from "@/components/providers/auth-provider";
 import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { getClient, updateClient } from "@/actions/clients";
+import { changeFiscalStartMonth } from "@/actions/fiscal-month";
 import { settlementMonth, startMonthFromSettlement } from "@/lib/fiscal";
 
 export default function PortalSettingsPage() {
@@ -118,13 +119,19 @@ export default function PortalSettingsPage() {
     }
     setSavingCompany(true);
     try {
+      // 決算月は変更履歴と当期の期末日の付け替えを伴うため、専用の処理で変える
+      if (companyData.fiscal_year_start_month !== savedStartMonth) {
+        await changeFiscalStartMonth({
+          clientId: user.clientId,
+          newStartMonth: companyData.fiscal_year_start_month,
+        });
+      }
       await updateClient(user.clientId, {
         name: companyData.name,
         address: companyData.address || null,
         telephone: companyData.telephone || null,
         email: companyData.email || null,
         business_type: companyData.business_type || null,
-        fiscal_year_start_month: companyData.fiscal_year_start_month,
       });
       setSavedStartMonth(companyData.fiscal_year_start_month);
       setEditingCompany(false);

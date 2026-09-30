@@ -1,16 +1,18 @@
 "use client";
 
-import { useState } from "react";
-import { Settings, Percent, FolderArchive, Shield, Banknote } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaxPageContent } from "../tax/content";
 import { CompanyDocumentsPageContent } from "../company-documents/content";
 import { AuditLogPageContent } from "../audit/content";
 import { PayrollSettingsContent } from "./payroll-settings";
+import { FiscalMonthSettingsContent } from "./fiscal-month-settings";
 
-type SettingsTab = "tax" | "payroll" | "company_documents" | "audit";
+type SettingsTab = "fiscal" | "tax" | "payroll" | "company_documents" | "audit";
 
 const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
+  { key: "fiscal", label: "決算月", icon: CalendarRange },
   { key: "tax", label: "消費税計算", icon: Percent },
   { key: "payroll", label: "給与", icon: Banknote },
   { key: "company_documents", label: "会社書類", icon: FolderArchive },
@@ -18,7 +20,13 @@ const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
 ];
 
 export default function ClientSettingsPage() {
-  const [activeTab, setActiveTab] = useState<SettingsTab>("tax");
+  const [activeTab, setActiveTab] = useState<SettingsTab>("fiscal");
+
+  // 他の画面から ?tab=company_documents などで直接開けるようにする
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t && tabs.some((x) => x.key === t)) setActiveTab(t as SettingsTab);
+  }, []);
 
   return (
     <>
@@ -30,7 +38,7 @@ export default function ClientSettingsPage() {
             設定
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            消費税計算・給与・会社書類・監査ログをまとめて管理します。
+            決算月・消費税計算・給与・会社書類（定款・議事録・台帳など）・監査ログをまとめて管理します。
           </p>
         </div>
       </div>
@@ -55,6 +63,9 @@ export default function ClientSettingsPage() {
       </div>
 
       {/* Content */}
+      {activeTab === "fiscal" && (
+        <FiscalMonthSettingsContent onOpenDocuments={() => setActiveTab("company_documents")} />
+      )}
       {activeTab === "tax" && <TaxPageContent hideHeader />}
       {activeTab === "payroll" && <PayrollSettingsContent />}
       {activeTab === "company_documents" && <CompanyDocumentsPageContent hideHeader />}

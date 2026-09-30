@@ -786,6 +786,9 @@ export interface LoanRepayment {
 export type CompanyDocType =
   | "articles" // 定款
   | "registry" // 登記簿謄本
+  | "minutes" // 議事録（株主総会・取締役会）
+  | "shareholder_register" // 株主名簿
+  | "ledger" // 台帳（その他の法定台帳・名簿）
   | "tax_filing" // 税務署等への届出控え
   | "license" // 許認可
   | "other"; // その他
