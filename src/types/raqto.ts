@@ -75,6 +75,12 @@ export interface RaqtoDocument {
   total_amount: number;
   status: string;
   notes: string | null;
+  /** 件名（2026-10 追加。仕訳の摘要に添える） */
+  subject?: string | null;
+  /** issued = Raqto側の会社が発行 / received = 取引先から受領（PDF取込）。無ければ issued 扱い */
+  direction?: "issued" | "received" | null;
+  /** app = 画面・受注から作成 / import = PDF取込 */
+  source?: string | null;
   created_at: string;
 }
 
@@ -88,4 +94,8 @@ export interface RaqtoDocumentItem {
   tax_rate: number;
   subtotal: number;
   tax_amount: number;
+  /** 明細ごとの取引年月日（2026-10 追加。invoice_items.transaction_date に入れる） */
+  transaction_date?: string | null;
+  /** 数量の単位（表示用。会計側には入れない） */
+  unit?: string | null;
 }

@@ -28,6 +28,73 @@ function emptyResult(): RaqtoSyncResult {
   };
 }
 
+/** Raqto側の帳票が「発行済み」として扱える状態か（下書き・無効は取り込まない。Raqto AI 側の連携と同じ基準） */
+const RAQTO_ISSUED_STATUSES = ["issued", "sent", "accepted", "paid"];
+
+/** 税区分コード（tax_categories.code）。売上/仕入 × 税率で決める */
+function raqtoTaxCategory(kind: "sales" | "purchase", rate: number): { code: string; rate: number } {
+  const prefix = kind === "sales" ? "sales" : "purchase";
+  if (rate === 8) return { code: `${prefix}_08_reduced`, rate: 0.08 };
+  if (rate === 0) return { code: `${prefix}_exempt`, rate: 0 };
+  return { code: `${prefix}_10`, rate: 0.1 };
+}
+
+/** Raqto側の明細を税率ごとの税込額にまとめる（明細が無い・合計が合わないときは帳票合計を10%の1行） */
+function raqtoAmountsByRate(
+  items: Array<{ tax_rate: number; subtotal: number; tax_amount: number }>,
+  total: number
+): Array<{ rate: number; amount: number }> {
+  const groups = new Map<number, number>();
+  for (const item of items) {
+    const rate = Number(item.tax_rate);
+    groups.set(rate, (groups.get(rate) ?? 0) + Number(item.subtotal) + Number(item.tax_amount));
+  }
+  const rows = [...groups.entries()]
+    .filter(([, amount]) => amount > 0)
+    .sort((a, b) => b[0] - a[0])
+    .map(([rate, amount]) => ({ rate, amount }));
+  const sum = rows.reduce((acc, r) => acc + r.amount, 0);
+  if (rows.length === 0 || sum !== total) return [{ rate: 10, amount: total }];
+  return rows;
+}
+
+type RaqtoJournalLine = {
+  account_id: string;
+  debit_amount: number;
+  credit_amount: number;
+  tax_category?: string;
+  tax_rate?: number;
+  sort_order: number;
+};
+
+/**
+ * 売上（売掛金 / 売上高）または仕入（仕入高 / 買掛金）の仕訳明細。
+ * 売上高・仕入高側は税率ごとに行を分ける。
+ */
+function raqtoJournalLines(
+  kind: "sales" | "purchase",
+  accounts: { taxed: string; counter: string },
+  total: number,
+  items: Array<{ tax_rate: number; subtotal: number; tax_amount: number }>
+): RaqtoJournalLine[] {
+  const byRate = raqtoAmountsByRate(items, total);
+  const lines: RaqtoJournalLine[] = [];
+  if (kind === "sales") {
+    lines.push({ account_id: accounts.counter, debit_amount: total, credit_amount: 0, sort_order: 0 });
+    byRate.forEach(({ rate, amount }, i) => {
+      const tax = raqtoTaxCategory("sales", rate);
+      lines.push({ account_id: accounts.taxed, debit_amount: 0, credit_amount: amount, tax_category: tax.code, tax_rate: tax.rate, sort_order: i + 1 });
+    });
+  } else {
+    byRate.forEach(({ rate, amount }, i) => {
+      const tax = raqtoTaxCategory("purchase", rate);
+      lines.push({ account_id: accounts.taxed, debit_amount: amount, credit_amount: 0, tax_category: tax.code, tax_rate: tax.rate, sort_order: i });
+    });
+    lines.push({ account_id: accounts.counter, debit_amount: 0, credit_amount: total, sort_order: lines.length });
+  }
+  return lines;
+}
+
 async function getRaqtoCompanyId(clientId: string): Promise<string> {
   // Raqto側はサービスロールで読むため、先に呼び出し者のアクセス権を検証する
   await assertClientAccess(clientId);
@@ -149,15 +216,17 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
       }
     }
 
-    // Lookup accounts for sales journal entries (売上高 + 売掛金)
+    // Lookup accounts for journal entries（売上: 売上高 + 売掛金 / 受領した請求書の仕入: 仕入高 + 買掛金）
     const { data: accounts } = await supabase
       .from("accounts")
       .select("id, name")
       .or(`client_id.eq.${clientId},is_default.eq.true`)
-      .in("name", ["売上高", "売掛金"]);
+      .in("name", ["売上高", "売掛金", "仕入高", "買掛金"]);
 
     const salesAccountId = accounts?.find((a) => a.name === "売上高")?.id;
     const receivableAccountId = accounts?.find((a) => a.name === "売掛金")?.id;
+    const purchaseAccountId = accounts?.find((a) => a.name === "仕入高")?.id;
+    const payableAccountId = accounts?.find((a) => a.name === "買掛金")?.id;
 
     // 既存のRaqto由来請求書を一括取得（ループ内の逐次クエリを避け、重複取込を防ぐ）
     const { data: existingRaqtoInvoices } = await supabase
@@ -207,7 +276,8 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
         .select("*")
         .eq("company_id", raqtoCompanyId)
         .in("document_type", ["invoice", "receipt"])
-        .neq("status", "void");
+        // 下書きは帳票として確定していないので取り込まない（Raqto AI 側からの連携と同じ基準）
+        .in("status", RAQTO_ISSUED_STATUSES);
 
       if (docError) {
         result.errors.push(`Raqto書類取得エラー: ${docError.message}`);
@@ -219,6 +289,8 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
         if (doc.order_id && !orderStatusMap.has(doc.order_id)) continue;
 
         const orderStatus = doc.order_id ? orderStatusMap.get(doc.order_id) ?? null : null;
+        // Raqto AI で「取引先から受領」として取り込んだ帳票（PDF取込）は仕入・経費として扱う
+        const received = doc.direction === "received";
 
         if (doc.document_type === "receipt") {
           // --- Receipt → receipts table ---
@@ -247,6 +319,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
             tax_rate: item.tax_rate,
             subtotal: item.subtotal,
             tax_amount: item.tax_amount,
+            transaction_date: item.transaction_date ?? null,
           })) ?? [];
 
           if (existingReceipt) {
@@ -257,6 +330,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
                 raqto_document_id: doc.id,
                 document_number: doc.document_number,
                 vendor_name: vendorName,
+                subject: doc.subject ?? null,
                 amount_total: doc.total_amount,
                 date: doc.issued_date,
                 partner_id: doc.partner_id,
@@ -265,6 +339,8 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
                 total_amount: doc.total_amount,
                 items: receiptItems,
               },
+              direction: received ? "received" : "issued",
+              document_type: "receipt",
               raqto_source_id: doc.id,
             }).eq("id", existingReceipt.id);
 
@@ -280,11 +356,15 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
               uploaded_by: clientId,
               image_path: raqtoImagePath,
               status: "ocr_done",
+              // Raqto側の会社が発行した領収書は issued、受け取った領収書（PDF取込）は received
+              direction: received ? "received" : "issued",
+              document_type: "receipt",
               ocr_result: {
                 source: "raqto",
                 raqto_document_id: doc.id,
                 document_number: doc.document_number,
                 vendor_name: vendorName,
+                subject: doc.subject ?? null,
                 amount_total: doc.total_amount,
                 date: doc.issued_date,
                 partner_id: doc.partner_id,
@@ -332,11 +412,18 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
           .eq("document_id", doc.id)
           .order("sort_order");
 
-        // Create sales journal entry if accounts exist
+        // 仕訳を作る（自社発行の請求書 = 売上: 売掛金/売上高、受領した請求書 = 仕入: 仕入高/買掛金）
+        const journalAccounts = received
+          ? purchaseAccountId && payableAccountId
+            ? { taxed: purchaseAccountId, counter: payableAccountId }
+            : null
+          : salesAccountId && receivableAccountId
+            ? { taxed: salesAccountId, counter: receivableAccountId }
+            : null;
         let journalEntryId: string | null = null;
-        if (salesAccountId && receivableAccountId) {
+        if (journalAccounts) {
           const partnerName = partnerNameMap.get(doc.partner_id) ?? "";
-          const desc = `${partnerName} ${doc.document_number}`.trim();
+          const desc = [partnerName, doc.document_number, doc.subject ?? ""].filter(Boolean).join(" ").trim();
           const { data: entry, error: entryError } = await supabase
             .from("journal_entries")
             .insert({
@@ -352,11 +439,22 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
             .single();
 
           if (!entryError && entry) {
-            journalEntryId = entry.id;
-            await supabase.from("journal_entry_lines").insert([
-              { journal_entry_id: entry.id, account_id: receivableAccountId, debit_amount: doc.total_amount, credit_amount: 0, sort_order: 0 },
-              { journal_entry_id: entry.id, account_id: salesAccountId, debit_amount: 0, credit_amount: doc.total_amount, tax_category: "sales_10", tax_rate: 0.1, sort_order: 1 },
-            ]);
+            const lines = raqtoJournalLines(
+              received ? "purchase" : "sales",
+              journalAccounts,
+              Number(doc.total_amount),
+              ((docItems as RaqtoDocumentItem[] | null) ?? [])
+            );
+            const { error: linesError } = await supabase
+              .from("journal_entry_lines")
+              .insert(lines.map((line) => ({ journal_entry_id: entry.id, ...line })));
+            if (linesError) {
+              // 行のない仕訳を残さない
+              await supabase.from("journal_entries").delete().eq("id", entry.id);
+              result.errors.push(`仕訳明細「${desc}」: ${linesError.message}`);
+            } else {
+              journalEntryId = entry.id;
+            }
           }
         }
 
@@ -372,6 +470,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
             tax_amount: doc.tax_amount,
             total_amount: doc.total_amount,
             status: "draft",
+            direction: received ? "purchase" : "sales",
             raqto_source_id: doc.id,
             raqto_source_type: "document",
             raqto_order_status: orderStatus,
@@ -398,6 +497,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
                 tax_rate: item.tax_rate,
                 subtotal: item.subtotal,
                 tax_amount: item.tax_amount,
+                transaction_date: item.transaction_date ?? null,
               }))
             );
           if (itemsError) {
@@ -681,7 +781,8 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
       .select("*")
       .eq("company_id", raqtoCompanyId)
       .in("document_type", Object.keys(RAQTO_DOC_TYPE_MAP))
-      .neq("status", "void");
+      // 下書きは取り込まない
+      .in("status", RAQTO_ISSUED_STATUSES);
 
     if (docError) {
       result.errors.push(`Raqto証憑取得エラー: ${docError.message}`);
@@ -731,6 +832,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
         raqto_document_id: doc.id,
         document_number: doc.document_number,
         vendor_name: vendorName,
+        subject: doc.subject ?? null,
         amount_total: doc.total_amount,
         date: doc.issued_date,
         partner_id: doc.partner_id,
@@ -739,13 +841,15 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
         total_amount: doc.total_amount,
         items,
       };
+      // Raqto側の会社が発行した証憑は issued、取引先から受け取ったもの（PDF取込）は received
+      const direction = doc.direction === "received" ? "received" : "issued";
 
       const existingId = existingByPath.get(imagePath);
       if (existingId) {
         // 最新の内容で更新（Raqto側での証憑修正を反映）
         const { error: updateError } = await supabase
           .from("receipts")
-          .update({ ocr_result: ocrResult, document_type: documentType, raqto_source_id: doc.id })
+          .update({ ocr_result: ocrResult, document_type: documentType, direction, raqto_source_id: doc.id })
           .eq("id", existingId);
         if (updateError) {
           result.errors.push(`証憑「${doc.document_number}」更新エラー: ${updateError.message}`);
@@ -760,8 +864,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
         uploaded_by: clientId,
         image_path: imagePath,
         status: "ocr_done",
-        // Raqtoで自社が発行した証憑（発注書・契約書・納品書）
-        direction: "issued",
+        direction,
         document_type: documentType,
         mime_type: "application/pdf",
         original_filename: doc.document_number ? `${doc.document_number}.pdf` : null,
