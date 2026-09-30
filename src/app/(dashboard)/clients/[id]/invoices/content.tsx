@@ -34,6 +34,7 @@ import { getClient } from "@/actions/clients";
 import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import { importRaqtoSalesOrders, exportRaqtoPaymentStatus, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { DateInput } from "@/components/ui/date-input";
+import { MonthInput } from "@/components/ui/month-input";
 
 // ---------------------------------------------------------------------------
 // Types & config
@@ -786,18 +787,18 @@ export function InvoicesPageContent({
             return <option key={y} value={y}>{y}年度</option>;
           })}
         </select>
-        <input
-          type="month"
+        <MonthInput
+          allowEmpty wheelFromEmpty wrapperClassName="w-32 shrink-0"
           value={periodMode === "year" ? "" : (dateFrom ? dateFrom.slice(0, 7) : "")}
-          onChange={(e) => {
-            if (!e.target.value) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
-            const [y, m] = e.target.value.split("-").map(Number);
+          onChange={(v) => {
+            if (!v) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
+            const [y, m] = v.split("-").map(Number);
             const ld = new Date(y, m, 0).getDate();
             setDateFrom(`${y}-${String(m).padStart(2, "0")}-01`);
             setDateTo(`${y}-${String(m).padStart(2, "0")}-${String(ld).padStart(2, "0")}`);
             setPeriodMode("month");
           }}
-          className="px-2 py-2 rounded-lg border border-border bg-card text-foreground text-xs shrink-0"
+          className="px-2 py-2 rounded-lg border border-border bg-card text-foreground text-xs w-full pr-7"
         />
 
         {/* 検索 */}

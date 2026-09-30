@@ -1183,16 +1183,25 @@ function SettlementReport({
 // Main Component
 // ---------------------------------------------------------------------------
 
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const toYmd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`;
+const monthStart = (d: Date) => toYmd(new Date(d.getFullYear(), d.getMonth(), 1));
+const monthEnd = (d: Date) => toYmd(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+const slash = (ymd: string) => ymd.replaceAll("-", "/");
+/** 日付（YYYY-MM-DD）が属する会計年度 */
+function fiscalPeriodOf(startMonth: number, ymd: string) {
+  const [y, m] = ymd.split("-").map(Number);
+  return getFiscalPeriod(startMonth, y, m);
+}
+
 export default function StatementsPage() {
   const { id } = useParams<{ id: string }>();
 
-  // デフォルト: 今月
-  const now = new Date();
-  const defaultYear = now.getFullYear();
-  const defaultMonth = now.getMonth() + 1;
-
   const [activeTab, setActiveTab] = useState<StatementTab>("trial_balance");
-  const [period, setPeriod] = useState(`${defaultYear}-${String(defaultMonth).padStart(2, "0")}`);
+  // 集計期間（開始日〜終了日）。既定は「期首〜今月末」。
+  // 開始日は決算月を読み込んでから決める（それまで空）
+  const [rangeStart, setRangeStart] = useState("");
+  const [rangeEnd, setRangeEnd] = useState(() => monthEnd(new Date()));
 
   // URLの ?tab= で初期タブを指定可能にする（例: ダッシュボードの月次推移グラフから遷移）
   useEffect(() => {
@@ -1229,28 +1238,61 @@ export default function StatementsPage() {
   const [settlementData, setSettlementData] = useState<TrialBalanceRow[]>([]);
   const [settlementLoading, setSettlementLoading] = useState(false);
 
-  // 会計年度の期間（クライアントの決算月基準）。決算月ロード前は空文字で保留。
-  const fiscalYearStart = useMemo(() => {
-    if (fiscalStartMonth === null) return "";
-    const [y, m] = period.split("-").map(Number);
-    return getFiscalPeriod(fiscalStartMonth, y, m).startDate;
-  }, [period, fiscalStartMonth]);
+  // 決算月が分かったら、開始日の既定を「終了日が属する会計年度の期首」にする
+  useEffect(() => {
+    if (fiscalStartMonth === null || rangeStart) return;
+    setRangeStart(fiscalPeriodOf(fiscalStartMonth, rangeEnd).startDate);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fiscalStartMonth]);
 
-  // 試算表/BS/PL: 会計年度開始〜選択月末の累計
-  const startDate = useMemo(() => fiscalYearStart, [fiscalYearStart]);
-  const endDate = useMemo(() => {
-    if (fiscalStartMonth === null) return "";
-    const [y, m] = period.split("-").map(Number);
-    const lastDay = new Date(y, m, 0).getDate();
-    return `${period}-${String(lastDay).padStart(2, "0")}`;
-  }, [period, fiscalStartMonth]);
+  // ホイールで日付を回している間に毎回集計し直さないよう、止まってから反映する
+  const [appliedRange, setAppliedRange] = useState({ start: "", end: "" });
+  useEffect(() => {
+    const t = setTimeout(() => setAppliedRange({ start: rangeStart, end: rangeEnd }), 400);
+    return () => clearTimeout(t);
+  }, [rangeStart, rangeEnd]);
 
-  // 月次推移: 会計年度（決算月基準の12ヶ月）。決算月ロード前は空文字で保留。
-  const fiscalYearEnd = useMemo(() => {
-    if (fiscalStartMonth === null) return "";
-    const [y, m] = period.split("-").map(Number);
-    return getFiscalPeriod(fiscalStartMonth, y, m).endDate;
-  }, [period, fiscalStartMonth]);
+  // 終了日が属する会計年度（決算書・月次推移・棚卸の期首に使う）。決算月ロード前は null で保留。
+  const fiscalOfEnd = useMemo(() => {
+    if (fiscalStartMonth === null || !appliedRange.end) return null;
+    return fiscalPeriodOf(fiscalStartMonth, appliedRange.end);
+  }, [fiscalStartMonth, appliedRange.end]);
+  const fiscalYearStart = fiscalOfEnd?.startDate ?? "";
+  const fiscalYearEnd = fiscalOfEnd?.endDate ?? "";
+
+  // 期間の誤り。1つの会計年度の中に収める（年度をまたぐと、年度初めの
+  // 繰越仕訳が当期の動きに混ざり損益が正しく出ないため）
+  const rangeError = useMemo(() => {
+    const { start, end } = appliedRange;
+    if (!start || !end || !fiscalOfEnd) return null;
+    if (start > end) return "開始日が終了日より後になっています";
+    if (start < fiscalOfEnd.startDate)
+      return `期間は1つの会計年度の中で選んでください（この年度は ${slash(fiscalOfEnd.startDate)} 〜 ${slash(fiscalOfEnd.endDate)}）`;
+    return null;
+  }, [appliedRange, fiscalOfEnd]);
+
+  // 試算表/BS/PL・棚卸: 選んだ開始日〜終了日。期間が正しくない間は集計しない
+  const startDate = rangeError ? "" : appliedRange.start;
+  const endDate = rangeError || !fiscalOfEnd ? "" : appliedRange.end;
+
+  const applyPreset = (preset: "ytd" | "month" | "prev") => {
+    if (fiscalStartMonth === null) return;
+    const today = new Date();
+    if (preset === "ytd") {
+      const end = monthEnd(today);
+      setRangeStart(fiscalPeriodOf(fiscalStartMonth, end).startDate);
+      setRangeEnd(end);
+    } else if (preset === "month") {
+      setRangeStart(monthStart(today));
+      setRangeEnd(monthEnd(today));
+    } else {
+      const cur = fiscalPeriodOf(fiscalStartMonth, monthEnd(today));
+      const [y, m, d] = cur.startDate.split("-").map(Number);
+      const prevEnd = toYmd(new Date(y, m - 1, d - 1));
+      setRangeStart(fiscalPeriodOf(fiscalStartMonth, prevEnd).startDate);
+      setRangeEnd(prevEnd);
+    }
+  };
 
   // 集計から除いた「要確認」の仕訳。数字を黙って落とすと、
   // 帳簿の一覧と決算書が合わない理由が分からないため画面で知らせる
@@ -1380,16 +1422,58 @@ export default function StatementsPage() {
       {/* Controls */}
       <Card className="mb-4 w-fit">
         <CardContent className="py-2 px-3">
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <Calendar className="size-4 text-muted-foreground" />
-            <label className="text-xs text-muted-foreground font-bold">期間:</label>
-            <input
-              type="month"
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-              className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-sm"
-            />
+            <label className="text-sm text-foreground font-bold">期間</label>
+            <div className="w-40">
+              <DateInput
+                value={rangeStart}
+                onChange={setRangeStart}
+                className="w-full pl-2 pr-7 py-1 rounded-lg border border-border bg-card text-foreground text-[15px] tabular-nums"
+              />
+            </div>
+            <span className="text-foreground">〜</span>
+            <div className="w-40">
+              <DateInput
+                value={rangeEnd}
+                onChange={setRangeEnd}
+                className="w-full pl-2 pr-7 py-1 rounded-lg border border-border bg-card text-foreground text-[15px] tabular-nums"
+              />
+            </div>
+            <div className="flex gap-1">
+              {([
+                ["ytd", "当期累計"],
+                ["month", "当月"],
+                ["prev", "前期"],
+              ] as const).map(([key, label]) => (
+                <button
+                  key={key}
+                  type="button"
+                  onClick={() => applyPreset(key)}
+                  className="px-2.5 py-1 rounded-lg border border-border text-sm text-foreground hover:bg-muted/40 cursor-pointer"
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
           </div>
+          {rangeError ? (
+            <p className="mt-1.5 text-sm text-destructive">{rangeError}</p>
+          ) : (
+            fiscalYearStart &&
+            appliedRange.start > fiscalYearStart &&
+            (activeTab === "trial_balance" || activeTab === "bs" || activeTab === "pl") && (
+              <p className="mt-1.5 text-sm text-foreground/80">
+                開始日より前の当期の損益（{slash(fiscalYearStart)}〜）は、繰越利益剰余金に含めて表示しています
+              </p>
+            )
+          )}
+          {(activeTab === "settlement" || activeTab === "monthly_trend") && fiscalYearStart && (
+            <p className="mt-1.5 text-sm text-foreground/80">
+              {activeTab === "settlement" ? "決算書" : "月次推移"}は、終了日を含む会計年度（
+              {slash(fiscalYearStart)} 〜 {slash(fiscalYearEnd)}）で表示します
+            </p>
+          )}
         </CardContent>
       </Card>
 

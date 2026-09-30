@@ -56,6 +56,7 @@ import {
 } from "@/actions/statement-lines";
 import type { StatementLine } from "@/types/index";
 import { DateInput } from "@/components/ui/date-input";
+import { MonthInput } from "@/components/ui/month-input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -731,18 +732,18 @@ export function ReceiptsPageContent({
               return <option key={y} value={y}>{y}年度</option>;
             })}
           </select>
-          <input
-            type="month"
+          <MonthInput
+            allowEmpty wheelFromEmpty wrapperClassName="w-32 shrink-0"
             value={periodMode === "year" ? "" : (dateFrom ? dateFrom.slice(0, 7) : "")}
-            onChange={(e) => {
-              if (!e.target.value) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
-              const [y, m] = e.target.value.split("-").map(Number);
+            onChange={(v) => {
+              if (!v) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
+              const [y, m] = v.split("-").map(Number);
               const ld = new Date(y, m, 0).getDate();
               setDateFrom(`${y}-${String(m).padStart(2, "0")}-01`);
               setDateTo(`${y}-${String(m).padStart(2, "0")}-${String(ld).padStart(2, "0")}`);
               setPeriodMode("month");
             }}
-            className="px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-xs"
+            className="px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-xs w-full pr-7"
           />
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />

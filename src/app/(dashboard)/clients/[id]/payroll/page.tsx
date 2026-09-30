@@ -30,6 +30,7 @@ import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
 import { paydayOf } from "@/lib/payday";
 import { getClient } from "@/actions/clients";
+import { MonthInput } from "@/components/ui/month-input";
 
 function currentMonth(): string {
   const d = new Date();
@@ -291,18 +292,12 @@ export default function PayrollPage({
           <h1 className="text-xl font-bold">給与台帳</h1>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2 ml-auto">
-          <input
-            type="month"
+          <MonthInput
             value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className={inputCls + " w-auto shrink-0"}
-            list="payroll-months"
+            onChange={(v) => setMonth(v)}
+            wrapperClassName="w-36 shrink-0"
+            className={inputCls + " pr-7"}
           />
-          <datalist id="payroll-months">
-            {months.map((m) => (
-              <option key={m} value={m.slice(0, 7)} />
-            ))}
-          </datalist>
           <Button onClick={openCreate} className="whitespace-nowrap">
             <Plus className="size-4" />
             給与を追加
@@ -499,11 +494,10 @@ export default function PayrollPage({
                   <label className="block text-xs font-medium text-muted-foreground mb-1">
                     支給月
                   </label>
-                  <input
-                    type="month"
+                  <MonthInput
                     value={form.pay_month}
-                    onChange={(e) => setForm({ ...form, pay_month: e.target.value })}
-                    className={inputCls}
+                    onChange={(v) => setForm({ ...form, pay_month: v })}
+                    className={inputCls + " pr-7"}
                   />
                 </div>
                 <div>

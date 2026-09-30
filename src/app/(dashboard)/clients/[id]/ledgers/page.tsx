@@ -63,6 +63,7 @@ import {
   type AgingBuckets,
 } from "@/actions/invoices";
 import { DateInput } from "@/components/ui/date-input";
+import { MonthInput } from "@/components/ui/month-input";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1319,22 +1320,22 @@ export default function LedgersPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground font-bold">月別</label>
-                <input
-                  type="month"
+                <MonthInput
+                  allowEmpty wheelFromEmpty wrapperClassName="w-36"
                   value={periodMode === "year" ? "" : dateFrom.slice(0, 7)}
-                  onChange={(e) => {
-                    if (!e.target.value) {
+                  onChange={(v) => {
+                    if (!v) {
                       setPeriodMode("none");
                       fiscalYearRef.current?.focus();
                       return;
                     }
-                    const [y, m] = e.target.value.split("-").map(Number);
+                    const [y, m] = v.split("-").map(Number);
                     const ld = new Date(y, m, 0).getDate();
                     setDateFrom(`${y}-${String(m).padStart(2, "0")}-01`);
                     setDateTo(`${y}-${String(m).padStart(2, "0")}-${String(ld).padStart(2, "0")}`);
                     setPeriodMode("month");
                   }}
-                  className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
+                  className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm w-full pr-7"
                 />
               </div>
               {activeTab === "journal" && (

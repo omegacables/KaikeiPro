@@ -30,6 +30,7 @@ import {
 } from "@/actions/ai-journal";
 import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
+import { MonthInput } from "@/components/ui/month-input";
 
 type CardAccountInfo = {
   id: string;
@@ -314,11 +315,11 @@ export default function CardTransactionsPage({
             </div>
             <div>
               <label className="text-xs text-muted-foreground font-bold block mb-1">対象月</label>
-              <input
-                type="month"
+              <MonthInput
+                allowEmpty
                 value={paymentStatementMonth ? paymentStatementMonth.slice(0, 7) : ""}
-                onChange={(e) => setPaymentStatementMonth(e.target.value ? `${e.target.value}-01` : "")}
-                className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
+                onChange={(v) => setPaymentStatementMonth(v ? `${v}-01` : "")}
+                className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm pr-7"
               />
             </div>
             <div>

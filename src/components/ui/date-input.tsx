@@ -2,6 +2,9 @@
 
 import { useRef, useCallback, useState, memo } from "react";
 import { CalendarDays } from "lucide-react";
+import { useSegmentWheel, SegmentHighlight } from "./segment-wheel";
+
+const DATE_SEGMENTS = [[0, 4], [5, 7], [8, 10]] as const; // "YYYY/MM/DD"
 
 interface DateInputProps {
   value: string; // YYYY-MM-DD
@@ -111,6 +114,7 @@ export function parseDateInput(raw: string, base: { y: number; m: number; d: num
  *   1. 打ち込み  … 20260410 / 0410 / 4/10 など。確定は Enter・Tab・フォーカスを外したとき
  *   2. カレンダー … 右のアイコンから日付を選ぶ
  *   3. 上下キー   … カーソルのある区画（年・月・日）を1つずつ増減
+ *   4. ホイール   … クリックせずに、年・月・日の上でホイールを回して増減
  *
  * 左右キーは区画の移動に使う。Enter などのキーは onKeyDown で親に渡すので、
  * 仕訳入力のような「Enterで次の欄へ」の移動と組み合わせられる。
@@ -205,9 +209,12 @@ export const DateInput = memo(function DateInput({
   }, []);
 
   const adjust = useCallback(
-    (delta: number) => {
-      const seg = getSegment();
+    (delta: number, segOverride?: number) => {
+      const seg = segOverride ?? getSegment();
       let y = year, m = month, d = day;
+      // 月末の日付は、年・月を動かしても月末のまま保つ（10/31 → 11/30 → 10/31）。
+      // 期末日・締め日を月単位で動かしたときに 30日などに崩れないようにするため
+      const wasMonthEnd = d === new Date(y, m, 0).getDate();
       switch (seg) {
         case 0:
           y += delta;
@@ -225,12 +232,21 @@ export const DateInput = memo(function DateInput({
           break;
         }
       }
-      d = clampDayToMonthEnd(y, m, d);
+      d = seg !== 2 && wasMonthEnd ? new Date(y, m, 0).getDate() : clampDayToMonthEnd(y, m, d);
       onChange(format(y, m, d));
-      selectSegment(seg);
+      // フォーカスしていないとき（ホイール操作）に選択を動かすと欄が奪われるため触らない
+      if (document.activeElement === innerRef.current) selectSegment(seg);
     },
     [year, month, day, onChange]
   );
+
+  // ホイールで年・月・日を動かす。未入力の欄を勝手に埋めない・打ち込み途中は触らない
+  const wheelHighlight = useSegmentWheel(innerRef, {
+    text: display,
+    segments: DATE_SEGMENTS,
+    enabled: !isEmpty && draft === null,
+    onStep: adjust,
+  });
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -326,12 +342,20 @@ export const DateInput = memo(function DateInput({
           }
         }}
         aria-invalid={invalid || undefined}
-        title={invalid ? "日付として読み取れません。20260430 / 0430 / 4/30 のように入力してください" : undefined}
+        title={
+          invalid
+            ? "日付として読み取れません。20260430 / 0430 / 4/30 のように入力してください"
+            : isEmpty
+              ? undefined
+              : "年・月・日の上でマウスホイールを回すと、クリックせずに変えられます"
+        }
         className={
           (className ?? "") +
           (invalid ? " !border-destructive ring-2 ring-destructive/40" : "")
         }
       />
+
+      <SegmentHighlight at={wheelHighlight} />
 
       {/* カレンダーから選ぶ経路。ネイティブの日付ピッカーを呼び出すだけの隠し入力を使う */}
       <input
