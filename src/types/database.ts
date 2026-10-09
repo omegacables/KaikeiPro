@@ -94,7 +94,7 @@ export interface Database {
           user_id: string;
           name: string;
           email: string;
-          role: "admin" | "staff";
+          role: "admin" | "staff" | "viewer";
           is_active: boolean;
           created_at: string;
         };
@@ -104,7 +104,7 @@ export interface Database {
           user_id: string;
           name: string;
           email: string;
-          role: "admin" | "staff";
+          role: "admin" | "staff" | "viewer";
           is_active?: boolean;
           created_at?: string;
         };
@@ -114,7 +114,7 @@ export interface Database {
           user_id?: string;
           name?: string;
           email?: string;
-          role?: "admin" | "staff";
+          role?: "admin" | "staff" | "viewer";
           is_active?: boolean;
         };
         Relationships: [];
@@ -188,6 +188,33 @@ export interface Database {
         };
         Relationships: [];
       };
+      client_access_blocks: {
+        Row: {
+          id: string;
+          client_id: string;
+          user_id: string;
+          blocked_by: string | null;
+          reason: string | null;
+          blocked_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          user_id: string;
+          blocked_by?: string | null;
+          reason?: string | null;
+          blocked_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          user_id?: string;
+          blocked_by?: string | null;
+          reason?: string | null;
+          blocked_at?: string;
+        };
+        Relationships: [];
+      };
       client_users: {
         Row: {
           id: string;
@@ -196,6 +223,7 @@ export interface Database {
           name: string;
           email: string;
           is_active: boolean;
+          role: "owner" | "member" | "viewer";
           created_at: string;
         };
         Insert: {
@@ -205,6 +233,7 @@ export interface Database {
           name: string;
           email: string;
           is_active?: boolean;
+          role?: "owner" | "member" | "viewer";
           created_at?: string;
         };
         Update: {
@@ -214,6 +243,7 @@ export interface Database {
           name?: string;
           email?: string;
           is_active?: boolean;
+          role?: "owner" | "member" | "viewer";
         };
         Relationships: [];
       };
@@ -2202,6 +2232,10 @@ export interface Database {
       get_user_client_ids: {
         Args: Record<string, never>;
         Returns: string[];
+      };
+      can_write_client: {
+        Args: { p_client_id: string };
+        Returns: boolean;
       };
       setup_self_service_account: {
         Args: {

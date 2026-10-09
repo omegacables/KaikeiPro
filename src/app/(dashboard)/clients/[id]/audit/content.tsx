@@ -14,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
-import { getAuditLogs, type AuditLogFilters } from "@/actions/audit";
+import { getAuditLogs, type AuditLogFilters, type AuditLogWithActor } from "@/actions/audit";
 import type { Database } from "@/types/database";
 import { DateInput } from "@/components/ui/date-input";
 
@@ -111,7 +111,7 @@ function AuditLogDetail({ log }: { log: AuditLogRow }) {
 export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
   const { id } = useParams<{ id: string }>();
 
-  const [logs, setLogs] = useState<AuditLogRow[]>([]);
+  const [logs, setLogs] = useState<AuditLogWithActor[]>([]);
   const [loading, setLoading] = useState(true);
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
@@ -208,6 +208,7 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">日時</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">テーブル</th>
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground">操作</th>
+                <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">操作者</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">概要</th>
                 <th className="text-left px-4 py-3 text-xs font-bold text-muted-foreground">レコードID</th>
                 <th className="text-center px-4 py-3 text-xs font-bold text-muted-foreground w-8"></th>
@@ -216,13 +217,13 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                     読み込み中...
                   </td>
                 </tr>
               ) : logs.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-4 py-12 text-center text-muted-foreground">
+                  <td colSpan={7} className="px-4 py-12 text-center text-muted-foreground">
                     監査ログがありません
                   </td>
                 </tr>
@@ -243,6 +244,9 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
                       </td>
                       <td className="px-4 py-3 text-center">
                         <Badge variant={actionInfo.variant}>{actionInfo.label}</Badge>
+                      </td>
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
+                        {log.performer_name ?? <span className="text-muted-foreground">システム・記録なし</span>}
                       </td>
                       <td className="px-4 py-3">
                         <ChangeSummary action={log.action} oldData={log.old_data} newData={log.new_data} />

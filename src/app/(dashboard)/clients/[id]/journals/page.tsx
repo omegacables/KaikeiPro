@@ -51,6 +51,7 @@ import { AmountInput } from "@/components/ui/amount-input";
 import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, type LineSub } from "@/components/journal/line-fields";
 import { getSubAccounts, ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
+import { useClientRole } from "@/lib/use-client-role";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -472,6 +473,8 @@ export default function JournalsPage() {
       .catch(console.error);
   }, [id]);
 
+  const clientRole = useClientRole(id);
+
   // 補助科目（行の補助科目欄の候補）
   const [subAccounts, setSubAccounts] = useState<SubAccount[]>([]);
   useEffect(() => {
@@ -731,6 +734,25 @@ export default function JournalsPage() {
       setSaving(false);
     }
   };
+
+  // 閲覧専用のアカウントには入力の画面を出さない（書き込みはデータベースでも止めている）
+  if (clientRole && !clientRole.canWrite) {
+    return (
+      <div className="space-y-4">
+        <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
+          <Calculator className="size-6 text-primary" />
+          仕訳入力
+        </h1>
+        <div className="rounded-lg border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
+          このアカウントは閲覧専用のため、仕訳の入力・取込はできません。仕訳は
+          <Link href={`/clients/${id}/ledgers`} className="underline mx-1">
+            帳簿閲覧
+          </Link>
+          で確認できます。
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

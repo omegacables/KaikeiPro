@@ -370,10 +370,10 @@ export default function SettingsPage() {
   const [firmSaving, setFirmSaving] = useState(false);
   const [firmMembers, setFirmMembers] = useState(defaultMembers);
   const [showInviteForm, setShowInviteForm] = useState(false);
-  const [inviteData, setInviteData] = useState({ email: "", name: "", role: "staff" as "admin" | "staff" });
+  const [inviteData, setInviteData] = useState({ email: "", name: "", role: "staff" as "admin" | "staff" | "viewer" });
   const [inviting, setInviting] = useState(false);
   const [editingMemberId, setEditingMemberId] = useState<string | null>(null);
-  const [editMemberData, setEditMemberData] = useState<{ name: string; role: "admin" | "staff" }>({ name: "", role: "staff" });
+  const [editMemberData, setEditMemberData] = useState<{ name: string; role: "admin" | "staff" | "viewer" }>({ name: "", role: "staff" });
   const [savingMember, setSavingMember] = useState(false);
 
   // Self-service firm state
@@ -1127,8 +1127,9 @@ export default function SettingsPage() {
                       </div>
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-1">ロール</label>
-                        <select value={inviteData.role} onChange={(e) => setInviteData({ ...inviteData, role: e.target.value as "admin" | "staff" })} className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm">
+                        <select value={inviteData.role} onChange={(e) => setInviteData({ ...inviteData, role: e.target.value as "admin" | "staff" | "viewer" })} className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm">
                           <option value="staff">スタッフ</option>
+                          <option value="viewer">閲覧専用（見るだけ）</option>
                           <option value="admin">管理者</option>
                         </select>
                       </div>
@@ -1154,14 +1155,14 @@ export default function SettingsPage() {
                           <p className="text-muted-foreground text-xs">{m.email}</p>
                         </div>
                         <Badge variant={m.role === "admin" ? "default" : "muted"}>
-                          {m.role === "admin" ? "管理者" : "スタッフ"}
+                          {m.role === "admin" ? "管理者" : m.role === "viewer" ? "閲覧専用" : "スタッフ"}
                         </Badge>
                         <Button variant="ghost" size="sm" onClick={() => {
                           if (editingMemberId === m.id) {
                             setEditingMemberId(null);
                           } else {
                             setEditingMemberId(m.id);
-                            setEditMemberData({ name: m.name, role: m.role as "admin" | "staff" });
+                            setEditMemberData({ name: m.name, role: m.role as "admin" | "staff" | "viewer" });
                           }
                         }}>
                           {editingMemberId === m.id ? "閉じる" : "編集"}
@@ -1184,10 +1185,11 @@ export default function SettingsPage() {
                               <select
                                 className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm"
                                 value={editMemberData.role}
-                                onChange={(e) => setEditMemberData({ ...editMemberData, role: e.target.value as "admin" | "staff" })}
+                                onChange={(e) => setEditMemberData({ ...editMemberData, role: e.target.value as "admin" | "staff" | "viewer" })}
                               >
                                 <option value="admin">管理者</option>
                                 <option value="staff">スタッフ</option>
+                          <option value="viewer">閲覧専用（見るだけ）</option>
                               </select>
                             </div>
                           </div>

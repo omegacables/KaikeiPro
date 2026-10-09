@@ -44,7 +44,7 @@ export default function FirmsPage() {
 
   // Member creation
   const [showMemberForm, setShowMemberForm] = useState<string | null>(null);
-  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "admin" as "admin" | "staff" });
+  const [newMember, setNewMember] = useState({ name: "", email: "", password: "", role: "admin" as "admin" | "staff" | "viewer" });
   const [creatingMember, setCreatingMember] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
   const [deletingMemberId, setDeletingMemberId] = useState<string | null>(null);
@@ -338,11 +338,12 @@ export default function FirmsPage() {
                             <label className="block text-xs font-medium text-foreground mb-1">ロール</label>
                             <select
                               value={newMember.role}
-                              onChange={(e) => setNewMember({ ...newMember, role: e.target.value as "admin" | "staff" })}
+                              onChange={(e) => setNewMember({ ...newMember, role: e.target.value as "admin" | "staff" | "viewer" })}
                               className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm"
                             >
                               <option value="admin">管理者（税理士）</option>
                               <option value="staff">スタッフ</option>
+                          <option value="viewer">閲覧専用（見るだけ）</option>
                             </select>
                           </div>
                         </div>
@@ -381,7 +382,7 @@ export default function FirmsPage() {
                               <p className="text-muted-foreground text-xs">{m.email}</p>
                             </div>
                             <Badge variant={m.role === "admin" ? "default" : "muted"}>
-                              {m.role === "admin" ? "管理者" : "スタッフ"}
+                              {m.role === "admin" ? "管理者" : m.role === "viewer" ? "閲覧専用" : "スタッフ"}
                             </Badge>
                             <button
                               onClick={() => handleDeleteMember(firm.id, m)}

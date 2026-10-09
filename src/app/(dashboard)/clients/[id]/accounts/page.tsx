@@ -21,6 +21,7 @@ import type { PlClassification } from "@/types/database";
 import { getSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { getPartners } from "@/actions/partners";
 import { SubAccountManager } from "@/components/accounts/sub-account-manager";
+import { useAuth } from "@/components/providers/auth-provider";
 
 type Account = {
   id: string;
@@ -64,6 +65,9 @@ const emptyAccounts: Record<CategoryKey, Account[]> = {
 
 export default function AccountsPage() {
   const { id } = useParams<{ id: string }>();
+  // 標準の科目（全顧問先で共通）を変えられるのはシステム管理者だけ（データベースでも止めている）
+  const { user } = useAuth();
+  const isSuperAdmin = user?.role === "super_admin";
   const [activeTab, setActiveTab] = useState<CategoryKey>("assets");
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
@@ -426,8 +430,12 @@ export default function AccountsPage() {
                         return (
                           <button
                             onClick={() => handleToggleActive(account)}
-                            disabled={togglingId === account.id}
-                            title="クリックで有効/無効を切替"
+                            disabled={togglingId === account.id || (account.is_default && !isSuperAdmin)}
+                            title={
+                              account.is_default && !isSuperAdmin
+                                ? "標準の科目は全顧問先で共通のため、ここでは変更できません"
+                                : "クリックで有効/無効を切替"
+                            }
                             className={cn(
                               "inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full border transition-colors cursor-pointer",
                               isActive
@@ -462,7 +470,7 @@ export default function AccountsPage() {
                         <select
                           value={plOverrides[account.id] ?? account.pl_classification ?? ""}
                           onChange={(e) => handlePlChange(account.id, e.target.value)}
-                          disabled={plSavingId === account.id}
+                          disabled={plSavingId === account.id || (account.is_default && !isSuperAdmin)}
                           className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-xs"
                         >
                           <option value="">自動（未設定）</option>

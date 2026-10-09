@@ -130,7 +130,7 @@ export async function getFirmMembers(firmId: string) {
 
 export async function updateFirmMember(
   id: string,
-  input: { name?: string; role?: "admin" | "staff"; is_active?: boolean }
+  input: { name?: string; role?: "admin" | "staff" | "viewer"; is_active?: boolean }
 ) {
   // Use admin client to bypass RLS recursive policy on firm_members
   const supabase = await createServerSupabaseClient();
@@ -285,7 +285,7 @@ export async function inviteFirmMember(input: {
   firm_id: string;
   email: string;
   name: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "viewer";
 }) {
   // 呼び出し者が当該事務所の管理者（または super_admin）であることを検証
   await assertFirmAccess(input.firm_id, { requireAdmin: true });

@@ -110,7 +110,7 @@ export async function createFirmMemberAccount(input: {
   name: string;
   email: string;
   password: string;
-  role: "admin" | "staff";
+  role: "admin" | "staff" | "viewer";
 }) {
   // 呼び出し者が当該事務所の管理者（または super_admin）であることを検証。
   // これがないと、誰でも任意の事務所に自分を staff/admin として追加できてしまう。

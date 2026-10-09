@@ -9,7 +9,6 @@ import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
 import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
-import { useAuth } from "@/components/providers/auth-provider";
 import { AlertTriangle } from "lucide-react";
 import { getClient, updateClient } from "@/actions/clients";
 import {
@@ -28,6 +27,7 @@ import {
   type AllocationReportRow,
 } from "@/actions/allocations";
 import { DateInput } from "@/components/ui/date-input";
+import { useClientRole } from "@/lib/use-client-role";
 
 interface Draft {
   ratio: string;
@@ -36,9 +36,9 @@ interface Draft {
 
 export default function AllocationsPage() {
   const { id } = useParams<{ id: string }>();
-  const { user } = useAuth();
-  const isStaff =
-    user?.role === "super_admin" || user?.role === "admin" || user?.role === "staff";
+  // 按分率は、閲覧専用以外なら誰でも設定できる（税理士・スタッフ・社長・社員）
+  const clientRole = useClientRole(id);
+  const isStaff = clientRole?.canWrite ?? false;
 
   // 会計年度（クライアントの決算月基準）
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
@@ -399,9 +399,9 @@ export default function AllocationsPage() {
         </Card>
       )}
 
-      {!isStaff && !isCorporation && (
+      {clientRole && !clientRole.canWrite && !isCorporation && (
         <p className="mb-3 text-xs text-muted-foreground">
-          ※ 按分率の設定は税理士が行います（閲覧のみ）。
+          ※ このアカウントは閲覧専用のため、按分率は変更できません。
         </p>
       )}
 

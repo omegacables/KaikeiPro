@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange, Bot } from "lucide-react";
+import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange, Bot, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaxPageContent } from "../tax/content";
 import { CompanyDocumentsPageContent } from "../company-documents/content";
@@ -9,14 +9,16 @@ import { AuditLogPageContent } from "../audit/content";
 import { PayrollSettingsContent } from "./payroll-settings";
 import { FiscalMonthSettingsContent } from "./fiscal-month-settings";
 import { AiSettingsContent } from "./ai-settings";
+import { MembersSettingsContent } from "./members-settings";
 
-type SettingsTab = "fiscal" | "tax" | "payroll" | "company_documents" | "ai" | "audit";
+type SettingsTab = "fiscal" | "tax" | "payroll" | "company_documents" | "members" | "ai" | "audit";
 
 const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: "fiscal", label: "決算月", icon: CalendarRange },
   { key: "tax", label: "消費税計算", icon: Percent },
   { key: "payroll", label: "給与", icon: Banknote },
   { key: "company_documents", label: "会社書類", icon: FolderArchive },
+  { key: "members", label: "メンバー・権限", icon: Users },
   { key: "ai", label: "AIの利用", icon: Bot },
   { key: "audit", label: "監査ログ", icon: Shield },
 ];
@@ -40,7 +42,7 @@ export default function ClientSettingsPage() {
             設定
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            決算月・消費税計算・給与・会社書類（定款・議事録・台帳など）・AIの利用・監査ログをまとめて管理します。
+            決算月・消費税計算・給与・会社書類（定款・議事録・台帳など）・メンバーと権限・AIの利用・監査ログをまとめて管理します。
           </p>
         </div>
       </div>
@@ -71,6 +73,7 @@ export default function ClientSettingsPage() {
       {activeTab === "tax" && <TaxPageContent hideHeader />}
       {activeTab === "payroll" && <PayrollSettingsContent />}
       {activeTab === "company_documents" && <CompanyDocumentsPageContent hideHeader />}
+      {activeTab === "members" && <MembersSettingsContent />}
       {activeTab === "ai" && <AiSettingsContent />}
       {activeTab === "audit" && <AuditLogPageContent hideHeader />}
     </>

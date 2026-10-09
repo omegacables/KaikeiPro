@@ -15,7 +15,7 @@ interface AuthUser {
   id: string;
   email: string;
   name: string;
-  role: "super_admin" | "admin" | "staff" | "client";
+  role: "super_admin" | "admin" | "staff" | "viewer" | "client";
   firmId: string | null;
   clientId: string | null;
 }
@@ -84,7 +84,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           id: authUser.id,
           email: authUser.email ?? "",
           name: member.name,
-          role: member.role as "admin" | "staff",
+          role: member.role as "admin" | "staff" | "viewer",
           firmId: member.firm_id,
           clientId: null,
         });

@@ -20,6 +20,7 @@ import { ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { TaxBadge } from "@/components/journal/tax-badge";
+import { useClientRole } from "@/lib/use-client-role";
 
 type EntryLine = {
   accountId: string;
@@ -78,6 +79,7 @@ export function JournalEntryPanel({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Entry | null>(null);
   const [saving, setSaving] = useState(false);
+  const role = useClientRole(clientId);
 
   const subName = (id: string | null) => (id ? subAccounts.find((s) => s.id === id)?.name ?? "" : "");
 
@@ -195,7 +197,7 @@ export function JournalEntryPanel({
         <div className="sticky top-0 z-10 bg-card border-b border-border px-5 py-3 flex items-center justify-between">
           <h3 className="text-lg font-bold">{editing ? "仕訳の修正" : "仕訳の詳細"}</h3>
           <div className="flex items-center gap-3">
-            {entry && !editing && (
+            {entry && !editing && role?.canWrite !== false && (
               <Button size="sm" variant="outline" onClick={startEdit}>
                 <Pen className="size-3.5" />
                 修正する

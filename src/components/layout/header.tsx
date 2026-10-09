@@ -9,6 +9,7 @@ import { cn, getInitials } from "@/lib/utils";
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme";
 import { getClient } from "@/actions/clients";
 import { loadClients } from "@/lib/client-cache";
+import { useClientRole } from "@/lib/use-client-role";
 
 const pageTitles: Record<string, string> = {
   "/dashboard": "ダッシュボード",
@@ -142,6 +143,8 @@ export function Header() {
           : companyName ?? "顧問先";
 
   const pageTitle = getPageTitle(pathname);
+  // 顧問先の画面では、閲覧専用なら見出しの横に示す
+  const clientRole = useClientRole(pathname.match(/^\/clients\/([^/]+)/)?.[1] ?? null);
   const avatarUrl =
     (rawUser?.user_metadata?.avatar_url as string | undefined) || null;
 
@@ -217,8 +220,16 @@ export function Header() {
               )}
             </div>
           )}
-          <h2 className="text-foreground text-lg sm:text-xl font-bold tracking-tight truncate">
+          <h2 className="text-foreground text-lg sm:text-xl font-bold tracking-tight truncate flex items-center gap-2">
             {pageTitle}
+            {clientRole && !clientRole.canWrite && (
+              <span
+                className="text-xs font-bold rounded-full border border-warning/40 bg-warning/10 text-warning px-2 py-0.5 whitespace-nowrap"
+                title="このアカウントは閲覧専用です。入力・修正・削除はできません"
+              >
+                閲覧専用
+              </span>
+            )}
           </h2>
         </div>
       </div>
