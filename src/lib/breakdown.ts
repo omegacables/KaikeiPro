@@ -21,10 +21,14 @@ import type { PlClassification } from "@/types/database";
 /**
  * 様式の作成状況。
  *   ready        … 今あるデータから作成できる
+ *   input        … 相手先ごとの明細を入力して作成する（src/lib/breakdown-items.ts）
  *   needs_items  … 相手先ごとの明細を入力する画面が必要（準備中）
  *   needs_fields … 元データに入力欄の追加が必要（準備中）
  */
-export type BreakdownFormStatus = "ready" | "needs_items" | "needs_fields";
+export type BreakdownFormStatus = "ready" | "input" | "needs_items" | "needs_fields";
+
+/** 画面で開ける様式か */
+export const isAvailableForm = (f: BreakdownFormDef) => f.status === "ready" || f.status === "input";
 
 export type BreakdownFormDef = {
   /** URLと照合に使うキー。国税庁のフォーマット区分に合わせる（例: "4-2"） */
@@ -39,24 +43,24 @@ export type BreakdownFormDef = {
 
 export const BREAKDOWN_FORMS: BreakdownFormDef[] = [
   { key: "1", number: "①", title: "預貯金等の内訳書", status: "needs_fields", note: "口座と勘定科目の紐付けが必要です" },
-  { key: "2", number: "②", title: "受取手形の内訳書", status: "needs_items" },
-  { key: "3", number: "③", title: "売掛金（未収入金）の内訳書", status: "needs_items" },
-  { key: "4-1", number: "④", title: "仮払金（前渡金）の内訳書", status: "needs_items" },
+  { key: "2", number: "②", title: "受取手形の内訳書", status: "input" },
+  { key: "3", number: "③", title: "売掛金（未収入金）の内訳書", status: "input" },
+  { key: "4-1", number: "④", title: "仮払金（前渡金）の内訳書", status: "input" },
   { key: "4-2", number: "④", title: "貸付金及び受取利息の内訳書", status: "ready" },
   { key: "5", number: "⑤", title: "棚卸資産の内訳書", status: "needs_fields", note: "科目区分・単位の入力欄が必要です" },
-  { key: "6", number: "⑥", title: "有価証券の内訳書", status: "needs_items" },
+  { key: "6", number: "⑥", title: "有価証券の内訳書", status: "input" },
   { key: "7", number: "⑦", title: "固定資産（土地、土地の上に存する権利及び建物に限る。）の内訳書", status: "needs_fields", note: "所在地・面積などの入力欄が必要です" },
-  { key: "8", number: "⑧", title: "支払手形の内訳書", status: "needs_items" },
-  { key: "9", number: "⑨", title: "買掛金（未払金・未払費用）の内訳書", status: "needs_items" },
-  { key: "10-1", number: "⑩", title: "仮受金（前受金・預り金）の内訳書", status: "needs_items" },
+  { key: "8", number: "⑧", title: "支払手形の内訳書", status: "input" },
+  { key: "9", number: "⑨", title: "買掛金（未払金・未払費用）の内訳書", status: "input" },
+  { key: "10-1", number: "⑩", title: "仮受金（前受金・預り金）の内訳書", status: "input" },
   { key: "10-2", number: "⑩", title: "源泉所得税預り金の内訳", status: "needs_fields", note: "納付状況の記録が必要です" },
   { key: "11", number: "⑪", title: "借入金及び支払利子の内訳書", status: "ready" },
   { key: "12", number: "⑫", title: "土地の売上高等の内訳書", status: "needs_items" },
   { key: "13", number: "⑬", title: "売上高等の事業所別内訳書", status: "needs_items" },
   { key: "14-1", number: "⑭", title: "役員給与等の内訳書", status: "needs_fields", note: "役員の役職・続柄などの登録が必要です" },
   { key: "14-3", number: "⑭", title: "人件費の内訳書", status: "ready" },
-  { key: "15-1", number: "⑮", title: "地代家賃等の内訳書", status: "needs_items" },
-  { key: "15-2", number: "⑮", title: "工業所有権等の使用料の内訳書", status: "needs_items" },
+  { key: "15-1", number: "⑮", title: "地代家賃等の内訳書", status: "input" },
+  { key: "15-2", number: "⑮", title: "工業所有権等の使用料の内訳書", status: "input" },
   { key: "16", number: "⑯", title: "雑益、雑損失等の内訳書", status: "ready" },
 ];
 
@@ -75,6 +79,11 @@ export type ListingRule = {
   secondaryThreshold?: number;
   /** 各別に記入する口数の上限。超えた分は最後の1行にまとめる */
   maxRows: number;
+  /**
+   * 基準額以上のものがこの口数に満たないときは、金額の多いものから
+   * この口数まで各別に記入する（売掛金・買掛金・手形の「5口程度」の規定）
+   */
+  minRows?: number;
 };
 
 export type ListingFacts = {
@@ -113,6 +122,10 @@ export type ListingResult<T> = {
   listed: T[];
   /** 一括して記入する分（各別記入にならなかったもの＋100口を超えた分） */
   rest: { amount: number; secondary: number; count: number };
+  /** 一括して記入する分の元の項目（科目ごとにまとめ直すときに使う） */
+  restItems: T[];
+  /** 100口を超えたため、残りを最後の1行にまとめたか */
+  overflowed: boolean;
 };
 
 /**
@@ -126,18 +139,21 @@ export function selectListedRows<T>(
   rule: ListingRule,
   factsOf: (item: T) => ListingFacts
 ): ListingResult<T> {
-  const listed: { item: T; facts: ListingFacts }[] = [];
-  const rest = { amount: 0, secondary: 0, count: 0 };
-  const addRest = (f: ListingFacts) => {
-    rest.amount += f.amount;
-    rest.secondary += f.secondary ?? 0;
-    rest.count++;
-  };
+  type Entry = { item: T; facts: ListingFacts };
+  const listed: Entry[] = [];
+  const unlisted: Entry[] = [];
 
   for (const item of items) {
     const facts = factsOf(item);
-    if (isListed(facts, rule)) listed.push({ item, facts });
-    else addRest(facts);
+    (isListed(facts, rule) ? listed : unlisted).push({ item, facts });
+  }
+
+  // 基準額以上が規定の口数に満たなければ、金額の多いものから補う
+  if (rule.minRows && listed.length < rule.minRows) {
+    unlisted.sort((a, b) => b.facts.amount - a.facts.amount);
+    while (listed.length < rule.minRows && unlisted.length && unlisted[0].facts.amount > 0) {
+      listed.push(unlisted.shift()!);
+    }
   }
 
   listed.sort((a, b) => {
@@ -147,11 +163,25 @@ export function selectListedRows<T>(
     return b.facts.amount - a.facts.amount;
   });
 
+  let overflowed = false;
   if (listed.length > rule.maxRows) {
-    for (const x of listed.splice(rule.maxRows - 1)) addRest(x.facts);
+    unlisted.push(...listed.splice(rule.maxRows - 1));
+    overflowed = true;
   }
 
-  return { listed: listed.map((x) => x.item), rest };
+  const rest = { amount: 0, secondary: 0, count: 0 };
+  for (const x of unlisted) {
+    rest.amount += x.facts.amount;
+    rest.secondary += x.facts.secondary ?? 0;
+    rest.count++;
+  }
+
+  return {
+    listed: listed.map((x) => x.item),
+    rest,
+    restItems: unlisted.map((x) => x.item),
+    overflowed,
+  };
 }
 
 // ---------------------------------------------------------------------------

@@ -19,6 +19,7 @@ import {
 import {
   BREAKDOWN_FORMS,
   findBreakdownForm,
+  isAvailableForm,
   LOAN_LISTING_RULE,
   selectListedRows,
   isBorrowingAccount,
@@ -36,6 +37,12 @@ import {
   type PersonnelBreakdown,
   type Reconciliation,
 } from "@/lib/breakdown";
+import {
+  findItemFormSpec,
+  reconcileItems,
+  type BreakdownItem,
+  type DetailValue,
+} from "@/lib/breakdown-items";
 import { getTrialBalance } from "@/actions/statements";
 import { getLoanBreakdownSource } from "@/actions/loans";
 import type { LoanBreakdownRow } from "@/types/index";
@@ -93,7 +100,24 @@ export type MiscFormData = {
   losses: MiscSection;
 };
 
-export type BreakdownFormData = (LoanFormData | PersonnelFormData | MiscFormData) & {
+/** 取引先マスタ（明細の名称入力で候補に出し、所在地・登録番号を補う） */
+export type PartnerOption = {
+  id: string;
+  name: string;
+  aliases: string[];
+  address: string;
+  registrationNumber: string;
+};
+
+export type ItemFormData = {
+  kind: "items";
+  items: BreakdownItem[];
+  /** 照合する科目（「科目」欄の選択肢にもなる） */
+  balances: BalanceAccount[];
+  partners: PartnerOption[];
+};
+
+export type BreakdownFormData = (LoanFormData | PersonnelFormData | MiscFormData | ItemFormData) & {
   def: BreakdownFormDef;
   period: BreakdownPeriod;
 };
@@ -101,7 +125,14 @@ export type BreakdownFormData = (LoanFormData | PersonnelFormData | MiscFormData
 export type BreakdownOverviewItem = {
   def: BreakdownFormDef;
   /** 作成できる様式のみ。記入額の合計と照合結果 */
-  summary?: { total: number; checks: { label: string; check: Reconciliation; informational: boolean }[] };
+  summary?: {
+    total: number;
+    checks: { label: string; check: Reconciliation; informational: boolean }[];
+    /** 入力式の様式の明細の件数 */
+    itemCount?: number;
+    /** 試算表と照合する科目がある様式か */
+    reconcilable?: boolean;
+  };
 };
 
 // ---------------------------------------------------------------------------
@@ -352,7 +383,20 @@ async function buildForm(
   period: BreakdownPeriod,
   balances: BalanceAccount[],
   key: string
-): Promise<LoanFormData | PersonnelFormData | MiscFormData | null> {
+): Promise<LoanFormData | PersonnelFormData | MiscFormData | ItemFormData | null> {
+  const spec = findItemFormSpec(key);
+  if (spec) {
+    const [items, partners] = await Promise.all([
+      loadItems(clientId, period.startDate, key),
+      loadPartners(clientId),
+    ]);
+    return {
+      kind: "items",
+      items,
+      balances: spec.isTargetAccount ? balances.filter(spec.isTargetAccount) : [],
+      partners,
+    };
+  }
   switch (key) {
     case "11":
       return buildLoanForm(clientId, period, balances, "borrow");
@@ -376,7 +420,7 @@ export async function getBreakdownForm(
   await assertClientAccess(clientId);
   const def = findBreakdownForm(key);
   if (!def) throw new Error("指定された内訳書が見つかりません");
-  if (def.status !== "ready") throw new Error(`${def.number}${def.title}は準備中です`);
+  if (!isAvailableForm(def)) throw new Error(`${def.number}${def.title}は準備中です`);
 
   const period = await loadPeriod(clientId, periodKey);
   const balances = await loadBalances(clientId, period);
@@ -394,12 +438,35 @@ export async function getBreakdownOverview(
   const period = await loadPeriod(clientId, periodKey);
   const balances = await loadBalances(clientId, period);
 
+  // 入力式の様式は、期の明細をまとめて1回で読む
+  const allItems = await loadItems(clientId, period.startDate);
+
   const items = await Promise.all(
     BREAKDOWN_FORMS.map(async (def): Promise<BreakdownOverviewItem> => {
+      const spec = findItemFormSpec(def.key);
+      if (spec) {
+        const mine = allItems.filter((i) => i.formKey === def.key);
+        const reconciled = new Set(spec.sections.filter((x) => x.reconciled).map((x) => x.key));
+        return {
+          def,
+          summary: {
+            total: mine.filter((i) => reconciled.has(i.section)).reduce((sum, i) => sum + i.amount, 0),
+            checks: reconcileItems(spec, mine, balances).map((c) => ({
+              label: c.label,
+              check: c.check,
+              informational: false,
+            })),
+            itemCount: mine.length,
+            reconcilable: spec.isTargetAccount != null,
+          },
+        };
+      }
       if (def.status !== "ready") return { def };
       const data = await buildForm(clientId, period, balances, def.key);
       if (!data) return { def };
       switch (data.kind) {
+        case "items":
+          return { def };
         case "loan": {
           const interestLabel = data.direction === "borrow" ? "支払利子" : "受取利息";
           return {
@@ -433,4 +500,210 @@ export async function getBreakdownOverview(
   );
 
   return { period, items };
+}
+
+// ---------------------------------------------------------------------------
+// 相手先ごとの明細（②③④⑥⑧⑨⑩⑮）
+// ---------------------------------------------------------------------------
+
+type StoredItem = BreakdownItem & { formKey: string };
+
+function toItem(r: DbRow): StoredItem {
+  return {
+    id: r.id as string,
+    formKey: r.form_key as string,
+    section: r.section as string,
+    accountId: (r.account_id as string | null) ?? null,
+    partnerId: (r.partner_id as string | null) ?? null,
+    name: (r.name as string) ?? "",
+    address: (r.address as string) ?? "",
+    registrationNumber: (r.registration_number as string) ?? "",
+    relationship: (r.relationship as string) ?? "",
+    amount: Number(r.amount) || 0,
+    note: (r.note as string) ?? "",
+    details: (r.details as Record<string, DetailValue>) ?? {},
+    sortOrder: Number(r.sort_order) || 0,
+  };
+}
+
+async function loadItems(clientId: string, periodStart: string, formKey?: string): Promise<StoredItem[]> {
+  const supabase = await createServerSupabaseClient();
+  let q = supabase
+    .from("breakdown_items")
+    .select("*")
+    .eq("client_id", clientId)
+    .eq("period_start", periodStart);
+  if (formKey) q = q.eq("form_key", formKey);
+  const { data, error } = await q.order("sort_order");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((r) => toItem(r as DbRow));
+}
+
+async function loadPartners(clientId: string): Promise<PartnerOption[]> {
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("business_partners")
+    .select("id, name, aliases, address, invoice_registration_number")
+    .eq("client_id", clientId)
+    .order("name");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((p) => {
+    const r = p as DbRow;
+    return {
+      id: r.id as string,
+      name: (r.name as string) ?? "",
+      aliases: (r.aliases as string[] | null) ?? [],
+      address: (r.address as string | null) ?? "",
+      registrationNumber: (r.invoice_registration_number as string | null) ?? "",
+    };
+  });
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * 1つの様式の明細を、渡された内容で置き換えて保存する。
+ * 画面で消した行は削除する。別の顧問先・別の様式の行を書き換えないよう、
+ * この様式・この期に既にある行のIDだけを引き継ぎ、それ以外は新しい行として作る。
+ */
+export async function saveBreakdownItems(
+  clientId: string,
+  periodKey: string,
+  key: string,
+  items: BreakdownItem[]
+): Promise<BreakdownItem[]> {
+  await assertClientAccess(clientId);
+  const spec = findItemFormSpec(key);
+  if (!spec) throw new Error("この内訳書は明細を入力する様式ではありません");
+  const period = await loadPeriod(clientId, periodKey);
+  const supabase = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+
+  const sections = new Set(spec.sections.map((x) => x.key));
+  for (const i of items) {
+    if (!sections.has(i.section)) throw new Error("明細の区分が正しくありません");
+    if (!Number.isFinite(i.amount)) throw new Error("金額が正しくありません");
+  }
+
+  // 科目・取引先が、この顧問先のものかを確かめる
+  const accountIds = [...new Set(items.map((i) => i.accountId).filter(Boolean))] as string[];
+  if (accountIds.length) {
+    const { data } = await supabase.from("accounts").select("id, client_id").in("id", accountIds);
+    const ok = (data ?? []).filter((a) => a.client_id === clientId || a.client_id == null);
+    if (ok.length !== accountIds.length) throw new Error("この顧問先の科目ではありません");
+  }
+  const partnerIds = [...new Set(items.map((i) => i.partnerId).filter(Boolean))] as string[];
+  if (partnerIds.length) {
+    const { data } = await supabase
+      .from("business_partners")
+      .select("id")
+      .eq("client_id", clientId)
+      .in("id", partnerIds);
+    if ((data ?? []).length !== partnerIds.length) throw new Error("この顧問先の取引先ではありません");
+  }
+
+  const existing = await loadItems(clientId, period.startDate, key);
+  const existingIds = new Set(existing.map((i) => i.id));
+  const now = new Date().toISOString();
+  const rows = items.map((i, idx) => ({
+    id: existingIds.has(i.id) && UUID.test(i.id) ? i.id : crypto.randomUUID(),
+    client_id: clientId,
+    period_start: period.startDate,
+    form_key: key,
+    section: i.section,
+    account_id: i.accountId,
+    partner_id: i.partnerId,
+    name: i.name.trim(),
+    address: i.address.trim(),
+    registration_number: i.registrationNumber.trim(),
+    relationship: i.relationship.trim(),
+    amount: Math.round(i.amount),
+    note: i.note.trim(),
+    details: i.details,
+    sort_order: idx,
+    created_by: user?.id ?? null,
+    updated_at: now,
+  }));
+
+  const keep = new Set(rows.map((r) => r.id));
+  const removed = existing.filter((i) => !keep.has(i.id)).map((i) => i.id);
+  if (removed.length) {
+    const { error } = await supabase.from("breakdown_items").delete().in("id", removed);
+    if (error) throw new Error(error.message);
+  }
+  if (rows.length) {
+    const { error } = await supabase.from("breakdown_items").upsert(rows);
+    if (error) throw new Error(error.message);
+  }
+  return loadItems(clientId, period.startDate, key);
+}
+
+/**
+ * ③売掛金の下書き。請求書のうち、期末日までに発行し期末日時点で未回収のものを
+ * 取引先ごとに合計する（期末日より後の入金は差し引かない）。
+ * 保存はしない。画面で確かめてから保存してもらう。
+ */
+export async function draftReceivablesFromInvoices(
+  clientId: string,
+  periodKey: string
+): Promise<BreakdownItem[]> {
+  await assertClientAccess(clientId);
+  const period = await loadPeriod(clientId, periodKey);
+  const supabase = await createServerSupabaseClient();
+
+  type InvoiceRow = {
+    business_partner_id: string | null;
+    total_amount: number;
+    business_partners: { id: string; name: string; address: string | null; invoice_registration_number: string | null } | null;
+    payment_allocations: { allocated_amount: number; payments: { payment_date: string } | null }[];
+  };
+  const invoices = await fetchAllRows<InvoiceRow>((from, to) =>
+    supabase
+      .from("invoices")
+      .select(
+        "business_partner_id, total_amount, business_partners:business_partner_id ( id, name, address, invoice_registration_number ), payment_allocations ( allocated_amount, payments ( payment_date ) )"
+      )
+      .eq("client_id", clientId)
+      .eq("direction", "sales")
+      .neq("status", "void")
+      .lte("issued_date", period.endDate)
+      .range(from, to) as unknown as PromiseLike<{ data: InvoiceRow[] | null; error: { message: string } | null }>
+  );
+
+  const byPartner = new Map<string, { partner: InvoiceRow["business_partners"]; amount: number }>();
+  for (const inv of invoices) {
+    const collected = (inv.payment_allocations ?? [])
+      .filter((a) => a.payments?.payment_date && a.payments.payment_date <= period.endDate)
+      .reduce((s, a) => s + (Number(a.allocated_amount) || 0), 0);
+    const remaining = (Number(inv.total_amount) || 0) - collected;
+    if (remaining <= 0) continue;
+    const k = inv.business_partner_id ?? "";
+    const g = byPartner.get(k);
+    if (g) g.amount += remaining;
+    else byPartner.set(k, { partner: inv.business_partners, amount: remaining });
+  }
+
+  const balances = await loadBalances(clientId, period);
+  const receivable =
+    balances.find((a) => a.category === "asset" && a.name === "売掛金") ??
+    balances.find((a) => a.category === "asset" && a.name.includes("売掛金"));
+
+  return [...byPartner.values()]
+    .sort((a, b) => b.amount - a.amount)
+    .map((g, idx) => ({
+      id: crypto.randomUUID(),
+      section: "main",
+      accountId: receivable?.id ?? null,
+      partnerId: g.partner?.id ?? null,
+      name: g.partner?.name ?? "取引先未設定",
+      address: g.partner?.address ?? "",
+      registrationNumber: g.partner?.invoice_registration_number ?? "",
+      relationship: "",
+      amount: Math.round(g.amount),
+      note: "",
+      details: {},
+      sortOrder: idx,
+    }));
 }

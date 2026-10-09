@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useEffect, useState } from "react";
+import { use, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -8,9 +8,6 @@ import {
   ChevronRight,
   Printer,
   Loader2,
-  CheckCircle2,
-  AlertTriangle,
-  Info,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -21,7 +18,8 @@ import {
   type MiscSection,
   type PersonnelFormData,
 } from "@/actions/breakdown";
-import type { Reconciliation } from "@/lib/breakdown";
+import { Notice, CheckNotice } from "@/components/breakdown/notices";
+import { ItemForm } from "@/components/breakdown/item-form";
 import { formatYen } from "@/lib/wareki";
 import { printPage } from "@/lib/export";
 import {
@@ -55,16 +53,23 @@ export default function BreakdownFormPage({
       .finally(() => setLoading(false));
   }, [id, periodKey, form]);
 
+  // 明細を入力する様式で、保存していない入力があれば移動前に確かめる
+  const dirtyRef = useRef(false);
+  const go = (href: string) => {
+    if (dirtyRef.current && !confirm("保存していない入力があります。保存せずに移動しますか？")) return;
+    router.push(href);
+  };
+
   const toolbar = (
     <div className="no-print flex flex-wrap items-center justify-between gap-3">
-      <Button variant="outline" onClick={() => router.push(`/clients/${id}/breakdown/${data?.period.startDate ?? periodKey}`)}>
+      <Button variant="outline" onClick={() => go(`/clients/${id}/breakdown/${data?.period.startDate ?? periodKey}`)}>
         <ArrowLeft className="size-4" />
         内訳書の一覧に戻る
       </Button>
       <div className="flex flex-wrap items-center gap-2">
         <Button
           variant="outline"
-          onClick={() => data && router.push(`/clients/${id}/breakdown/${data.period.prevKey}/${form}`)}
+          onClick={() => data && go(`/clients/${id}/breakdown/${data.period.prevKey}/${form}`)}
           disabled={!data}
           title="前の事業年度"
         >
@@ -76,7 +81,7 @@ export default function BreakdownFormPage({
         </span>
         <Button
           variant="outline"
-          onClick={() => data && router.push(`/clients/${id}/breakdown/${data.period.nextKey}/${form}`)}
+          onClick={() => data && go(`/clients/${id}/breakdown/${data.period.nextKey}/${form}`)}
           disabled={!data}
           title="次の事業年度"
         >
@@ -125,23 +130,34 @@ export default function BreakdownFormPage({
         </Notice>
       )}
 
+      {data.kind === "items" && (
+        <ItemForm
+          key={data.period.startDate}
+          clientId={id}
+          periodKey={data.period.startDate}
+          data={data}
+          onDirtyChange={(d) => (dirtyRef.current = d)}
+        />
+      )}
       {data.kind === "loan" && <LoanChecks data={data} />}
       {data.kind === "personnel" && <PersonnelNotes data={data} />}
       {data.kind === "misc" && <MiscChecks data={data} />}
 
-      <div id="form-root">
-        <FormSheet>
-          <FormHeader
-            title={data.def.title}
-            clientName={data.period.clientName}
-            startDate={data.period.startDate}
-            endDate={data.period.endDate}
-          />
-          {data.kind === "loan" && <LoanTable data={data} />}
-          {data.kind === "personnel" && <PersonnelTable data={data} />}
-          {data.kind === "misc" && <MiscTables data={data} />}
-        </FormSheet>
-      </div>
+      {data.kind !== "items" && (
+        <div id="form-root">
+          <FormSheet>
+            <FormHeader
+              title={data.def.title}
+              clientName={data.period.clientName}
+              startDate={data.period.startDate}
+              endDate={data.period.endDate}
+            />
+            {data.kind === "loan" && <LoanTable data={data} />}
+            {data.kind === "personnel" && <PersonnelTable data={data} />}
+            {data.kind === "misc" && <MiscTables data={data} />}
+          </FormSheet>
+        </div>
+      )}
     </div>
   );
 }
@@ -149,61 +165,6 @@ export default function BreakdownFormPage({
 // ---------------------------------------------------------------------------
 // 照合結果・注意書き（画面のみ。印刷しない）
 // ---------------------------------------------------------------------------
-
-function Notice({ tone, children }: { tone: "info" | "warning" | "success"; children: React.ReactNode }) {
-  const styles = {
-    info: "bg-info/10 border-info/20 text-info",
-    warning: "bg-warning/10 border-warning/20 text-warning",
-    success: "bg-success/10 border-success/20 text-success",
-  }[tone];
-  const Icon = tone === "warning" ? AlertTriangle : tone === "success" ? CheckCircle2 : Info;
-  return (
-    <div className={`no-print flex items-start gap-2 p-3 rounded-lg border text-sm leading-relaxed ${styles}`}>
-      <Icon className="size-4 mt-0.5 shrink-0" />
-      <div>{children}</div>
-    </div>
-  );
-}
-
-/** 試算表との照合結果を文章で示す */
-function CheckNotice({
-  label,
-  check,
-  informational,
-  hint,
-}: {
-  label: string;
-  check: Reconciliation;
-  informational?: boolean;
-  hint?: string;
-}) {
-  const accounts = check.accountNames.length > 0 ? check.accountNames.join("・") : null;
-  if (!accounts) {
-    if (check.breakdownTotal === 0) return null;
-    return (
-      <Notice tone={informational ? "info" : "warning"}>
-        {label}：試算表に対応する勘定科目がありません（内訳書の合計 {formatYen(check.breakdownTotal)}円）。
-        {hint}
-      </Notice>
-    );
-  }
-  if (check.matches) {
-    return (
-      <Notice tone="success">
-        {label}：試算表の{accounts}の残高 {formatYen(check.accountTotal)}円 と一致しています。
-      </Notice>
-    );
-  }
-  const more = check.difference > 0;
-  return (
-    <Notice tone={informational ? "info" : "warning"}>
-      {informational && "（参考）"}
-      {label}：試算表の{accounts}は {formatYen(check.accountTotal)}円、内訳書の合計は{" "}
-      {formatYen(check.breakdownTotal)}円 で、試算表の方が {formatYen(Math.abs(check.difference))}円{" "}
-      {more ? "多く" : "少なく"}なっています。{hint}
-    </Notice>
-  );
-}
 
 function LoanChecks({ data }: { data: LoanFormData & { period: { endDate: string } } }) {
   const borrow = data.direction === "borrow";

@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getBreakdownOverview, type BreakdownOverviewItem, type BreakdownPeriod } from "@/actions/breakdown";
 import { formatYen } from "@/lib/wareki";
+import { isAvailableForm } from "@/lib/breakdown";
 
 const STATUS_NOTE: Record<string, string> = {
   needs_items: "相手先ごとの明細を入力する画面を準備中です",
@@ -119,12 +120,18 @@ export default function BreakdownOverviewPage({
             </thead>
             <tbody>
               {items.map(({ def, summary }) => {
-                const ready = def.status === "ready";
+                const ready = isAvailableForm(def);
+                const isInput = def.status === "input";
                 return (
                   <tr key={def.key} className="border-t border-border">
                     <td className="px-3 py-2 text-center">{def.number}</td>
                     <td className="px-3 py-2">
                       <div className="font-medium">{def.title}</div>
+                      {isInput && (
+                        <div className="text-[13px] text-muted-foreground">
+                          相手先ごとの明細を入力{summary?.itemCount ? `（${summary.itemCount}件入力済み）` : ""}
+                        </div>
+                      )}
                       {!ready && (
                         <div className="text-[13px] text-muted-foreground">
                           準備中：{def.note ?? STATUS_NOTE[def.status] ?? ""}
@@ -136,7 +143,13 @@ export default function BreakdownOverviewPage({
                     </td>
                     <td className="px-3 py-2">
                       {summary && summary.checks.length === 0 && (
-                        <span className="text-[13px] text-muted-foreground">科目残高から作成</span>
+                        <span className="text-[13px] text-muted-foreground">
+                          {!isInput
+                            ? "科目残高から作成"
+                            : !summary.reconcilable
+                              ? `照合なし（専用の科目がないため）${summary.itemCount ? "" : "・未入力"}`
+                              : "記入する残高なし"}
+                        </span>
                       )}
                       <div className="flex flex-wrap gap-1.5">
                         {summary?.checks.map(({ label, check, informational }) =>
@@ -159,7 +172,7 @@ export default function BreakdownOverviewPage({
                       {ready ? (
                         <Link href={`/clients/${id}/breakdown/${period?.startDate ?? periodKey}/${def.key}`}>
                           <Button variant="outline" size="sm">
-                            開く
+                            {isInput ? "入力・印刷" : "開く"}
                           </Button>
                         </Link>
                       ) : (

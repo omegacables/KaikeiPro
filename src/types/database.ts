@@ -1082,6 +1082,69 @@ export interface Database {
         };
         Relationships: [];
       };
+      breakdown_items: {
+        Row: {
+          id: string;
+          client_id: string;
+          period_start: string;
+          form_key: string;
+          section: string;
+          account_id: string | null;
+          partner_id: string | null;
+          name: string;
+          address: string;
+          registration_number: string;
+          relationship: string;
+          amount: number;
+          note: string;
+          details: Json;
+          sort_order: number;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          period_start: string;
+          form_key: string;
+          section?: string;
+          account_id?: string | null;
+          partner_id?: string | null;
+          name?: string;
+          address?: string;
+          registration_number?: string;
+          relationship?: string;
+          amount?: number;
+          note?: string;
+          details?: Json;
+          sort_order?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          period_start?: string;
+          form_key?: string;
+          section?: string;
+          account_id?: string | null;
+          partner_id?: string | null;
+          name?: string;
+          address?: string;
+          registration_number?: string;
+          relationship?: string;
+          amount?: number;
+          note?: string;
+          details?: Json;
+          sort_order?: number;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       journal_entries: {
         Row: {
           id: string;
