@@ -31,7 +31,9 @@ export type TaxCategoryCode =
   | "purchase_08_trans_50"
   | "purchase_08_trans_30"
   | "purchase_exempt"
-  | "purchase_out_of_scope";
+  | "purchase_out_of_scope"
+  | "bad_debt_10"
+  | "bad_debt_08";
 
 export type TaxCategoryInfo = {
   code: TaxCategoryCode;
@@ -41,6 +43,11 @@ export type TaxCategoryInfo = {
   side: "sales" | "purchase";
   /** 免税事業者からの仕入れの経過措置。控除できる割合 */
   transitionRate?: 0.8 | 0.7 | 0.5 | 0.3;
+  /**
+   * 課税売上の売掛金などが貸し倒れたもの（貸倒損失の行に付ける）。
+   * 貸倒れに係る消費税額は、売上の消費税から控除する（消費税法39条）
+   */
+  badDebt?: true;
 };
 
 export const TAX_CATEGORY_LIST: TaxCategoryInfo[] = [
@@ -61,6 +68,8 @@ export const TAX_CATEGORY_LIST: TaxCategoryInfo[] = [
   { code: "purchase_08_trans_30", name: "課税仕入8%（経過措置30%）", rate: 0.08, side: "purchase", transitionRate: 0.3 },
   { code: "purchase_exempt", name: "非課税仕入", rate: 0, side: "purchase" },
   { code: "purchase_out_of_scope", name: "不課税仕入（租税公課など）", rate: 0, side: "purchase" },
+  { code: "bad_debt_10", name: "貸倒れ（課税売上10%）", rate: 0.1, side: "purchase", badDebt: true },
+  { code: "bad_debt_08", name: "貸倒れ（課税売上8%）", rate: 0.08, side: "purchase", badDebt: true },
 ];
 
 const BY_CODE = new Map(TAX_CATEGORY_LIST.map((c) => [c.code, c]));

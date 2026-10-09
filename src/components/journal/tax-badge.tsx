@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 export function taxShortLabel(code: string | null | undefined): string | null {
   const info = taxCategoryInfo(code);
   if (!info) return null;
+  if (info.badDebt) return `貸倒${info.rate * 100}%`;
   const side = info.side === "sales" ? "売" : "仕";
   if (info.transitionRate) return `${side}${info.rate * 100}%経過${info.transitionRate * 100}`;
   if (info.rate === 0.1) return `${side}10%`;
@@ -23,6 +24,7 @@ export function taxShortLabel(code: string | null | undefined): string | null {
 export function taxColorClass(code: string | null | undefined): string {
   const info = taxCategoryInfo(code);
   if (!info) return "border border-destructive/50 text-destructive";
+  if (info.badDebt) return "bg-destructive/15 text-destructive";
   if (info.transitionRate) return "bg-warning/15 text-warning";
   if (info.rate === 0.1) return "bg-info/15 text-info";
   if (info.rate === 0.08) return "bg-success/15 text-success";

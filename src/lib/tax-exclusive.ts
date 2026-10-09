@@ -48,7 +48,10 @@ export type RawTaxLine = Omit<TaxBookLine, "exclusive" | "recordedTax"> & { entr
  * 記録された消費税額をその行の消費税とする（レシート・請求書の額と一致させるため）。
  */
 export function toTaxBookLines(raw: RawTaxLine[], ex: ExclusiveEntries): TaxBookLine[] {
-  const sideOf = (t: string) => (t === "revenue" ? "sales" : "purchase");
+  // 貸倒れの行（費用）は、税抜経理なら仮受消費税を減らしているので売上側の消費税の行で判断する
+  const isBadDebt = (l: Pick<RawTaxLine, "taxCategory">) => Boolean(taxCategoryInfo(l.taxCategory)?.badDebt);
+  const sideOfLine = (l: Pick<RawTaxLine, "accountType" | "taxCategory">) =>
+    l.accountType === "revenue" || isBadDebt(l) ? "sales" : "purchase";
   const isTaxable = (l: RawTaxLine) => {
     const code = taxCodeOfLine(l);
     return code !== undefined && code !== "none" && (taxCategoryInfo(code)?.rate ?? 0) > 0;
@@ -57,12 +60,14 @@ export function toTaxBookLines(raw: RawTaxLine[], ex: ExclusiveEntries): TaxBook
   const taxableCount = new Map<string, number>();
   for (const l of raw) {
     if (!isTaxable(l)) continue;
-    const k = `${l.entryId}:${sideOf(l.accountType)}`;
+    const k = `${l.entryId}:${sideOfLine(l)}`;
     taxableCount.set(k, (taxableCount.get(k) ?? 0) + 1);
   }
   return raw.map(({ entryId, ...l }) => {
-    const side = sideOf(l.accountType);
-    const recorded = ex[side].get(entryId);
+    const side = sideOfLine(l);
+    const rec = ex[side].get(entryId);
+    // 貸倒れは仮受消費税を借方に立てる（売上とは逆向き）ので符号を戻す
+    const recorded = rec !== undefined && isBadDebt(l) ? -rec : rec;
     const exclusive = recorded !== undefined;
     const single = taxableCount.get(`${entryId}:${side}`) === 1 && isTaxable({ entryId, ...l });
     return { ...l, exclusive, ...(exclusive && single ? { recordedTax: recorded } : {}) };

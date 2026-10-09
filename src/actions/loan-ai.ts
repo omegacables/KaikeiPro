@@ -28,6 +28,8 @@ import type {
   LedgerAnswer,
   LedgerAnswerSource,
 } from "@/types/index";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { loadAiSharing, NOT_SHARED } from "@/lib/ai-sharing";
 
 type DbRow = Record<string, unknown>;
 
@@ -60,6 +62,8 @@ type LedgerContext = {
   }[];
   partners: string[];
   expenseAccounts: { id: string; name: string }[];
+  /** 顧問先の設定で、AIに渡さなかった情報 */
+  withheld: { personal: boolean; company: boolean };
 };
 
 async function loadContext(clientId: string): Promise<LedgerContext> {
@@ -153,12 +157,21 @@ async function loadContext(clientId: string): Promise<LedgerContext> {
     };
   });
 
+  // 顧問先の設定で個人情報・会社情報をAIに渡さないときは、ここで外す。
+  // 役員からの借入の相手先名も個人の氏名なので伏せる（台帳のIDで対応づけは保てる）
+  const sharing = await loadAiSharing(supabase as unknown as SupabaseClient, clientId);
+  const maskedLoans = sharing.personal
+    ? loans
+    : loans.map((l) => (l.kind === "officer" ? { ...l, name: "役員（氏名は伏せています）", aliases: [] } : l));
+  const loanNameShown = new Map(maskedLoans.map((l) => [l.id, l.name]));
+
   return {
-    loans,
-    officers,
-    partners: (partnersRes.data ?? []).map((p) => (p as DbRow).name as string),
+    loans: maskedLoans,
+    officers: sharing.personal ? officers : [],
+    partners: sharing.company ? (partnersRes.data ?? []).map((p) => (p as DbRow).name as string) : [],
     expenseAccounts,
-    schedules,
+    schedules: schedules.map((s) => ({ ...s, loanName: loanNameShown.get(s.loanId) ?? s.loanName })),
+    withheld: { personal: !sharing.personal, company: !sharing.company },
   };
 }
 
@@ -177,8 +190,9 @@ function contextPrompt(ctx: LedgerContext): string {
           )
           .join("\n");
 
-  const officers =
-    ctx.officers.length === 0
+  const officers = ctx.withheld.personal
+    ? NOT_SHARED
+    : ctx.officers.length === 0
       ? "（登録なし）"
       : ctx.officers
           .map(
@@ -199,7 +213,7 @@ ${loans}
 ${officers}
 
 ## 取引先マスタ
-${ctx.partners.slice(0, 100).join(" / ") || "（登録なし）"}
+${ctx.withheld.company ? NOT_SHARED : ctx.partners.slice(0, 100).join(" / ") || "（登録なし）"}
 
 ## 選択できる費用科目（立替のとき使用）
 ${expenses}

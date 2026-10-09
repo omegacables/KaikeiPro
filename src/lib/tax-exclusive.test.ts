@@ -49,3 +49,17 @@ describe("税抜経理の判断と、記録された消費税額", () => {
     expect(lines.map((l) => l.exclusive)).toEqual([true, false]);
   });
 });
+
+describe("貸倒れに係る消費税額", () => {
+  it("税込経理: 貸倒損失110,000円（貸倒れ10%）→ 控除10,000円", () => {
+    const lines = toTaxBookLines([raw({ taxCategory: "bad_debt_10", debit: 110_000 })], ex());
+    const s = computeTaxSummary(lines);
+    expect([s.badDebtTax, s.purchase10Tax]).toEqual([10_000, 0]);
+  });
+  it("税抜経理: 仮受消費税を借方に立てた額を控除額とする", () => {
+    // (借)貸倒損失 100,000 [貸倒れ10%]・(借)仮受消費税 10,000 ／(貸)売掛金 110,000
+    const lines = toTaxBookLines([raw({ taxCategory: "bad_debt_10", debit: 100_000 })], ex({}, { e1: -10_000 }));
+    expect(lines[0]).toMatchObject({ exclusive: true, recordedTax: 10_000 });
+    expect(computeTaxSummary(lines).badDebtTax).toBe(10_000);
+  });
+});

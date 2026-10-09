@@ -58,10 +58,14 @@ export async function suggestAllocationRatios(clientId: string): Promise<Allocat
 
   const { data: client } = await supabase
     .from("clients")
-    .select("name, business_type")
+    .select("name, business_type, ai_share_company_info")
     .eq("id", clientId)
     .maybeSingle();
-  const businessType = (client as { business_type?: string | null } | null)?.business_type || "不明";
+  // 顧問先の設定で会社情報をAIに渡さないときは、業種を添えない
+  const shareCompany = (client as { ai_share_company_info?: boolean } | null)?.ai_share_company_info ?? true;
+  const businessType = shareCompany
+    ? (client as { business_type?: string | null } | null)?.business_type || "不明"
+    : "（顧問先の設定により、AIには渡していません）";
 
   const accounts = await getAllocatableAccounts(clientId);
   if (accounts.length === 0) return [];

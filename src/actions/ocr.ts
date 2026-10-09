@@ -55,13 +55,14 @@ export async function processReceiptOcr(
 
   if (fetchError || !receipt) throw new Error("領収書が見つかりません");
 
-  // 自社名（発行/受領の判定に使用）
+  // 自社名（発行/受領の判定に使用）。顧問先の設定で会社情報をAIに渡さないときは添えない
   const { data: clientRow } = await supabase
     .from("clients")
-    .select("name")
+    .select("name, ai_share_company_info")
     .eq("id", receipt.client_id)
     .maybeSingle();
-  const clientName = (clientRow as { name?: string } | null)?.name ?? "";
+  const shareCompany = (clientRow as { ai_share_company_info?: boolean } | null)?.ai_share_company_info ?? true;
+  const clientName = shareCompany ? (clientRow as { name?: string } | null)?.name ?? "" : "";
 
   // Raqto連携やプレースホルダーはスキップ
   if (

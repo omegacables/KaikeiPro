@@ -143,6 +143,8 @@ export type TaxSummary = {
   salesOutOfScope: number;
   /** 経過措置で控除できない金額（免税事業者からの仕入れの控除対象外部分） */
   transitionNotDeductible: number;
+  /** 貸倒れに係る消費税額（売上の消費税から控除する） */
+  badDebtTax: number;
   /** 税区分が付いていない費用・収益の行数。多いほど集計の精度が落ちる */
   uncategorizedLines: number;
 };
@@ -162,6 +164,7 @@ export function computeTaxSummary(lines: TaxBookLine[]): TaxSummary {
     salesTaxFree: 0,
     salesOutOfScope: 0,
     transitionNotDeductible: 0,
+    badDebtTax: 0,
     uncategorizedLines: 0,
   };
   for (const l of lines) {
@@ -175,6 +178,12 @@ export function computeTaxSummary(lines: TaxBookLine[]): TaxSummary {
     const info = taxCategoryInfo(code)!;
     const a = lineTaxAmounts(l);
     if (a.net === 0 && a.tax === 0) continue;
+
+    // 貸倒れ: 売上の消費税から控除する額
+    if (info.badDebt) {
+      r.badDebtTax += a.tax;
+      continue;
+    }
 
     if (info.side === "sales") {
       if (info.rate === 0.1) {

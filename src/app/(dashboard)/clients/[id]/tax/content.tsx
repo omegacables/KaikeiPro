@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import {
   Percent,
@@ -17,7 +17,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { printPage } from "@/lib/export";
 import { useData } from "@/lib/use-data";
 import { getTaxSummary, type TaxSummary } from "@/actions/tax";
-import { getClient } from "@/actions/clients";
+import { getClient, updateClient } from "@/actions/clients";
 import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
 
 type TaxMethod = "standard" | "simplified";
@@ -50,7 +50,7 @@ const emptyTaxSummary: TaxSummary = {
   purchase10: 0, purchase10Tax: 0,
   purchase8: 0, purchase8Tax: 0,
   salesExempt: 0, salesTaxFree: 0, salesOutOfScope: 0,
-  transitionNotDeductible: 0, uncategorizedLines: 0,
+  transitionNotDeductible: 0, badDebtTax: 0, uncategorizedLines: 0,
 };
 
 export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean }) {
@@ -58,20 +58,39 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
   const clientId = id as string;
   const [selectedPeriodIdx, setSelectedPeriodIdx] = useState(0);
   const [taxMethod, setTaxMethod] = useState<TaxMethod>("standard");
+  // 消費税の納税義務（課税事業者・免税事業者）
+  const [taxStatus, setTaxStatus] = useState<"taxable" | "exempt">("taxable");
+  const [savingSetting, setSavingSetting] = useState(false);
 
-  // クライアントの決算月（期首月）を取得。
-  // 会計年度は他画面（試算表・決算書等）と同じく clients.fiscal_year_start_month を
-  // 唯一の基準にする（fiscal_years テーブルはUI上の作成手段がなく不整合の元のため）。
-  const { data: fiscalStartMonth } = useData<number | null>(
-    useCallback(
-      () =>
-        getClient(clientId).then(
-          (c) => (c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4
-        ),
-      [clientId]
-    ),
+  // クライアントの決算月（期首月）と消費税の設定を取得。
+  // 会計年度は他画面（試算表・決算書等）と同じく clients.fiscal_year_start_month を基準にする。
+  const { data: client } = useData<{
+    fiscal_year_start_month?: number;
+    tax_method?: TaxMethod;
+    consumption_tax_status?: "taxable" | "exempt";
+  } | null>(
+    useCallback(() => getClient(clientId) as Promise<{ fiscal_year_start_month?: number }>, [clientId]),
     null
   );
+  const fiscalStartMonth = client ? client.fiscal_year_start_month ?? 4 : null;
+  useEffect(() => {
+    if (!client) return;
+    setTaxMethod(client.tax_method ?? "standard");
+    setTaxStatus(client.consumption_tax_status ?? "taxable");
+  }, [client]);
+
+  // 設定は顧問先ごとに保存する（画面を開き直しても同じ計算方法で出す）
+  const saveSetting = async (patch: { tax_method?: TaxMethod; consumption_tax_status?: "taxable" | "exempt" }) => {
+    setSavingSetting(true);
+    try {
+      await updateClient(clientId, patch);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "設定の保存に失敗しました");
+    } finally {
+      setSavingSetting(false);
+    }
+  };
+  const isExempt = taxStatus === "exempt";
 
   // Build period options（当期から過去5年度分）
   const periods = useMemo(() => {
@@ -105,7 +124,8 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
 
   const totalSalesTax = taxSummary.sales10Tax + taxSummary.sales8Tax;
   const totalPurchaseTax = taxSummary.purchase10Tax + taxSummary.purchase8Tax;
-  const taxPayable = totalSalesTax - totalPurchaseTax;
+  // 貸倒れに係る税額は売上の消費税から控除する（消費税法39条）
+  const taxPayable = totalSalesTax - totalPurchaseTax - taxSummary.badDebtTax;
 
   // Simplified tax: no per-category sales data from DB yet, so amounts default to 0
   const simplifiedCategories = simplifiedRates.map((r) => ({ ...r, amount: 0 }));
@@ -199,43 +219,86 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
           <div className="flex items-center gap-2 mb-2">
             <Percent className="size-4 text-primary" />
             <span className="text-sm text-muted-foreground">
-              {shownPayable < 0 ? "還付税額" : "納付税額"}（{taxMethod === "standard" ? "本則" : "簡易"}）
+              {isExempt
+                ? "納付税額"
+                : `${shownPayable < 0 ? "還付税額" : "納付税額"}（${taxMethod === "standard" ? "本則" : "簡易"}）`}
             </span>
           </div>
           <p className="text-2xl font-bold text-primary">
-            {formatCurrency(Math.abs(shownPayable))}
+            {isExempt ? "なし（免税事業者）" : formatCurrency(Math.abs(shownPayable))}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
-            売上税額 - 仕入税額控除
+            {isExempt ? "申告・納付は不要です" : "売上税額 − 仕入税額控除 − 貸倒れに係る税額"}
           </p>
         </Card>
       </div>
 
-      {/* Tax method toggle */}
-      <div className="flex gap-1 mb-6 bg-muted/20 p-1 rounded-lg w-fit">
-        <button
-          onClick={() => setTaxMethod("standard")}
-          className={cn(
-            "px-4 py-2 rounded-md text-sm font-bold transition-all",
-            taxMethod === "standard"
-              ? "bg-card text-primary shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
+      {/* 消費税の設定（顧問先ごとに保存） */}
+      <Card className="mb-6 p-4">
+        <div className="flex flex-wrap items-center gap-6">
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-bold text-foreground">納税義務</span>
+            <div className="flex gap-1 bg-muted/20 p-1 rounded-lg">
+              {([
+                ["taxable", "課税事業者"],
+                ["exempt", "免税事業者"],
+              ] as const).map(([k, label]) => (
+                <button
+                  key={k}
+                  disabled={savingSetting}
+                  onClick={() => {
+                    setTaxStatus(k);
+                    saveSetting({ consumption_tax_status: k });
+                  }}
+                  className={cn(
+                    "px-4 py-2 rounded-md text-sm font-bold transition-all",
+                    taxStatus === k ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
+          {!isExempt && (
+            <div className="flex items-center gap-3">
+              <span className="text-sm font-bold text-foreground">計算方法</span>
+              <div className="flex gap-1 bg-muted/20 p-1 rounded-lg">
+                {([
+                  ["standard", "本則課税"],
+                  ["simplified", "簡易課税"],
+                ] as const).map(([k, label]) => (
+                  <button
+                    key={k}
+                    disabled={savingSetting}
+                    onClick={() => {
+                      setTaxMethod(k);
+                      saveSetting({ tax_method: k });
+                    }}
+                    className={cn(
+                      "px-4 py-2 rounded-md text-sm font-bold transition-all",
+                      taxMethod === k ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+                    )}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
           )}
-        >
-          本則課税
-        </button>
-        <button
-          onClick={() => setTaxMethod("simplified")}
-          className={cn(
-            "px-4 py-2 rounded-md text-sm font-bold transition-all",
-            taxMethod === "simplified"
-              ? "bg-card text-primary shadow-sm"
-              : "text-muted-foreground hover:text-foreground"
-          )}
-        >
-          簡易課税
-        </button>
-      </div>
+        </div>
+        <p className="mt-2 text-xs text-muted-foreground">
+          免税事業者は、基準期間（前々事業年度）の課税売上高が1,000万円以下などで、インボイス発行事業者の登録をしていない事業者です。
+          免税事業者は消費税の申告・納付がありません。設定は顧問先ごとに保存されます。
+        </p>
+      </Card>
+
+      {isExempt && (
+        <div className="mb-6 rounded-lg border border-info/30 bg-info/10 px-4 py-3 text-sm text-info">
+          この顧問先は<strong>免税事業者</strong>に設定されています。消費税の申告・納付はありません。
+          下の集計は、課税事業者になるかどうか（基準期間の課税売上高）を確かめるための参考です。
+        </div>
+      )}
 
       {taxMethod === "standard" ? (
         <>
@@ -310,6 +373,15 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
                         {formatCurrency(totalPurchaseTax)}
                       </td>
                     </tr>
+                    {taxSummary.badDebtTax !== 0 && (
+                      <tr className="border-b border-border hover:bg-muted/10">
+                        <td className="px-4 py-3 font-medium text-foreground">貸倒れに係る税額（控除）</td>
+                        <td className="px-4 py-3" colSpan={4}></td>
+                        <td className="px-4 py-3 text-right font-mono font-bold text-destructive">
+                          {formatCurrency(taxSummary.badDebtTax)}
+                        </td>
+                      </tr>
+                    )}
                     <tr className="bg-muted/10">
                       <td className="px-4 py-3 font-bold text-foreground">
                         {taxPayable < 0 ? "差引還付税額" : "差引納付税額"}
