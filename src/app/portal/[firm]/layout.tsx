@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname, useParams } from "next/navigation";
-import { Camera, History, MessageSquare, FileText, Settings, ChartPie } from "lucide-react";
+import { Camera, History, FileText, Settings, ChartPie } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
 import { getInitials } from "@/lib/utils";
@@ -11,7 +11,6 @@ const navItems = [
   { key: "company", label: "経営", icon: ChartPie },
   { key: "upload", label: "撮影", icon: Camera },
   { key: "receipts", label: "履歴", icon: History },
-  { key: "questions", label: "質問", icon: MessageSquare },
   { key: "invoices", label: "請求書", icon: FileText },
   { key: "settings", label: "設定", icon: Settings },
 ];

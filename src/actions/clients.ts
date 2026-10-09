@@ -166,26 +166,13 @@ export async function getClientSummaries() {
   // Fetch aggregated counts for each client
   const summaries = await Promise.all(
     clients.map(async (client) => {
-      const [receiptsRes, commentsRes, journalsRes, periodsRes, needsReviewRes] =
+      const [receiptsRes, journalsRes, periodsRes, needsReviewRes] =
         await Promise.all([
           supabase
             .from("receipts")
             .select("id", { count: "exact", head: true })
             .eq("client_id", client.id)
             .in("status", ["uploaded", "processing", "ocr_done"]),
-          supabase
-            .from("comments")
-            .select("id", { count: "exact", head: true })
-            .eq("status", "open")
-            .in(
-              "receipt_id",
-              (
-                await supabase
-                  .from("receipts")
-                  .select("id")
-                  .eq("client_id", client.id)
-              ).data?.map((r) => r.id) ?? []
-            ),
           supabase
             .from("journal_entries")
             .select("id", { count: "exact", head: true })
@@ -206,7 +193,6 @@ export async function getClientSummaries() {
         ]);
 
       const pendingReceipts = receiptsRes.count ?? 0;
-      const unansweredQuestions = commentsRes.count ?? 0;
       const aiPendingReviews = journalsRes.count ?? 0;
       const needsReviewCount = needsReviewRes.count ?? 0;
       const latestPeriod = periodsRes.data?.[0];
@@ -224,7 +210,7 @@ export async function getClientSummaries() {
                 ? 10
                 : 50;
         if (latestPeriod.status === "overdue") status = "overdue";
-        else if (pendingReceipts > 5 || unansweredQuestions > 2 || needsReviewCount > 0)
+        else if (pendingReceipts > 5 || needsReviewCount > 0)
           status = "warning";
       }
 
@@ -232,7 +218,6 @@ export async function getClientSummaries() {
         client,
         status,
         pending_receipts: pendingReceipts,
-        unanswered_questions: unansweredQuestions,
         ai_pending_reviews: aiPendingReviews,
         needs_review_count: needsReviewCount,
         submission_progress: submissionProgress,

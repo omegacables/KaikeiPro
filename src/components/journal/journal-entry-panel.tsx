@@ -19,6 +19,7 @@ import { getJournalEntryDetail, type JournalEntryDetail } from "@/actions/ledger
 import { ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
+import { TaxBadge } from "@/components/journal/tax-badge";
 
 type EntryLine = {
   accountId: string;
@@ -57,6 +58,7 @@ export function JournalEntryPanel({
   onClose,
   onSaved,
   onReceiptClick,
+  onOpenAccount,
 }: {
   clientId: string;
   entryId: string;
@@ -66,6 +68,8 @@ export function JournalEntryPanel({
   /** 保存した後に呼ぶ（一覧の読み直し用） */
   onSaved: () => void;
   onReceiptClick?: (receiptId: string) => void;
+  /** 勘定科目をクリックしたとき（総勘定元帳へ移る）。仕訳の日付も渡す */
+  onOpenAccount?: (accountId: string, entryDate: string) => void;
 }) {
   const [entry, setEntry] = useState<Entry | null>(null);
   const [source, setSource] = useState<string>("");
@@ -257,16 +261,28 @@ export function JournalEntryPanel({
                       const isPl = acc?.categoryType === "revenue" || acc?.categoryType === "expenses";
                       return (
                         <tr key={i} className="border-t border-border">
-                          <td className="px-3 py-2">{acc?.name ?? "（不明な科目）"}</td>
+                          <td className="px-3 py-2">
+                            {acc && onOpenAccount ? (
+                              <button
+                                onClick={() => onOpenAccount(acc.id, entry.date)}
+                                className="text-primary hover:underline text-left"
+                                title="この科目の総勘定元帳を開く"
+                              >
+                                {acc.name}
+                              </button>
+                            ) : (
+                              acc?.name ?? "（不明な科目）"
+                            )}
+                          </td>
                           <td className="px-3 py-2">{l.sub.name || subName(l.sub.id) || "-"}</td>
                           <td className={cn("px-3 py-2 text-xs", isPl && !info && "text-warning")}>
                             {info ? (
                               <>
+                                <TaxBadge code={l.tax} className="mr-1" />
                                 {info.name}
-                                {info.rate > 0 && <span className="text-muted-foreground">（税率{info.rate * 100}%）</span>}
                               </>
                             ) : isPl ? (
-                              "未設定"
+                              <TaxBadge code={null} missing />
                             ) : (
                               "-"
                             )}

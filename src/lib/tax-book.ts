@@ -248,3 +248,64 @@ export function splitInvoiceByRate(
   portions = portions.map((p, i) => (i === 0 ? { ...p, net: p.net + netDiff, tax: p.tax + taxDiff } : p));
   return portions;
 }
+
+export type AccountTaxLine = {
+  side: "sales" | "purchase";
+  accountCode: string;
+  accountName: string;
+  code: string;
+  codeName: string;
+  net: number;
+  tax: number;
+  gross: number;
+  needsReview: boolean;
+};
+
+export type AccountTaxRow = {
+  side: "sales" | "purchase";
+  accountCode: string;
+  accountName: string;
+  /** 税区分ごとの内訳（税区分マスタの並び、未設定は最後） */
+  categories: { code: string; codeName: string; count: number; net: number; tax: number; gross: number }[];
+  net: number;
+  tax: number;
+  gross: number;
+};
+
+/**
+ * 科目別税区分表。科目ごとに税区分別の件数・税抜・消費税・税込をまとめる。
+ * 消費税申告の前に、科目と税区分の組み合わせに誤りがないかを確かめるために使う。
+ * 要確認の仕訳は消費税の集計と同じく含めない。
+ */
+export function summarizeByAccountAndCategory(lines: AccountTaxLine[]): AccountTaxRow[] {
+  const order = new Map(TAX_CATEGORY_LIST.map((c, i) => [c.code as string, i]));
+  const rows = new Map<string, AccountTaxRow>();
+  for (const l of lines) {
+    if (l.needsReview) continue;
+    const key = `${l.side}:${l.accountCode}:${l.accountName}`;
+    let r = rows.get(key);
+    if (!r) {
+      r = { side: l.side, accountCode: l.accountCode, accountName: l.accountName, categories: [], net: 0, tax: 0, gross: 0 };
+      rows.set(key, r);
+    }
+    let c = r.categories.find((x) => x.code === l.code);
+    if (!c) {
+      c = { code: l.code, codeName: l.codeName, count: 0, net: 0, tax: 0, gross: 0 };
+      r.categories.push(c);
+    }
+    c.count++;
+    c.net += l.net;
+    c.tax += l.tax;
+    c.gross += l.gross;
+    r.net += l.net;
+    r.tax += l.tax;
+    r.gross += l.gross;
+  }
+  for (const r of rows.values()) {
+    r.categories.sort((a, b) => (order.get(a.code) ?? 999) - (order.get(b.code) ?? 999));
+  }
+  return [...rows.values()].sort((a, b) => {
+    if (a.side !== b.side) return a.side === "sales" ? -1 : 1;
+    return a.accountCode.localeCompare(b.accountCode);
+  });
+}

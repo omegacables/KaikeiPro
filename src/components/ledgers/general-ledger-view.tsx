@@ -11,6 +11,7 @@ import { Loader2, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
+import { TaxBadge } from "@/components/journal/tax-badge";
 import { getLedgerBook, type LedgerBook } from "@/actions/ledger-books";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 
@@ -155,7 +156,9 @@ export function GeneralLedgerView({
                   )}
                 </td>
                 <td className="px-2 py-1.5 max-w-[160px] truncate">{r.partnerName ?? ""}</td>
-                <td className="px-2 py-1.5 whitespace-nowrap text-muted-foreground">{r.taxCategoryName ?? ""}</td>
+                <td className="px-2 py-1.5 whitespace-nowrap">
+                  <TaxBadge code={r.taxCategory} missing={isPl} />
+                </td>
                 <td className="px-2 py-1.5 text-right font-mono">{r.debit ? formatYen(r.debit) : ""}</td>
                 <td className="px-2 py-1.5 text-right font-mono">{r.credit ? formatYen(r.credit) : ""}</td>
                 <td className="px-2 py-1.5 text-right font-mono font-bold">

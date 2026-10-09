@@ -11,6 +11,12 @@ export interface JournalLedgerLine {
   creditAccount: string;
   creditCode: string;
   creditAmount: number;
+  /** 税区分（費用・収益の行だけ意味を持つ） */
+  debitTax: string | null;
+  creditTax: string | null;
+  /** 費用・収益の行か（税区分が未設定なら一覧で知らせる） */
+  debitIsPl: boolean;
+  creditIsPl: boolean;
 }
 
 export interface JournalLedgerRow {
@@ -74,8 +80,8 @@ export async function getJournalLedger(
       id, entry_date, created_at, description, source, receipt_id,
       receipts:receipt_id ( payment_method ),
       journal_entry_lines (
-        debit_amount, credit_amount, sort_order,
-        accounts:account_id ( code, name )
+        debit_amount, credit_amount, sort_order, tax_category,
+        accounts:account_id ( code, name, account_categories:category_id ( type ) )
       )
     `)
       .eq("client_id", clientId)
@@ -95,9 +101,12 @@ export async function getJournalLedger(
       debit_amount: number;
       credit_amount: number;
       sort_order: number;
-      accounts: { code: string; name: string } | null;
+      tax_category: string | null;
+      accounts: { code: string; name: string; account_categories: { type: string } | null } | null;
     }[];
     const sorted = [...rawLines].sort((a, b) => a.sort_order - b.sort_order);
+    const isPl = (l: (typeof rawLines)[number] | undefined) =>
+      l?.accounts?.account_categories?.type === "revenue" || l?.accounts?.account_categories?.type === "expenses";
 
     const debitLines = sorted.filter((l) => l.debit_amount > 0);
     const creditLines = sorted.filter((l) => l.credit_amount > 0);
@@ -120,6 +129,10 @@ export async function getJournalLedger(
         creditAccount: cl?.accounts?.name ?? "",
         creditCode: cl?.accounts?.code ?? "",
         creditAmount: cl?.credit_amount ?? 0,
+        debitTax: dl?.tax_category ?? null,
+        creditTax: cl?.tax_category ?? null,
+        debitIsPl: isPl(dl),
+        creditIsPl: isPl(cl),
       });
     }
 
@@ -386,4 +399,25 @@ export async function getJournalEntryDetail(
     source: typedEntry.source,
     items,
   };
+}
+
+export type ReceiptJournalRef = { id: string; entryDate: string; description: string; needsReview: boolean };
+
+/** 証憑から作られた仕訳（証憑の画面から仕訳帳・元帳へ移るために使う） */
+export async function getJournalEntriesForReceipt(receiptId: string): Promise<ReceiptJournalRef[]> {
+  const clientId = await resolveClientIdForRecord("receipts", receiptId);
+  const supabase = createAdminSupabaseClient();
+  const { data, error } = await supabase
+    .from("journal_entries")
+    .select("id, entry_date, description, needs_review")
+    .eq("client_id", clientId)
+    .eq("receipt_id", receiptId)
+    .order("entry_date");
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((e) => ({
+    id: e.id as string,
+    entryDate: e.entry_date as string,
+    description: (e.description as string | null) ?? "",
+    needsReview: Boolean(e.needs_review),
+  }));
 }

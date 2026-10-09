@@ -78,7 +78,6 @@ function ClientsPageContent() {
           ? "要確認"
           : "未提出",
     pending_receipts: s.pending_receipts,
-    unanswered_questions: s.unanswered_questions,
     ai_pending: s.ai_pending_reviews,
     needs_review: s.needs_review_count ?? 0,
     progress: s.submission_progress,
@@ -366,14 +365,6 @@ function ClientsPageContent() {
                       {client.pending_receipts}
                     </p>
                     <p className="text-muted-foreground">未確認領収書</p>
-                  </div>
-                )}
-                {client.unanswered_questions > 0 && (
-                  <div className="text-center">
-                    <p className="text-destructive font-bold text-base">
-                      {client.unanswered_questions}
-                    </p>
-                    <p className="text-muted-foreground">未回答質問</p>
                   </div>
                 )}
                 {client.ai_pending > 0 && (

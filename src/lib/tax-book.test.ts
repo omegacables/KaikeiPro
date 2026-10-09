@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { summarizeByTaxCategory, computeTaxSummary, taxAmounts, splitInvoiceByRate, type TaxBookLine } from "@/lib/tax-book";
+import { summarizeByTaxCategory, computeTaxSummary, taxAmounts, splitInvoiceByRate, summarizeByAccountAndCategory, type TaxBookLine, type AccountTaxLine } from "@/lib/tax-book";
 
 const l = (over: Partial<TaxBookLine>): TaxBookLine => ({
   accountType: "revenue",
@@ -124,5 +124,31 @@ describe("請求書を税率ごとに分ける", () => {
     expect(splitInvoiceByRate([], 10_000, 800)).toEqual([{ rate: 0.08, net: 10_000, tax: 800 }]);
     expect(splitInvoiceByRate([], 10_000, 0)).toEqual([{ rate: null, net: 10_000, tax: 0 }]);
     expect(splitInvoiceByRate([], 10_000, 1_234)).toEqual([{ rate: null, net: 10_000, tax: 1_234 }]);
+  });
+});
+
+describe("科目別税区分表", () => {
+  const line = (over: Partial<AccountTaxLine>): AccountTaxLine => ({
+    side: "purchase", accountCode: "5300", accountName: "旅費交通費", code: "purchase_10", codeName: "課税仕入10%",
+    net: 1_000, tax: 100, gross: 1_100, needsReview: false, ...over,
+  });
+  it("科目ごとに税区分別の内訳と合計を出し、売上→仕入、科目コード順に並べる", () => {
+    const rows = summarizeByAccountAndCategory([
+      line({}),
+      line({ code: "purchase_10_trans_80", codeName: "課税仕入10%（経過措置80%）", net: 500, tax: 50, gross: 550 }),
+      line({}),
+      line({ accountCode: "5320", accountName: "消耗品費", code: "none", codeName: "税区分未設定", net: 300, tax: 0, gross: 300 }),
+      line({ side: "sales", accountCode: "4100", accountName: "売上高", code: "sales_10", codeName: "課税売上10%", net: 10_000, tax: 1_000, gross: 11_000 }),
+      line({ needsReview: true, net: 999 }),
+    ]);
+    expect(rows.map((r) => [r.accountName, r.net, r.tax])).toEqual([
+      ["売上高", 10_000, 1_000],
+      ["旅費交通費", 2_500, 250],
+      ["消耗品費", 300, 0],
+    ]);
+    expect(rows[1].categories.map((c) => [c.code, c.count, c.net])).toEqual([
+      ["purchase_10", 2, 2_000],
+      ["purchase_10_trans_80", 1, 500],
+    ]);
   });
 });

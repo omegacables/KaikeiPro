@@ -55,6 +55,8 @@ import {
   createJournalsFromStatementLines,
 } from "@/actions/statement-lines";
 import type { StatementLine } from "@/types/index";
+import Link from "next/link";
+import { getJournalEntriesForReceipt, type ReceiptJournalRef } from "@/actions/ledgers";
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
 
@@ -1748,6 +1750,9 @@ export function ReceiptsPageContent({
                 </div>
               </div>
 
+              {/* この証憑から作った仕訳（仕訳帳・元帳へ移る） */}
+              <ReceiptJournalLinks clientId={id} receiptId={selectedData.id} />
+
               {/* Delete */}
               <div className="border-t border-border pt-4">
                 <Button
@@ -2049,3 +2054,41 @@ function StatementLinesSection({
   );
 }
 
+/** 証憑から作った仕訳の一覧。クリックで仕訳帳を開き、仕訳の詳細から元帳へも移れる */
+function ReceiptJournalLinks({ clientId, receiptId }: { clientId: string; receiptId: string }) {
+  const [entries, setEntries] = useState<ReceiptJournalRef[] | null>(null);
+  useEffect(() => {
+    let alive = true;
+    setEntries(null);
+    getJournalEntriesForReceipt(receiptId)
+      .then((e) => alive && setEntries(e))
+      .catch(() => alive && setEntries([]));
+    return () => {
+      alive = false;
+    };
+  }, [receiptId]);
+
+  if (!entries || entries.length === 0) return null;
+  return (
+    <div className="border-t border-border pt-4">
+      <h4 className="text-sm font-bold text-foreground mb-2">この証憑の仕訳</h4>
+      <ul className="space-y-1.5">
+        {entries.map((e) => (
+          <li key={e.id}>
+            <Link
+              href={`/clients/${clientId}/ledgers?tab=journal&entry=${e.id}&date=${e.entryDate}`}
+              className="flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm hover:bg-primary/5 hover:border-primary/40"
+              title="仕訳帳で開く（仕訳の詳細から科目をクリックすると総勘定元帳へ移れます）"
+            >
+              <BookOpen className="size-4 text-primary shrink-0" />
+              <span className="whitespace-nowrap">{formatDate(e.entryDate)}</span>
+              <span className="truncate flex-1">{e.description}</span>
+              {e.needsReview && <Badge variant="warning">要確認</Badge>}
+              <span className="text-xs text-primary whitespace-nowrap">仕訳帳で開く →</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}

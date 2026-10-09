@@ -6,13 +6,14 @@
  * 「すべて」で売上・仕入をまとめて見ることもできる。税区分が未設定の行もここで見つけて直せる。
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { Fragment, useEffect, useMemo, useState } from "react";
 import { Loader2, AlertTriangle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
+import { TaxBadge } from "@/components/journal/tax-badge";
 import { getTaxCategoryBook, type TaxBookLineView } from "@/actions/ledger-books";
-import type { TaxBookRow } from "@/lib/tax-book";
+import { summarizeByAccountAndCategory, type TaxBookRow, type AccountTaxRow } from "@/lib/tax-book";
 import type { CsvSpec } from "@/components/ledgers/general-ledger-view";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 
@@ -39,6 +40,8 @@ export function TaxCategoryView({
   const [data, setData] = useState<{ summary: TaxBookRow[]; lines: TaxBookLineView[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
+  /** 税区分ごとの一覧か、科目別税区分表か */
+  const [view, setView] = useState<"category" | "account">("category");
 
   useEffect(() => {
     let alive = true;
@@ -65,9 +68,29 @@ export function TaxCategoryView({
     return descending ? [...xs].reverse() : xs;
   }, [data, filter, descending]);
 
+  const accountRows = useMemo(() => (data ? summarizeByAccountAndCategory(data.lines) : []), [data]);
+
   useEffect(() => {
     if (!onCsv) return;
     if (!data) return onCsv(null);
+    if (view === "account") {
+      return onCsv({
+        filename: `科目別税区分表_${dateFrom}_${dateTo}.csv`,
+        headers: ["区分", "科目コード", "勘定科目", "税区分", "件数", "税抜金額", "消費税", "税込金額"],
+        rows: accountRows.flatMap((r) =>
+          r.categories.map((c) => [
+            r.side === "sales" ? "売上" : "仕入",
+            r.accountCode,
+            r.accountName,
+            c.codeName,
+            c.count,
+            c.net,
+            c.tax,
+            c.gross,
+          ])
+        ),
+      });
+    }
     onCsv({
       filename: `税区分別_${dateFrom}_${dateTo}.csv`,
       headers: ["日付", "区分", "税区分", "勘定科目", "補助科目", "摘要", "税抜金額", "消費税", "税込金額", "経理方式", "状態"],
@@ -85,7 +108,7 @@ export function TaxCategoryView({
         l.needsReview ? "要確認" : "",
       ]),
     });
-  }, [data, lines, onCsv, dateFrom, dateTo]);
+  }, [data, lines, onCsv, dateFrom, dateTo, view, accountRows]);
 
   if (error) return <p className="text-sm text-destructive p-4">{error}</p>;
   if (!data) {
@@ -120,6 +143,30 @@ export function TaxCategoryView({
         </div>
       )}
 
+      <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
+        {(
+          [
+            ["category", "税区分ごと"],
+            ["account", "科目別税区分表"],
+          ] as const
+        ).map(([k, label]) => (
+          <button
+            key={k}
+            onClick={() => setView(k)}
+            className={cn(
+              "px-3 py-1.5 rounded-md text-xs font-bold transition-all",
+              view === k ? "bg-card text-primary shadow-sm" : "text-muted-foreground hover:text-foreground"
+            )}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {view === "account" && <AccountTaxTable rows={accountRows} />}
+
+      {view === "category" && (
+      <>
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {sides.map((s) => (
           <div key={s.side} className="overflow-hidden rounded-xl border border-border bg-card">
@@ -145,7 +192,10 @@ export function TaxCategoryView({
                         filter === key && "bg-primary/10"
                       )}
                     >
-                      <td className={cn("px-3 py-2", r.code === "none" ? "text-warning" : "text-primary")}>{r.name}</td>
+                      <td className={cn("px-3 py-2", r.code === "none" ? "text-warning" : "text-primary")}>
+                        <TaxBadge code={r.code === "none" ? null : r.code} missing className="mr-1.5" />
+                        {r.name}
+                      </td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{r.count}</td>
                       <td className="px-3 py-2 text-right font-mono">{formatYen(r.net)}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.tax ? formatYen(r.tax) : "-"}</td>
@@ -232,7 +282,10 @@ export function TaxCategoryView({
               >
                 <td className="px-2 py-1.5 whitespace-nowrap">{formatDate(l.entryDate)}</td>
                 <td className="px-2 py-1.5">{l.side === "sales" ? "売上" : "仕入"}</td>
-                <td className={cn("px-2 py-1.5", l.code === "none" && "text-warning")}>{l.codeName}</td>
+                <td className="px-2 py-1.5">
+                  <TaxBadge code={l.code === "none" ? null : l.code} missing className="mr-1" />
+                  <span className={cn(l.code === "none" && "text-warning")}>{l.codeName}</span>
+                </td>
                 <td className="px-2 py-1.5">{l.accountName}</td>
                 <td className="px-2 py-1.5">{l.subAccountName ?? ""}</td>
                 <td className="px-2 py-1.5 max-w-[280px] truncate" title={l.description}>
@@ -258,9 +311,96 @@ export function TaxCategoryView({
           </tbody>
         </table>
       </div>
+      </>
+      )}
       <p className="text-[11px] text-muted-foreground">
         消費税は仕訳ごとに、税込経理なら金額から取り出し、税抜経理（仮受消費税・仮払消費税を別に立てた仕訳）なら税抜金額×税率で出しています（消費税計算の画面と同じ方法）。要確認の仕訳は一覧には出しますが、合計には含めません。
       </p>
+    </div>
+  );
+}
+
+/**
+ * 科目別税区分表。科目ごとに、どの税区分でいくら計上したかを並べる。
+ * 「売上高に非課税が混ざっている」「給料に課税仕入が付いている」といった誤りを見つけやすくする。
+ */
+function AccountTaxTable({ rows }: { rows: AccountTaxRow[] }) {
+  if (rows.length === 0) {
+    return <p className="rounded-xl border border-border p-8 text-center text-sm text-muted-foreground">この期間の売上・仕入はありません</p>;
+  }
+  const sides = (["sales", "purchase"] as const).map((side) => ({
+    side,
+    label: side === "sales" ? "売上（収益）" : "仕入・経費（費用）",
+    rows: rows.filter((r) => r.side === side),
+  }));
+  return (
+    <div className="overflow-x-auto rounded-xl border border-border bg-card">
+      <table className="w-full min-w-[820px] text-xs">
+        <thead>
+          <tr className="bg-muted/20 border-b border-border text-muted-foreground">
+            <th className="px-3 py-2 text-left font-bold">勘定科目</th>
+            <th className="px-3 py-2 text-left font-bold">税区分</th>
+            <th className="px-3 py-2 text-right font-bold">件数</th>
+            <th className="px-3 py-2 text-right font-bold">税抜金額</th>
+            <th className="px-3 py-2 text-right font-bold">消費税</th>
+            <th className="px-3 py-2 text-right font-bold">税込金額</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sides.map(
+            (s) =>
+              s.rows.length > 0 && (
+                <Fragment key={s.side}>
+                  <tr className="bg-muted/10 border-t border-border">
+                    <td colSpan={6} className="px-3 py-1.5 font-bold text-primary">
+                      {s.label}
+                    </td>
+                  </tr>
+                  {s.rows.map((r) =>
+                    r.categories.map((c, i) => (
+                      <tr key={`${r.accountCode}-${r.accountName}-${c.code}`} className="border-b border-border/50">
+                        {i === 0 && (
+                          <td rowSpan={r.categories.length + (r.categories.length > 1 ? 1 : 0)} className="px-3 py-1.5 align-top font-medium whitespace-nowrap">
+                            <span className="text-muted-foreground font-mono mr-1.5">{r.accountCode}</span>
+                            {r.accountName}
+                          </td>
+                        )}
+                        <td className="px-3 py-1.5 whitespace-nowrap">
+                          <TaxBadge code={c.code === "none" ? null : c.code} missing className="mr-1.5" />
+                          <span className={cn(c.code === "none" && "text-warning")}>{c.codeName}</span>
+                        </td>
+                        <td className="px-3 py-1.5 text-right text-muted-foreground">{c.count}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{formatYen(c.net)}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{c.tax ? formatYen(c.tax) : "-"}</td>
+                        <td className="px-3 py-1.5 text-right font-mono">{formatYen(c.gross)}</td>
+                      </tr>
+                    )).concat(
+                      r.categories.length > 1
+                        ? [
+                            <tr key={`${r.accountCode}-${r.accountName}-total`} className="border-b border-border bg-muted/10 font-bold">
+                              <td className="px-3 py-1.5 text-right text-muted-foreground">科目計</td>
+                              <td />
+                              <td className="px-3 py-1.5 text-right font-mono">{formatYen(r.net)}</td>
+                              <td className="px-3 py-1.5 text-right font-mono">{r.tax ? formatYen(r.tax) : "-"}</td>
+                              <td className="px-3 py-1.5 text-right font-mono">{formatYen(r.gross)}</td>
+                            </tr>,
+                          ]
+                        : []
+                    )
+                  )}
+                  <tr className="border-t-2 border-border bg-muted/20 font-bold">
+                    <td colSpan={3} className="px-3 py-2">
+                      {s.label}の合計
+                    </td>
+                    <td className="px-3 py-2 text-right font-mono">{formatYen(s.rows.reduce((a, r) => a + r.net, 0))}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatYen(s.rows.reduce((a, r) => a + r.tax, 0))}</td>
+                    <td className="px-3 py-2 text-right font-mono">{formatYen(s.rows.reduce((a, r) => a + r.gross, 0))}</td>
+                  </tr>
+                </Fragment>
+              )
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

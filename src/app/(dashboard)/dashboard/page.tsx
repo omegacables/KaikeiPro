@@ -157,13 +157,6 @@ const PENDING_KINDS: {
     href: (id) => `/clients/${id}/journals`,
   },
   {
-    key: "comments",
-    label: "未回答の質問",
-    why: "顧問先が返事を待っています",
-    count: (w) => w.openComments,
-    href: (id) => `/clients/${id}/questions`,
-  },
-  {
     key: "statement",
     label: "未仕訳の銀行・カード明細",
     why: "取り込んだまま仕訳になっていません",
@@ -177,7 +170,7 @@ export default function DashboardPage() {
   const { data: reviewCounts, loading: reviewLoading } = useData(getReviewCountsByClient, []);
   const { data: pendingWork, loading: pendingLoading } = useData(getPendingWorkByClient, []);
   const pendingTotal = pendingWork.reduce(
-    (n, w) => n + w.needsReviewJournals + w.openComments + w.pendingStatementLines,
+    (n, w) => n + w.needsReviewJournals + w.pendingStatementLines,
     0
   );
   const { data: taxItems, loading: taxLoading } = useData(getTaxCalendar, []);

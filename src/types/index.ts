@@ -418,7 +418,6 @@ export interface ClientSummary {
   client: Client;
   status: "good" | "warning" | "overdue";
   pending_receipts: number;
-  unanswered_questions: number;
   ai_pending_reviews: number;
   submission_progress: number;
   last_activity?: string;

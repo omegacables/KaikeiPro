@@ -31,6 +31,7 @@ import { downloadCSV, printPage } from "@/lib/export";
 import { getJournalLedger, type JournalLedgerRow } from "@/actions/ledgers";
 import { getSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { JournalEntryPanel } from "@/components/journal/journal-entry-panel";
+import { TaxBadge } from "@/components/journal/tax-badge";
 import { GeneralLedgerView, type CsvSpec } from "@/components/ledgers/general-ledger-view";
 import { SubLedgerView } from "@/components/ledgers/sub-ledger-view";
 import { TaxCategoryView } from "@/components/ledgers/tax-category-view";
@@ -218,6 +219,7 @@ function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, select
                         {/* 借方科目 */}
                         <td className="px-3 py-1.5 text-foreground border-r border-border/50">
                           {line.debitAccount}
+                          {line.debitIsPl && <TaxBadge code={line.debitTax} missing className="ml-1.5" />}
                         </td>
                         {/* 借方金額 */}
                         <td className="px-3 py-1.5 text-right font-mono border-r border-border">
@@ -230,6 +232,7 @@ function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, select
                         {/* 貸方科目 */}
                         <td className="px-3 py-1.5 text-foreground border-r border-border/50">
                           {line.creditAccount}
+                          {line.creditIsPl && <TaxBadge code={line.creditTax} missing className="ml-1.5" />}
                         </td>
                         {/* 貸方金額 */}
                         <td className="px-3 py-1.5 text-right font-mono border-r border-border">
@@ -613,6 +616,26 @@ export default function LedgersPage() {
   // 元帳・補助元帳・税区分別のCSV出力の中身（各表示が作って渡す）
   const [csvSpec, setCsvSpec] = useState<CsvSpec | null>(null);
   const accountIdByName = (name: string) => accountOptions.find((a) => a.name === name)?.id ?? "";
+
+  // 指定した日付の月を表示期間にする（証憑や仕訳の詳細から移ってきたとき）
+  const showMonthOf = (date: string) => {
+    const [y, m] = date.split("-").map(Number);
+    if (!y || !m) return;
+    const last = new Date(y, m, 0).getDate();
+    setDateFrom(`${y}-${String(m).padStart(2, "0")}-01`);
+    setDateTo(`${y}-${String(m).padStart(2, "0")}-${String(last).padStart(2, "0")}`);
+    setPeriodMode("month");
+  };
+
+  // 証憑の画面から ?entry=仕訳ID&date=日付 で来たら、その月を表示して仕訳を開く
+  useEffect(() => {
+    const entry = searchParams.get("entry");
+    const date = searchParams.get("date");
+    if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) showMonthOf(date);
+    if (entry) setOpenEntryId(entry);
+    // 最初に開いたときだけ
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // タブコンテンツ読み込み状態（テーブルエリアのスピナー用）
   const [tabLoading, setTabLoading] = useState(false);
@@ -1149,6 +1172,14 @@ export default function LedgersPage() {
             if (activeTab === "journal") fetchJournal();
           }}
           onReceiptClick={handleReceiptPreview}
+          onOpenAccount={(accountId, entryDate) => {
+            const acc = accountOptions.find((a) => a.id === accountId);
+            if (!acc) return;
+            setGlAccount(acc.name);
+            showMonthOf(entryDate);
+            setActiveTab("general");
+            setOpenEntryId(null);
+          }}
         />
       )}
       {/* Receipt Preview Modal */}

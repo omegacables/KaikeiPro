@@ -314,6 +314,7 @@ export type TaxBookLineView = {
   entryDate: string;
   description: string;
   accountName: string;
+  accountCode: string;
   side: "sales" | "purchase";
   code: string;
   codeName: string;
@@ -343,7 +344,7 @@ export async function getTaxCategoryBook(
     tax_rate: number | null;
     sub_account_id: string | null;
     journal_entry_id: string;
-    accounts: { name: string; account_categories: { type: string } | null } | null;
+    accounts: { code: string; name: string; account_categories: { type: string } | null } | null;
     journal_entries: { client_id: string; entry_date: string; description: string | null; needs_review: boolean | null };
   };
   const raw = await fetchAllRows<Raw>((from, to) =>
@@ -351,7 +352,7 @@ export async function getTaxCategoryBook(
       .from("journal_entry_lines")
       .select(
         `id, debit_amount, credit_amount, tax_category, tax_rate, sub_account_id, journal_entry_id,
-         accounts!inner ( name, account_categories!inner ( type ) ),
+         accounts!inner ( code, name, account_categories!inner ( type ) ),
          journal_entries!inner ( client_id, entry_date, description, needs_review )`
       )
       .eq("journal_entries.client_id", clientId)
@@ -388,6 +389,7 @@ export async function getTaxCategoryBook(
       entryDate: l.journal_entries.entry_date,
       description: l.journal_entries.description ?? "",
       accountName: l.accounts?.name ?? "",
+      accountCode: l.accounts?.code ?? "",
       side: b.accountType === "revenue" ? "sales" : "purchase",
       code,
       codeName: code === "none" ? "税区分未設定" : taxCategoryInfo(code)?.name ?? code,
