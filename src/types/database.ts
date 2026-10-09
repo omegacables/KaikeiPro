@@ -350,20 +350,29 @@ export interface Database {
         Row: {
           id: string;
           account_id: string;
+          client_id: string;
+          partner_id: string | null;
           name: string;
           is_active: boolean;
+          created_at: string;
         };
         Insert: {
           id?: string;
           account_id: string;
+          client_id: string;
+          partner_id?: string | null;
           name: string;
           is_active?: boolean;
+          created_at?: string;
         };
         Update: {
           id?: string;
           account_id?: string;
+          client_id?: string;
+          partner_id?: string | null;
           name?: string;
           is_active?: boolean;
+          created_at?: string;
         };
         Relationships: [];
       };

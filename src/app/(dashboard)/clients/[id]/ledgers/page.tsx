@@ -18,51 +18,34 @@ import {
   Wallet,
   ImageIcon,
   Trash2,
-  Plus,
-  Check,
-  AlertTriangle,
   Landmark,
   Building2,
   Car,
   Monitor,
   Code2,
-  ChevronDown,
-  ChevronUp,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { AmountInput } from "@/components/ui/amount-input";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
-import {
-  getJournalLedger,
-  getAccountList,
-  getGeneralLedger,
-  getJournalEntryDetail,
-  type JournalLedgerRow,
-  type GeneralLedgerRow,
-  type CounterAccountDetail,
-  type JournalEntryDetail,
-} from "@/actions/ledgers";
+import { getJournalLedger, type JournalLedgerRow } from "@/actions/ledgers";
+import { getSubAccounts, type SubAccount } from "@/actions/sub-accounts";
+import { JournalEntryPanel } from "@/components/journal/journal-entry-panel";
+import { GeneralLedgerView, type CsvSpec } from "@/components/ledgers/general-ledger-view";
+import { SubLedgerView } from "@/components/ledgers/sub-ledger-view";
+import { TaxCategoryView } from "@/components/ledgers/tax-category-view";
 import { Badge } from "@/components/ui/badge";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { getAccounts } from "@/actions/accounts";
 import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear, currentFiscalStartYear, toJstDate } from "@/lib/fiscal";
+import { fiscalRangeFromStartYear, toJstDate } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
-import { deleteJournalEntries, getDescriptionSuggestions, getJournalEntry, updateJournalEntryWithLines } from "@/actions/journals";
+import { deleteJournalEntries, getDescriptionSuggestions } from "@/actions/journals";
 import { getReceipt } from "@/actions/receipts";
 import { getAssets } from "@/actions/assets";
 import type { Database } from "@/types/database";
-import {
-  getReceivablesByPartner,
-  getAgingReport,
-  type PartnerReceivable,
-  type AgingReportRow,
-  type AgingBuckets,
-} from "@/actions/invoices";
-import { DateInput } from "@/components/ui/date-input";
+import { getAgingReport, type AgingReportRow, type AgingBuckets } from "@/actions/invoices";
 import { MonthInput } from "@/components/ui/month-input";
 
 // ---------------------------------------------------------------------------
@@ -72,42 +55,24 @@ import { MonthInput } from "@/components/ui/month-input";
 type LedgerTab =
   | "journal"
   | "general"
-  | "cash"
-  | "deposit"
+  | "subledger"
   | "receivable"
   | "payable"
+  | "tax"
   | "assets";
-
-interface CashBookRow {
-  date: string;
-  id: string;
-  description: string;
-  counterAccount: string;
-  counterAccountDetails?: CounterAccountDetail[];
-  inAmount: number;
-  outAmount: number;
-  balance: number;
-}
-
-// Account name mapping for sub-ledgers
-const subLedgerAccountMap: Record<string, string> = {
-  cash: "現金",
-  deposit: "普通預金",
-  receivable: "売掛金",
-  payable: "買掛金",
-};
 
 // ---------------------------------------------------------------------------
 // Tab config
 // ---------------------------------------------------------------------------
 
+// 現金出納帳・預金出納帳は総勘定元帳（現金・預金の科目）で見られるため置いていない
 const tabs: { key: LedgerTab; label: string }[] = [
   { key: "journal", label: "仕訳帳" },
   { key: "general", label: "総勘定元帳" },
-  { key: "cash", label: "現金出納帳" },
-  { key: "deposit", label: "預金出納帳" },
-  { key: "receivable", label: "売掛帳" },
-  { key: "payable", label: "買掛帳" },
+  { key: "subledger", label: "補助元帳" },
+  { key: "receivable", label: "売掛帳（相手先別）" },
+  { key: "payable", label: "買掛帳（相手先別）" },
+  { key: "tax", label: "税区分別" },
   { key: "assets", label: "固定資産台帳" },
 ];
 
@@ -341,241 +306,6 @@ function JournalLedgerTable({ data, onRowClick, onReceiptClick, onDelete, select
   );
 }
 
-function GeneralLedgerTable({
-  account,
-  onAccountChange,
-  accounts,
-  accountOptions,
-  data,
-}: {
-  account: string;
-  onAccountChange: (a: string) => void;
-  accounts: string[];
-  accountOptions: { id: string; code: string; name: string; categoryType: string; categoryName: string }[];
-  data: GeneralLedgerRow[];
-}) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-
-  // AccountLookup用: 選択中のアカウントIDを管理
-  const selectedAccountId = accountOptions.find((a) => a.name === account)?.id ?? "";
-
-  if (accounts.length === 0) {
-    return (
-      <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
-        データがありません
-      </div>
-    );
-  }
-  return (
-    <div>
-      {data.length === 0 ? (
-        <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
-          この科目のデータがありません
-        </div>
-      ) : (
-        <Card className="overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-              <thead>
-                <tr className="bg-muted/20 border-b-2 border-border">
-                  <th className="text-left px-2 py-2 text-xs font-bold text-muted-foreground border-r border-border w-[90px]">日付</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-muted-foreground border-r border-border w-[70px]">伝票番号</th>
-                  <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">摘要</th>
-                  <th className="text-left px-2 py-2 text-xs font-bold text-muted-foreground border-r border-border w-[110px]">相手科目</th>
-                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground border-r border-border w-[100px]">借方</th>
-                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground border-r border-border w-[100px]">貸方</th>
-                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground w-[100px]">残高</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.map((row, idx) => (
-                  <Fragment key={idx}>
-                    <tr
-                      className={cn(
-                        "border-b border-border/40 hover:bg-muted/10 transition-colors",
-                        row.id === "前繰" ? "bg-muted/10 font-medium" : "bg-card"
-                      )}
-                    >
-                      <td className="px-2 py-1.5 text-muted-foreground whitespace-nowrap border-r border-border/50 text-xs">{formatDate(row.date)}</td>
-                      <td className="px-2 py-1.5 font-mono text-xs text-muted-foreground border-r border-border/50">{row.id}</td>
-                      <td className="px-3 py-1.5 text-foreground border-r border-border/50">{row.description}</td>
-                      <td className="px-2 py-1.5 text-foreground text-xs border-r border-border/50">
-                        {row.counterAccount === "諸口" ? (
-                          <button
-                            onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
-                            className="inline-flex items-center gap-1 text-primary hover:underline cursor-pointer font-medium"
-                          >
-                            諸口
-                            {expandedIdx === idx ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                          </button>
-                        ) : (
-                          row.counterAccount || "-"
-                        )}
-                      </td>
-                      <td className="px-2 py-1.5 text-right font-mono text-xs border-r border-border/50">{row.debit > 0 ? formatCurrency(row.debit) : ""}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-xs border-r border-border/50">{row.credit > 0 ? formatCurrency(row.credit) : ""}</td>
-                      <td className="px-2 py-1.5 text-right font-mono text-xs font-bold text-foreground">{formatCurrency(row.balance)}</td>
-                    </tr>
-                    {expandedIdx === idx && row.counterAccountDetails && (
-                      <tr>
-                        <td colSpan={7} className="p-0">
-                          <div className="bg-muted/10 px-8 py-3 border-b border-border">
-                            <p className="text-xs font-bold text-muted-foreground mb-2">相手科目の内訳</p>
-                            <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-                              <thead>
-                                <tr className="border-b border-border/50">
-                                  <th className="text-left py-1.5 text-muted-foreground font-bold">勘定科目</th>
-                                  <th className="text-right py-1.5 text-muted-foreground font-bold">借方</th>
-                                  <th className="text-right py-1.5 text-muted-foreground font-bold">貸方</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {row.counterAccountDetails.map((d, i) => (
-                                  <tr key={i} className="border-b border-border/30 last:border-0">
-                                    <td className="py-1.5 text-foreground">{d.name}</td>
-                                    <td className="py-1.5 text-right font-mono">{d.debit > 0 ? formatCurrency(d.debit) : ""}</td>
-                                    <td className="py-1.5 text-right font-mono">{d.credit > 0 ? formatCurrency(d.credit) : ""}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        </td>
-                      </tr>
-                    )}
-                  </Fragment>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </Card>
-      )}
-    </div>
-  );
-}
-
-function CashBookLedger({
-  data,
-  inLabel,
-  outLabel,
-}: {
-  data: CashBookRow[];
-  inLabel: string;
-  outLabel: string;
-}) {
-  const [expandedIdx, setExpandedIdx] = useState<number | null>(null);
-
-  if (data.length === 0) {
-    return (
-      <div className="rounded-xl border border-border p-12 text-center text-muted-foreground">
-        データがありません
-      </div>
-    );
-  }
-  return (
-    <Card className="overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-          <thead>
-            <tr className="bg-muted/20 border-b-2 border-border">
-              <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">日付</th>
-              <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">伝票番号</th>
-              <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">摘要</th>
-              <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">相手科目</th>
-              <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">{inLabel}</th>
-              <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground border-r border-border">{outLabel}</th>
-              <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">残高</th>
-            </tr>
-          </thead>
-          <tbody>
-            {data.map((row, idx) => (
-              <Fragment key={idx}>
-                <tr
-                  className={cn(
-                    "border-b border-border/40 hover:bg-muted/10 transition-colors",
-                    row.id === "前繰" ? "bg-muted/10 font-medium" : "bg-card"
-                  )}
-                >
-                  <td className="px-3 py-1.5 text-muted-foreground whitespace-nowrap border-r border-border/50">{formatDate(row.date)}</td>
-                  <td className="px-3 py-1.5 font-mono text-xs text-muted-foreground border-r border-border/50">{row.id}</td>
-                  <td className="px-3 py-1.5 text-foreground border-r border-border/50">{row.description}</td>
-                  <td className="px-3 py-1.5 text-foreground border-r border-border/50">
-                    {row.counterAccount === "諸口" ? (
-                      <button
-                        onClick={() => setExpandedIdx(expandedIdx === idx ? null : idx)}
-                        className="inline-flex items-center gap-1 text-primary hover:underline cursor-pointer font-medium"
-                      >
-                        諸口
-                        {expandedIdx === idx ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-                      </button>
-                    ) : (
-                      row.counterAccount || "-"
-                    )}
-                  </td>
-                  <td className="px-3 py-1.5 text-right font-mono border-r border-border/50">{row.inAmount > 0 ? formatCurrency(row.inAmount) : ""}</td>
-                  <td className="px-3 py-1.5 text-right font-mono border-r border-border/50">{row.outAmount > 0 ? formatCurrency(row.outAmount) : ""}</td>
-                  <td className="px-3 py-1.5 text-right font-mono font-bold text-foreground">{formatCurrency(row.balance)}</td>
-                </tr>
-                {expandedIdx === idx && row.counterAccountDetails && (
-                  <tr>
-                    <td colSpan={7} className="p-0">
-                      <div className="bg-muted/10 px-8 py-3 border-b border-border">
-                        <p className="text-xs font-bold text-muted-foreground mb-2">相手科目の内訳</p>
-                        <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-                          <thead>
-                            <tr className="border-b border-border/50">
-                              <th className="text-left py-1.5 text-muted-foreground font-bold">勘定科目</th>
-                              <th className="text-right py-1.5 text-muted-foreground font-bold">借方</th>
-                              <th className="text-right py-1.5 text-muted-foreground font-bold">貸方</th>
-                            </tr>
-                          </thead>
-                          <tbody>
-                            {row.counterAccountDetails.map((d, i) => (
-                              <tr key={i} className="border-b border-border/30 last:border-0">
-                                <td className="py-1.5 text-foreground">{d.name}</td>
-                                <td className="py-1.5 text-right font-mono">{d.debit > 0 ? formatCurrency(d.debit) : ""}</td>
-                                <td className="py-1.5 text-right font-mono">{d.credit > 0 ? formatCurrency(d.credit) : ""}</td>
-                              </tr>
-                            ))}
-                          </tbody>
-                        </table>
-                      </div>
-                    </td>
-                  </tr>
-                )}
-              </Fragment>
-            ))}
-            <tr className="bg-muted/20 border-t-2 border-border font-bold">
-              <td colSpan={4} className="px-3 py-2 text-foreground border-r border-border">合計</td>
-              <td className="px-3 py-2 text-right font-mono border-r border-border/50">{formatCurrency(data.reduce((s, r) => s + r.inAmount, 0))}</td>
-              <td className="px-3 py-2 text-right font-mono border-r border-border/50">{formatCurrency(data.reduce((s, r) => s + r.outAmount, 0))}</td>
-              <td className="px-3 py-2 text-right font-mono font-bold text-foreground">
-                {data.length > 0 ? formatCurrency(data[data.length - 1].balance) : formatCurrency(0)}
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </Card>
-  );
-}
-
-// Convert GeneralLedgerRow to CashBookRow (for sub-ledger tabs)
-function toCashBookRows(glRows: GeneralLedgerRow[], isDebitNormal: boolean): CashBookRow[] {
-  return glRows.map((r) => ({
-    date: r.date,
-    id: r.id,
-    description: r.description,
-    counterAccount: r.counterAccount,
-    counterAccountDetails: r.counterAccountDetails,
-    inAmount: isDebitNormal ? r.debit : r.credit,
-    outAmount: isDebitNormal ? r.credit : r.debit,
-    balance: r.balance,
-  }));
-}
-
-// ---------------------------------------------------------------------------
-// Fixed Asset types & helpers
 // ---------------------------------------------------------------------------
 
 type AssetCategory = "all" | "building" | "vehicle" | "equipment" | "software";
@@ -805,11 +535,17 @@ export default function LedgersPage() {
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
 
   // URLクエリパラメータ（B/S等からの遷移用）
-  const validTabs: LedgerTab[] = ["journal", "general", "cash", "deposit", "receivable", "payable", "assets"];
-  const paramTab = searchParams.get("tab") as LedgerTab | null;
+  const validTabs: LedgerTab[] = ["journal", "general", "subledger", "receivable", "payable", "tax", "assets"];
+  const paramTab = searchParams.get("tab");
   const paramAccount = searchParams.get("account");
-  const initialTab: LedgerTab = paramTab && validTabs.includes(paramTab) ? paramTab : "journal";
-  const initialAccount = paramAccount ? decodeURIComponent(paramAccount) : "現金";
+  // 以前の現金出納帳・預金出納帳へのリンクは、総勘定元帳の現金・普通預金で開く
+  const legacyAccount = paramTab === "cash" ? "現金" : paramTab === "deposit" ? "普通預金" : null;
+  const initialTab: LedgerTab = legacyAccount
+    ? "general"
+    : paramTab && validTabs.includes(paramTab as LedgerTab)
+      ? (paramTab as LedgerTab)
+      : "journal";
+  const initialAccount = paramAccount ? decodeURIComponent(paramAccount) : legacyAccount ?? "現金";
 
   const [activeTab, setActiveTab] = useState<LedgerTab>(initialTab);
   const [dateFrom, setDateFrom] = useState(defaultFrom);
@@ -821,8 +557,9 @@ export default function LedgersPage() {
       .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
       .catch(() => {});
   }, [id]);
+  // 総勘定元帳と補助元帳で表示する科目（名前で持ち、科目一覧からIDを引く）
   const [glAccount, setGlAccount] = useState(initialAccount);
-  const [depositAccount, setDepositAccount] = useState("普通預金");
+  const [subLedgerAccount, setSubLedgerAccount] = useState("売掛金");
 
   // 仕訳帳・総勘定元帳共通の拡張フィルター
   const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
@@ -861,86 +598,27 @@ export default function LedgersPage() {
   }, [id]);
 
   const [journalData, setJournalData] = useState<JournalLedgerRow[]>([]);
-  const [accountList, setAccountList] = useState<string[]>([]);
-  const [glData, setGlData] = useState<GeneralLedgerRow[]>([]);
-  const [subLedgerData, setSubLedgerData] = useState<GeneralLedgerRow[]>([]);
-  const [partnerReceivables, setPartnerReceivables] = useState<PartnerReceivable[]>([]);
   const [agingReport, setAgingReport] = useState<AgingReportRow[]>([]);
+
+  // 補助科目（仕訳の修正で候補に出す）
+  const [subAccounts, setSubAccounts] = useState<SubAccount[]>([]);
+  const loadSubAccounts = useCallback(() => {
+    getSubAccounts(id).then(setSubAccounts).catch(() => setSubAccounts([]));
+  }, [id]);
+  useEffect(loadSubAccounts, [loadSubAccounts]);
+
+  // 開いている仕訳（詳細・修正パネル）と、修正後に元帳を読み直すための番号
+  const [openEntryId, setOpenEntryId] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  // 元帳・補助元帳・税区分別のCSV出力の中身（各表示が作って渡す）
+  const [csvSpec, setCsvSpec] = useState<CsvSpec | null>(null);
+  const accountIdByName = (name: string) => accountOptions.find((a) => a.name === name)?.id ?? "";
 
   // タブコンテンツ読み込み状態（テーブルエリアのスピナー用）
   const [tabLoading, setTabLoading] = useState(false);
 
   // Fixed assets data
   const [assetsData, setAssetsData] = useState<AssetDisplay[]>([]);
-
-  // Detail panel state
-  const [selectedRow, setSelectedRow] = useState<JournalLedgerRow | null>(null);
-  const [detailData, setDetailData] = useState<JournalEntryDetail | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
-
-  // 仕訳編集（AI生成・取込仕訳の修正）
-  const [editing, setEditing] = useState(false);
-  const [editDate, setEditDate] = useState("");
-  const [editDesc, setEditDesc] = useState("");
-  const [editLines, setEditLines] = useState<{ account_id: string; debit: string; credit: string }[]>([]);
-  const [savingEdit, setSavingEdit] = useState(false);
-
-  const handleStartEdit = async () => {
-    if (!selectedRow) return;
-    try {
-      const entry = await getJournalEntry(selectedRow.journalEntryId);
-      const rawLines = ((entry as { journal_entry_lines?: Array<{ account_id: string; debit_amount: number; credit_amount: number; sort_order?: number }> }).journal_entry_lines ?? [])
-        .slice()
-        .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
-      setEditDate((entry as { entry_date?: string }).entry_date ?? selectedRow.date);
-      setEditDesc((entry as { description?: string | null }).description ?? "");
-      setEditLines(
-        rawLines.length
-          ? rawLines.map((l) => ({
-              account_id: l.account_id,
-              debit: l.debit_amount ? String(l.debit_amount) : "",
-              credit: l.credit_amount ? String(l.credit_amount) : "",
-            }))
-          : [{ account_id: "", debit: "", credit: "" }]
-      );
-      setEditing(true);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "編集データの取得に失敗しました");
-    }
-  };
-
-  const updateEditLine = (i: number, field: "account_id" | "debit" | "credit", val: string) =>
-    setEditLines((prev) => prev.map((l, idx) => (idx === i ? { ...l, [field]: val } : l)));
-  const addEditLine = () => setEditLines((prev) => [...prev, { account_id: "", debit: "", credit: "" }]);
-  const removeEditLine = (i: number) => setEditLines((prev) => prev.filter((_, idx) => idx !== i));
-
-  const editTotalD = editLines.reduce((s, l) => s + (Number(l.debit) || 0), 0);
-  const editTotalC = editLines.reduce((s, l) => s + (Number(l.credit) || 0), 0);
-  const editBalanced = editTotalD > 0 && editTotalD === editTotalC;
-
-  const handleSaveEdit = async () => {
-    if (!selectedRow) return;
-    setSavingEdit(true);
-    try {
-      await updateJournalEntryWithLines(
-        selectedRow.journalEntryId,
-        { entry_date: editDate, description: editDesc },
-        editLines.map((l) => ({
-          account_id: l.account_id,
-          debit_amount: Number(l.debit) || 0,
-          credit_amount: Number(l.credit) || 0,
-        }))
-      );
-      setEditing(false);
-      setSelectedRow(null);
-      await fetchJournal();
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "保存に失敗しました");
-    } finally {
-      setSavingEdit(false);
-    }
-  };
-
 
   // Journal deletion state
   const [selectedJournalIds, setSelectedJournalIds] = useState<Set<string>>(new Set());
@@ -1026,20 +704,7 @@ export default function LedgersPage() {
     setReceiptPreviewLoading(false);
   };
 
-  const handleRowClick = async (row: JournalLedgerRow) => {
-    setSelectedRow(row);
-    setEditing(false);
-    setDetailData(null);
-    setDetailLoading(true);
-    try {
-      const detail = await getJournalEntryDetail(row.journalEntryId);
-      setDetailData(detail);
-    } catch {
-      setDetailData(null);
-    } finally {
-      setDetailLoading(false);
-    }
-  };
+  const handleRowClick = (row: JournalLedgerRow) => setOpenEntryId(row.journalEntryId);
 
   // Fetch journal data
   const fetchJournal = useCallback(async () => {
@@ -1052,58 +717,12 @@ export default function LedgersPage() {
     finally { setTabLoading(false); endLoad(); }
   }, [id, dateFrom, dateTo]);
 
-  // Fetch account list
-  const fetchAccounts = useCallback(async () => {
-    try {
-      const data = await getAccountList(id);
-      setAccountList(data);
-      if (data.length > 0 && !data.includes(glAccount)) {
-        setGlAccount(data[0]);
-      }
-    } catch { /* fallback to empty */ }
-  }, [id, glAccount]);
-
-  // Fetch general ledger data
-  const fetchGL = useCallback(async () => {
-    setTabLoading(true);
-    beginLoad();
-    try {
-      const data = await getGeneralLedger(id, glAccount, dateFrom, dateTo);
-      setGlData(data);
-    } catch { /* fallback to empty */ }
-    finally { setTabLoading(false); endLoad(); }
-  }, [id, glAccount, dateFrom, dateTo]);
-
-  // Fetch sub-ledger data (cash, deposit, receivable, payable)
-  const fetchSubLedger = useCallback(async () => {
-    // deposit タブは動的に選択された口座名を使用
-    const accountName = activeTab === "deposit" ? depositAccount : subLedgerAccountMap[activeTab];
-    if (!accountName) return;
-    setTabLoading(true);
-    beginLoad();
-    try {
-      const data = await getGeneralLedger(id, accountName, dateFrom, dateTo);
-      setSubLedgerData(data);
-    } catch { setSubLedgerData([]); }
-    finally { setTabLoading(false); endLoad(); }
-  }, [id, activeTab, dateFrom, dateTo, depositAccount]);
-
   useEffect(() => {
     if (activeTab === "journal") fetchJournal();
   }, [activeTab, fetchJournal]);
 
-  useEffect(() => {
-    if (activeTab === "general") {
-      fetchAccounts();
-      fetchGL();
-    }
-  }, [activeTab, fetchAccounts, fetchGL]);
-
-  useEffect(() => {
-    if (["cash", "deposit", "receivable", "payable"].includes(activeTab)) {
-      fetchSubLedger();
-    }
-  }, [activeTab, fetchSubLedger]);
+  // タブを切り替えたら、前のタブのCSVの中身は使わない
+  useEffect(() => setCsvSpec(null), [activeTab]);
 
   useEffect(() => {
     if (activeTab === "assets") {
@@ -1119,13 +738,9 @@ export default function LedgersPage() {
 
   useEffect(() => {
     if (activeTab === "receivable") {
-      Promise.all([
-        getReceivablesByPartner(id).catch(() => [] as PartnerReceivable[]),
-        getAgingReport(id).catch(() => [] as AgingReportRow[]),
-      ]).then(([partners, aging]) => {
-        setPartnerReceivables(partners);
-        setAgingReport(aging);
-      });
+      getAgingReport(id)
+        .catch(() => [] as AgingReportRow[])
+        .then(setAgingReport);
     }
   }, [activeTab, id]);
 
@@ -1164,45 +779,6 @@ export default function LedgersPage() {
     return data;
   }, [journalData, accountFilter, accountOptions, searchQuery, sortOrder]);
 
-  // 総勘定元帳タブ用のソート
-  const filteredGlData = useMemo(() => {
-    let data = glData;
-    if (sortOrder === "date_desc") {
-      data = [...data].reverse();
-    }
-    return data;
-  }, [glData, sortOrder]);
-
-  // 現金出納帳・預金出納帳タブ用のソート
-  const filteredCashData = useMemo(() => {
-    const isDebitNormal = activeTab === "cash" || activeTab === "deposit";
-    let data = toCashBookRows(subLedgerData, isDebitNormal);
-    if (sortOrder === "date_desc") {
-      data = [...data].reverse();
-    }
-    return data;
-  }, [subLedgerData, sortOrder, activeTab]);
-
-  // Presets relative to current date
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevMonthYear = month === 1 ? year - 1 : year;
-  const prevMonthLastDay = new Date(prevMonthYear, prevMonth, 0).getDate();
-
-  const thisMonthFrom = `${year}-${String(month).padStart(2, "0")}-01`;
-  const thisMonthLastDay = new Date(year, month, 0).getDate();
-  const thisMonthTo = `${year}-${String(month).padStart(2, "0")}-${String(thisMonthLastDay).padStart(2, "0")}`;
-
-  // 今年度 = クライアントの決算月基準の会計年度（今月と同一だったバグを修正）
-  const currentFiscalRange = fiscalRangeFromStartYear(
-    fiscalStartMonth,
-    currentFiscalStartYear(fiscalStartMonth)
-  );
-  const presets = [
-    { label: "今年度", from: currentFiscalRange.startDate, to: currentFiscalRange.endDate },
-    { label: "今月", from: thisMonthFrom, to: thisMonthTo },
-    { label: "前月", from: `${prevMonthYear}-${String(prevMonth).padStart(2, "0")}-01`, to: `${prevMonthYear}-${String(prevMonth).padStart(2, "0")}-${String(prevMonthLastDay).padStart(2, "0")}` },
-  ];
-
   function handleCSVExport() {
     if (activeTab === "journal") {
       downloadCSV(
@@ -1210,27 +786,14 @@ export default function LedgersPage() {
         ["日付", "伝票番号", "摘要", "借方科目", "貸方科目", "借方金額", "貸方金額"],
         filteredJournalData.map((r) => [r.date, r.id, r.description, r.debitAccount, r.creditAccount, r.debitAmount, r.creditAmount])
       );
-    } else if (activeTab === "general") {
-      downloadCSV(
-        `総勘定元帳_${glAccount}.csv`,
-        ["日付", "伝票番号", "摘要", "相手科目", "借方", "貸方", "残高"],
-        filteredGlData.map((r) => [r.date, r.id, r.description, r.counterAccount, r.debit, r.credit, r.balance])
-      );
     } else if (activeTab === "assets") {
       downloadCSV(
         `固定資産台帳.csv`,
         ["資産名", "分類", "取得日", "取得価額", "耐用年数", "償却方法", "帳簿価額"],
         assetsData.map((a) => [a.name, a.categoryLabel, a.acquisitionDate, a.acquisitionCost, `${a.usefulLife}年`, a.depreciationMethod, a.bookValue])
       );
-    } else {
-      const tabLabel = tabs.find((t) => t.key === activeTab)?.label ?? activeTab;
-      const isDebitNormal = activeTab === "cash" || activeTab === "deposit";
-      const cashData = toCashBookRows(subLedgerData, isDebitNormal);
-      downloadCSV(
-        `${tabLabel}.csv`,
-        ["日付", "伝票番号", "摘要", "相手科目", "入金", "出金", "残高"],
-        cashData.map((r) => [r.date, r.id, r.description, r.counterAccount, r.inAmount, r.outAmount, r.balance])
-      );
+    } else if (csvSpec) {
+      downloadCSV(csvSpec.filename, csvSpec.headers, csvSpec.rows);
     }
   }
 
@@ -1281,8 +844,8 @@ export default function LedgersPage() {
       {activeTab !== "assets" && (
       <Card className="mb-4">
         <CardContent className="py-2.5 px-3">
-          {(activeTab === "journal" || activeTab === "general" || activeTab === "cash" || activeTab === "deposit") ? (
-            /* 仕訳帳・総勘定元帳・現金出納帳タブ用: 拡張フィルター */
+          {(
+            /* 期間（年度・月）・科目・並べ替え */
             <div className="flex flex-wrap items-end gap-4">
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground font-bold">年度別</label>
@@ -1363,16 +926,16 @@ export default function LedgersPage() {
                   </div>
                 </div>
               )}
-              {activeTab === "deposit" && (
+              {activeTab === "subledger" && (
                 <div className="flex flex-col gap-1">
-                  <label className="text-xs text-muted-foreground font-bold">預金口座</label>
+                  <label className="text-xs text-muted-foreground font-bold">勘定科目（補助科目で分けて見る）</label>
                   <div className="w-[250px]">
                     <AccountLookup
-                      accounts={accountOptions.filter((a) => a.categoryType === "assets" && a.name.includes("預金"))}
-                      value={accountOptions.find((a) => a.name === depositAccount)?.id ?? ""}
+                      accounts={accountOptions}
+                      value={accountIdByName(subLedgerAccount)}
                       onChange={(id) => {
                         const acc = accountOptions.find((a) => a.id === id);
-                        if (acc) setDepositAccount(acc.name);
+                        if (acc) setSubLedgerAccount(acc.name);
                       }}
                     />
                   </div>
@@ -1411,38 +974,6 @@ export default function LedgersPage() {
                   {activeTab === "journal" && <option value="created_desc">登録日（新しい順）</option>}
                   {activeTab === "journal" && <option value="created_asc">登録日（古い順）</option>}
                 </select>
-              </div>
-            </div>
-          ) : (
-            /* 他のタブ: シンプルな期間フィルター */
-            <div className="flex items-center gap-4">
-              <Calendar className="size-4 text-muted-foreground" />
-              <label className="text-xs text-muted-foreground font-bold">期間:</label>
-              <DateInput allowEmpty value={dateFrom}
-                onChange={(v) => setDateFrom(v)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
-              <span className="text-muted-foreground">〜</span>
-              <DateInput allowEmpty value={dateTo}
-                onChange={(v) => setDateTo(v)}
-                className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
-              <div className="flex items-center gap-1 ml-4">
-                {presets.map((preset) => (
-                  <button
-                    key={preset.label}
-                    onClick={() => {
-                      setDateFrom(preset.from);
-                      setDateTo(preset.to);
-                    }}
-                    className={cn(
-                      "px-2 py-1 rounded text-xs font-bold transition-colors cursor-pointer",
-                      dateFrom === preset.from && dateTo === preset.to
-                        ? "bg-primary text-cream"
-                        : "text-muted-foreground hover:bg-muted/30"
-                    )}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
               </div>
             </div>
           )}
@@ -1495,136 +1026,101 @@ export default function LedgersPage() {
         </>
       )}
 
-      {!tabLoading && activeTab === "general" && (
-        <GeneralLedgerTable
-          account={glAccount}
-          onAccountChange={setGlAccount}
-          accounts={accountList}
-          accountOptions={accountOptions}
-          data={filteredGlData}
+      {activeTab === "general" && (
+        <GeneralLedgerView
+          clientId={id}
+          accountId={accountIdByName(glAccount)}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          descending={sortOrder === "date_desc"}
+          reloadKey={reloadKey}
+          onOpenEntry={setOpenEntryId}
+          onCsv={setCsvSpec}
         />
       )}
 
-      {!tabLoading && activeTab === "cash" && (
-        <CashBookLedger
-          data={filteredCashData}
-          inLabel="入金"
-          outLabel="出金"
+      {activeTab === "subledger" && (
+        <SubLedgerView
+          clientId={id}
+          accountId={accountIdByName(subLedgerAccount)}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          descending={sortOrder === "date_desc"}
+          reloadKey={reloadKey}
+          onOpenEntry={setOpenEntryId}
+          onCsv={setCsvSpec}
         />
       )}
 
-      {!tabLoading && activeTab === "deposit" && (
-        <CashBookLedger
-          data={filteredCashData}
-          inLabel="入金"
-          outLabel="出金"
+      {(activeTab === "receivable" || activeTab === "payable") && (
+        <SubLedgerView
+          key={activeTab}
+          clientId={id}
+          accountId={accountIdByName(activeTab === "receivable" ? "売掛金" : "買掛金")}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          descending={sortOrder === "date_desc"}
+          reloadKey={reloadKey}
+          onOpenEntry={setOpenEntryId}
+          onCsv={setCsvSpec}
         />
       )}
 
-      {!tabLoading && activeTab === "receivable" && (
-        <>
-          {/* 得意先別売掛残高 */}
-          {partnerReceivables.length > 0 && (
-            <Card className="mb-6 overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/10">
-                <Building2 className="size-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground">得意先別売掛残高</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-                  <thead>
-                    <tr className="bg-muted/20 border-b border-border">
-                      <th className="text-left px-4 py-2 text-xs font-bold text-muted-foreground">得意先</th>
-                      <th className="text-right px-4 py-2 text-xs font-bold text-muted-foreground">売掛残高</th>
-                      <th className="text-right px-4 py-2 text-xs font-bold text-muted-foreground">うち期日超過</th>
-                      <th className="text-right px-4 py-2 text-xs font-bold text-muted-foreground">最大遅延日数</th>
-                      <th className="text-center px-4 py-2 text-xs font-bold text-muted-foreground">ステータス</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {partnerReceivables.map((p) => (
-                      <tr key={p.partnerId} className="border-b border-border last:border-0 hover:bg-muted/10">
-                        <td className="px-4 py-2 font-medium text-foreground">{p.partnerName}</td>
-                        <td className="px-4 py-2 text-right font-mono font-bold text-foreground">{formatCurrency(p.remaining)}</td>
-                        <td className={cn("px-4 py-2 text-right font-mono", p.overdueAmount > 0 ? "text-destructive font-bold" : "text-muted-foreground")}>
-                          {p.overdueAmount > 0 ? formatCurrency(p.overdueAmount) : "-"}
-                        </td>
-                        <td className={cn("px-4 py-2 text-right", p.maxDaysOverdue > 0 ? "text-destructive font-bold" : "text-muted-foreground")}>
-                          {p.maxDaysOverdue > 0 ? `${p.maxDaysOverdue}日` : "-"}
-                        </td>
-                        <td className="px-4 py-2 text-center">
-                          {p.overdueAmount > 0
-                            ? <Badge variant="destructive">期日超過</Badge>
-                            : <Badge variant="success">正常</Badge>}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-
-          {/* エージングレポート（年齢表） */}
-          {agingReport.length > 0 && (
-            <Card className="mb-6 overflow-hidden">
-              <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/10">
-                <Calendar className="size-4 text-primary" />
-                <h3 className="text-sm font-bold text-foreground">エージングレポート（年齢表）</h3>
-              </div>
-              <div className="overflow-x-auto">
-                <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-                  <thead>
-                    <tr className="bg-muted/20 border-b border-border">
-                      <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">得意先</th>
-                      <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">未到来</th>
-                      <th className="text-right px-3 py-2 text-xs font-bold text-warning">0〜30日</th>
-                      <th className="text-right px-3 py-2 text-xs font-bold text-warning">31〜60日</th>
-                      <th className="text-right px-3 py-2 text-xs font-bold text-destructive">61〜90日</th>
-                      <th className="text-right px-3 py-2 text-xs font-bold text-destructive">90日超</th>
-                      <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">合計</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {agingReport.map((row) => (
-                      <tr key={row.partnerId} className="border-b border-border last:border-0 hover:bg-muted/10">
-                        <td className="px-3 py-2 font-medium text-foreground">{row.partnerName}</td>
-                        <td className="px-3 py-2 text-right font-mono text-muted-foreground">{row.buckets.current > 0 ? formatCurrency(row.buckets.current) : "-"}</td>
-                        <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d0_30 > 0 ? "text-warning" : "text-muted-foreground")}>{row.buckets.d0_30 > 0 ? formatCurrency(row.buckets.d0_30) : "-"}</td>
-                        <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d31_60 > 0 ? "text-warning" : "text-muted-foreground")}>{row.buckets.d31_60 > 0 ? formatCurrency(row.buckets.d31_60) : "-"}</td>
-                        <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d61_90 > 0 ? "text-destructive" : "text-muted-foreground")}>{row.buckets.d61_90 > 0 ? formatCurrency(row.buckets.d61_90) : "-"}</td>
-                        <td className={cn("px-3 py-2 text-right font-mono font-bold", row.buckets.over90 > 0 ? "text-destructive" : "text-muted-foreground")}>{row.buckets.over90 > 0 ? formatCurrency(row.buckets.over90) : "-"}</td>
-                        <td className="px-3 py-2 text-right font-mono font-bold text-foreground">{formatCurrency(row.total)}</td>
-                      </tr>
-                    ))}
-                    <tr className="border-t-2 border-border bg-muted/20 font-bold">
-                      <td className="px-3 py-2 text-foreground text-xs">合計</td>
-                      {(["current", "d0_30", "d31_60", "d61_90", "over90"] as (keyof AgingBuckets)[]).map((k) => {
-                        const total = agingReport.reduce((s, r) => s + r.buckets[k], 0);
-                        return <td key={k} className="px-3 py-2 text-right font-mono text-xs">{total > 0 ? formatCurrency(total) : "-"}</td>;
-                      })}
-                      <td className="px-3 py-2 text-right font-mono text-xs">{formatCurrency(agingReport.reduce((s, r) => s + r.total, 0))}</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-            </Card>
-          )}
-
-          {/* 売掛帳（総勘定元帳） */}
-          <CashBookLedger
-            data={toCashBookRows(subLedgerData, true)}
-            inLabel="発生"
-            outLabel="回収"
-          />
-        </>
+      {activeTab === "receivable" && agingReport.length > 0 && (
+        /* エージングレポート（年齢表）は請求書の入金期日から作る */
+        <Card className="mt-6 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 py-3 border-b border-border bg-muted/10">
+            <Calendar className="size-4 text-primary" />
+            <h3 className="text-sm font-bold text-foreground">エージングレポート（請求書の入金期日からの経過）</h3>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
+              <thead>
+                <tr className="bg-muted/20 border-b border-border">
+                  <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground">得意先</th>
+                  <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">未到来</th>
+                  <th className="text-right px-3 py-2 text-xs font-bold text-warning">0〜30日</th>
+                  <th className="text-right px-3 py-2 text-xs font-bold text-warning">31〜60日</th>
+                  <th className="text-right px-3 py-2 text-xs font-bold text-destructive">61〜90日</th>
+                  <th className="text-right px-3 py-2 text-xs font-bold text-destructive">90日超</th>
+                  <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground">合計</th>
+                </tr>
+              </thead>
+              <tbody>
+                {agingReport.map((row) => (
+                  <tr key={row.partnerId} className="border-b border-border last:border-0 hover:bg-muted/10">
+                    <td className="px-3 py-2 font-medium text-foreground">{row.partnerName}</td>
+                    <td className="px-3 py-2 text-right font-mono text-muted-foreground">{row.buckets.current > 0 ? formatCurrency(row.buckets.current) : "-"}</td>
+                    <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d0_30 > 0 ? "text-warning" : "text-muted-foreground")}>{row.buckets.d0_30 > 0 ? formatCurrency(row.buckets.d0_30) : "-"}</td>
+                    <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d31_60 > 0 ? "text-warning" : "text-muted-foreground")}>{row.buckets.d31_60 > 0 ? formatCurrency(row.buckets.d31_60) : "-"}</td>
+                    <td className={cn("px-3 py-2 text-right font-mono", row.buckets.d61_90 > 0 ? "text-destructive" : "text-muted-foreground")}>{row.buckets.d61_90 > 0 ? formatCurrency(row.buckets.d61_90) : "-"}</td>
+                    <td className={cn("px-3 py-2 text-right font-mono font-bold", row.buckets.over90 > 0 ? "text-destructive" : "text-muted-foreground")}>{row.buckets.over90 > 0 ? formatCurrency(row.buckets.over90) : "-"}</td>
+                    <td className="px-3 py-2 text-right font-mono font-bold text-foreground">{formatCurrency(row.total)}</td>
+                  </tr>
+                ))}
+                <tr className="border-t-2 border-border bg-muted/20 font-bold">
+                  <td className="px-3 py-2 text-foreground text-xs">合計</td>
+                  {(["current", "d0_30", "d31_60", "d61_90", "over90"] as (keyof AgingBuckets)[]).map((k) => {
+                    const total = agingReport.reduce((s, r) => s + r.buckets[k], 0);
+                    return <td key={k} className="px-3 py-2 text-right font-mono text-xs">{total > 0 ? formatCurrency(total) : "-"}</td>;
+                  })}
+                  <td className="px-3 py-2 text-right font-mono text-xs">{formatCurrency(agingReport.reduce((s, r) => s + r.total, 0))}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
 
-      {!tabLoading && activeTab === "payable" && (
-        <CashBookLedger
-          data={toCashBookRows(subLedgerData, false)}
-          inLabel="発生"
-          outLabel="支払"
+      {activeTab === "tax" && (
+        <TaxCategoryView
+          clientId={id}
+          dateFrom={dateFrom}
+          dateTo={dateTo}
+          descending={sortOrder === "date_desc"}
+          reloadKey={reloadKey}
+          onOpenEntry={setOpenEntryId}
+          onCsv={setCsvSpec}
         />
       )}
 
@@ -1639,216 +1135,21 @@ export default function LedgersPage() {
         </div>
       )}
 
-      {/* Journal Entry Detail Panel (slide-over) */}
-      {selectedRow && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="absolute inset-0 bg-black/30"
-            onClick={() => setSelectedRow(null)}
-          />
-          <div className="relative w-full max-w-md bg-card border-l border-border shadow-xl overflow-y-auto">
-            <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
-              <h3 className="text-lg font-bold text-foreground">仕訳詳細</h3>
-              <div className="flex items-center gap-3">
-                {!editing && (
-                  <button
-                    onClick={handleStartEdit}
-                    className="text-xs font-bold text-primary inline-flex items-center gap-1 hover:underline"
-                  >
-                    <Pen className="size-3.5" />
-                    編集
-                  </button>
-                )}
-                <button
-                  onClick={() => setSelectedRow(null)}
-                  className="text-muted-foreground hover:text-foreground"
-                >
-                  <X className="size-5" />
-                </button>
-              </div>
-            </div>
-
-            <div className="px-6 py-6 space-y-6">
-              {/* Source badge */}
-              <div className="flex items-center gap-2">
-                <Badge variant={selectedRow.source === "raqto" ? "accent" : "muted"}>
-                  {selectedRow.source === "raqto" ? "Raqto受発注" : selectedRow.source === "bank" ? "銀行" : selectedRow.source === "ai" ? "AI" : "手動"}
-                </Badge>
-              </div>
-
-              {editing ? (
-                <div className="space-y-4">
-                  <div>
-                    <label className="text-xs text-muted-foreground font-bold">日付</label>
-                    <DateInput allowEmpty value={editDate}
-                      onChange={(v) => setEditDate(v)}
-                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm" />
-                  </div>
-                  <div>
-                    <label className="text-xs text-muted-foreground font-bold">摘要</label>
-                    <input
-                      type="text"
-                      value={editDesc}
-                      onChange={(e) => setEditDesc(e.target.value)}
-                      className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <label className="text-xs text-muted-foreground font-bold">仕訳明細</label>
-                      <button
-                        onClick={addEditLine}
-                        className="text-xs text-primary inline-flex items-center gap-1 hover:underline"
-                      >
-                        <Plus className="size-3" />
-                        行追加
-                      </button>
-                    </div>
-                    {editLines.map((l, i) => (
-                      <div key={i} className="flex items-start gap-2">
-                        <div className="flex-1 space-y-1">
-                          <AccountLookup
-                            accounts={accountOptions}
-                            value={l.account_id}
-                            onChange={(v) => updateEditLine(i, "account_id", v)}
-                          />
-                          <div className="grid grid-cols-2 gap-1">
-                            <AmountInput
-                              placeholder="借方"
-                              value={l.debit}
-                              onChange={(v) => updateEditLine(i, "debit", v)}
-                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono"
-                            />
-                            <AmountInput
-                              placeholder="貸方"
-                              value={l.credit}
-                              onChange={(v) => updateEditLine(i, "credit", v)}
-                              className="px-2 py-1 rounded border border-border bg-card text-foreground text-xs text-right font-mono"
-                            />
-                          </div>
-                        </div>
-                        {editLines.length > 1 && (
-                          <button
-                            onClick={() => removeEditLine(i)}
-                            className="text-destructive hover:text-destructive/80 mt-2 shrink-0"
-                          >
-                            <Trash2 className="size-4" />
-                          </button>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                  <div
-                    className={cn(
-                      "text-xs font-mono flex justify-between px-1",
-                      editBalanced ? "text-success" : "text-destructive"
-                    )}
-                  >
-                    <span>借方 {formatCurrency(editTotalD)}</span>
-                    <span>貸方 {formatCurrency(editTotalC)}</span>
-                  </div>
-                  {!editBalanced && (
-                    <p className="text-[11px] text-destructive">
-                      貸借が一致していません。借方と貸方の合計を一致させてください。
-                    </p>
-                  )}
-                  <div className="flex gap-2 justify-end pt-1">
-                    <Button variant="ghost" size="sm" onClick={() => setEditing(false)}>
-                      キャンセル
-                    </Button>
-                    <Button size="sm" onClick={handleSaveEdit} disabled={savingEdit || !editBalanced}>
-                      {savingEdit ? <Loader2 className="size-4 animate-spin" /> : <Check className="size-4" />}
-                      保存
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-              <>
-              {/* Basic info */}
-              <div className="space-y-3">
-                <div>
-                  <span className="text-xs text-muted-foreground">伝票番号</span>
-                  <p className="font-mono text-sm text-foreground">{selectedRow.id}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">日付</span>
-                  <p className="text-sm text-foreground">{formatDate(selectedRow.date)}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-muted-foreground">摘要</span>
-                  <p className="text-sm font-medium text-foreground">{selectedRow.description}</p>
-                </div>
-                {detailData?.partnerName && (
-                  <div>
-                    <span className="text-xs text-muted-foreground">取引先</span>
-                    <p className="text-sm text-foreground">{detailData.partnerName}</p>
-                  </div>
-                )}
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-muted-foreground">借方科目</span>
-                    <p className="text-sm text-foreground">{selectedRow.debitAccount}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">貸方科目</span>
-                    <p className="text-sm text-foreground">{selectedRow.creditAccount}</p>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-4">
-                  <div>
-                    <span className="text-xs text-muted-foreground">借方金額</span>
-                    <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(selectedRow.debitAmount)}</p>
-                  </div>
-                  <div>
-                    <span className="text-xs text-muted-foreground">貸方金額</span>
-                    <p className="text-lg font-bold font-mono text-foreground">{formatCurrency(selectedRow.creditAmount)}</p>
-                  </div>
-                </div>
-              </div>
-
-              {/* Line items */}
-              <div className="border-t border-border pt-4">
-                <h4 className="text-sm font-bold text-foreground mb-3">品目明細</h4>
-                {detailLoading ? (
-                  <div className="flex items-center justify-center py-8">
-                    <Loader2 className="size-5 animate-spin text-muted-foreground" />
-                  </div>
-                ) : detailData && detailData.items.length > 0 ? (
-                  <div className="overflow-x-auto rounded-lg border border-border">
-                    <table className="w-full text-xs [&_th]:!py-1 [&_th]:!px-2 [&_td]:!py-1 [&_td]:!px-2">
-                      <thead>
-                        <tr className="bg-muted/20 border-b border-border">
-                          <th className="text-left px-3 py-2 font-bold text-muted-foreground">品名</th>
-                          <th className="text-right px-3 py-2 font-bold text-muted-foreground">数量</th>
-                          <th className="text-right px-3 py-2 font-bold text-muted-foreground">単価</th>
-                          <th className="text-right px-3 py-2 font-bold text-muted-foreground">税率</th>
-                          <th className="text-right px-3 py-2 font-bold text-muted-foreground">小計</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {detailData.items.map((item, idx) => (
-                          <tr key={idx} className="border-b border-border last:border-0">
-                            <td className="px-3 py-2 text-foreground">{item.item_name}</td>
-                            <td className="px-3 py-2 text-right font-mono text-muted-foreground">{item.quantity}</td>
-                            <td className="px-3 py-2 text-right font-mono text-muted-foreground">{formatCurrency(item.unit_price)}</td>
-                            <td className="px-3 py-2 text-right font-mono text-muted-foreground">{item.tax_rate != null ? `${item.tax_rate}%` : "-"}</td>
-                            <td className="px-3 py-2 text-right font-mono font-bold">{formatCurrency(item.subtotal)}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ) : (
-                  <p className="text-xs text-muted-foreground py-2">
-                    品目明細はありません
-                  </p>
-                )}
-              </div>
-              </>
-              )}
-            </div>
-          </div>
-        </div>
+      {/* 仕訳の詳細・修正（どのタブから開いても同じパネル） */}
+      {openEntryId && (
+        <JournalEntryPanel
+          clientId={id}
+          entryId={openEntryId}
+          accounts={accountOptions}
+          subAccounts={subAccounts}
+          onClose={() => setOpenEntryId(null)}
+          onSaved={() => {
+            setReloadKey((k) => k + 1);
+            loadSubAccounts();
+            if (activeTab === "journal") fetchJournal();
+          }}
+          onReceiptClick={handleReceiptPreview}
+        />
       )}
       {/* Receipt Preview Modal */}
       {(receiptPreviewLoading || receiptPreviewUrl) && (

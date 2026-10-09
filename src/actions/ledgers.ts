@@ -47,23 +47,6 @@ export interface JournalEntryDetail {
   items: JournalDetailItem[];
 }
 
-export interface CounterAccountDetail {
-  name: string;
-  debit: number;
-  credit: number;
-}
-
-export interface GeneralLedgerRow {
-  date: string;
-  id: string;
-  description: string;
-  counterAccount: string;
-  counterAccountDetails?: CounterAccountDetail[];
-  debit: number;
-  credit: number;
-  balance: number;
-}
-
 export async function getJournalLedger(
   clientId: string,
   dateFrom: string,
@@ -160,127 +143,6 @@ export async function getJournalLedger(
   return rows;
 }
 
-export async function getAccountList(clientId: string): Promise<string[]> {
-  await assertClientAccess(clientId);
-  const supabase = createAdminSupabaseClient();
-
-  const { data, error } = await supabase
-    .from("accounts")
-    .select("name")
-    .or(`client_id.eq.${clientId},is_default.eq.true`)
-    .eq("is_active", true)
-    .order("code");
-
-  if (error) throw new Error(error.message);
-  return (data ?? []).map((a) => a.name);
-}
-
-export async function getGeneralLedger(
-  clientId: string,
-  accountName: string,
-  dateFrom: string,
-  dateTo: string
-): Promise<GeneralLedgerRow[]> {
-  await assertClientAccess(clientId);
-  const supabase = createAdminSupabaseClient();
-
-  // Find account id by name
-  const { data: accts } = await supabase
-    .from("accounts")
-    .select("id, category_id")
-    .or(`client_id.eq.${clientId},is_default.eq.true`)
-    .eq("name", accountName)
-    .limit(1);
-
-  if (!accts || accts.length === 0) return [];
-  const accountId = accts[0].id;
-  const categoryId = accts[0].category_id;
-
-  // Determine if this is a debit-normal account (assets, expenses)
-  const { data: cat } = await supabase
-    .from("account_categories")
-    .select("type")
-    .eq("id", categoryId)
-    .single();
-
-  const isDebitNormal = cat?.type === "assets" || cat?.type === "expenses";
-
-  // Fetch all journal lines for this account within the date range
-  const { data: lines, error } = await supabase
-    .from("journal_entry_lines")
-    .select(`
-      debit_amount, credit_amount,
-      journal_entries!inner ( id, entry_date, description, client_id,
-        journal_entry_lines ( account_id, debit_amount, credit_amount, accounts:account_id ( name ) )
-      )
-    `)
-    .eq("account_id", accountId)
-    .eq("journal_entries.client_id", clientId)
-    .gte("journal_entries.entry_date", dateFrom)
-    .lte("journal_entries.entry_date", dateTo);
-
-  if (error) throw new Error(error.message);
-
-  const rows: GeneralLedgerRow[] = [];
-  let balance = 0;
-
-  // Sort by entry_date
-  const sorted = [...(lines ?? [])].sort((a, b) => {
-    const entryA = a.journal_entries as unknown as { entry_date: string };
-    const entryB = b.journal_entries as unknown as { entry_date: string };
-    return entryA.entry_date.localeCompare(entryB.entry_date);
-  });
-
-  for (const line of sorted) {
-    const entry = line.journal_entries as unknown as {
-      id: string;
-      entry_date: string;
-      description: string | null;
-      journal_entry_lines: { account_id: string; debit_amount: number; credit_amount: number; accounts: { name: string } | null }[];
-    };
-
-    // Find counter account(s) - other lines in the same entry
-    const otherLines = (entry.journal_entry_lines ?? []).filter(
-      (l) => l.account_id !== accountId
-    );
-
-    // 複数の相手勘定科目 → 諸口として表示（内訳はdetailsで保持）
-    let counterAccount: string;
-    let counterAccountDetails: CounterAccountDetail[] | undefined;
-    if (otherLines.length > 1) {
-      counterAccount = "諸口";
-      counterAccountDetails = otherLines.map((l) => ({
-        name: l.accounts?.name ?? "",
-        debit: l.debit_amount,
-        credit: l.credit_amount,
-      }));
-    } else if (otherLines.length === 1) {
-      counterAccount = otherLines[0].accounts?.name ?? "-";
-    } else {
-      counterAccount = "-";
-    }
-
-    if (isDebitNormal) {
-      balance += line.debit_amount - line.credit_amount;
-    } else {
-      balance += line.credit_amount - line.debit_amount;
-    }
-
-    rows.push({
-      date: entry.entry_date,
-      id: entry.id.slice(0, 8),
-      description: entry.description ?? "",
-      counterAccount,
-      counterAccountDetails,
-      debit: line.debit_amount,
-      credit: line.credit_amount,
-      balance,
-    });
-  }
-
-  return rows;
-}
-
 // ダッシュボード用：口座（現金・預金）残高サマリーと補助科目別残高一覧。
 export interface AccountBalance {
   account_id: string;
@@ -337,7 +199,7 @@ export async function getBalanceSummary(clientId: string): Promise<BalanceSummar
   const { data: subs } = await supabase
     .from("sub_accounts")
     .select("id, name, account_id")
-    .in("account_id", acctIds)
+    .eq("client_id", clientId)
     .eq("is_active", true);
   const subMap = new Map<string, { name: string; account_id: string }>();
   for (const s of subs ?? []) {

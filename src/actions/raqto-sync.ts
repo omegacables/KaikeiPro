@@ -4,6 +4,7 @@ import { createServerSupabaseClient } from "@/lib/supabase";
 import { createRaqtoSupabaseClient } from "@/lib/supabase-raqto";
 import { getRaqtoIntegration } from "@/actions/raqto-integration";
 import { assertClientAccess } from "@/lib/authz";
+import { assignPartnerSubAccounts } from "@/lib/partner-sub-accounts";
 import type {
   RaqtoPartner,
   RaqtoOrder,
@@ -617,6 +618,7 @@ export async function importRaqtoSalesOrders(clientId: string): Promise<RaqtoSyn
     result.errors.push(e instanceof Error ? e.message : "受注データ取込に失敗しました");
   }
 
+  await linkPartnerSubAccounts(clientId);
   return result;
 }
 
@@ -749,6 +751,7 @@ export async function importRaqtoPurchaseOrders(clientId: string): Promise<Raqto
     result.errors.push(e instanceof Error ? e.message : "発注データ取込に失敗しました");
   }
 
+  await linkPartnerSubAccounts(clientId);
   return result;
 }
 
@@ -892,6 +895,7 @@ export async function importRaqtoOtherDocuments(clientId: string): Promise<Raqto
     result.errors.push(e instanceof Error ? e.message : "証憑の取込に失敗しました");
   }
 
+  await linkPartnerSubAccounts(clientId);
   return result;
 }
 
@@ -1141,4 +1145,17 @@ export async function runFullRaqtoSync(clientId: string): Promise<RaqtoSyncResul
   }
 
   return finalResult;
+}
+
+/**
+ * 取り込んだ仕訳の売掛金・買掛金の行に、取引先の補助科目を付ける
+ * （売掛帳・買掛帳を相手先ごとに見るため）。失敗しても取込そのものは止めない。
+ */
+async function linkPartnerSubAccounts(clientId: string) {
+  try {
+    const supabase = await createServerSupabaseClient();
+    await assignPartnerSubAccounts(supabase, clientId);
+  } catch {
+    // 補助科目は後から元帳の「修正する」でも付けられる
+  }
 }

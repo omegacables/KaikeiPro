@@ -7,7 +7,6 @@ import {
   Plus,
   ChevronDown,
   ChevronRight,
-  FileText,
   Loader2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -19,12 +18,9 @@ import { getAccounts, getAccountCategories, createAccount, updateAccount } from 
 import { getAccountReadings, upsertAccountReading } from "@/actions/account-readings";
 import { ACCOUNT_READINGS } from "@/lib/account-reading";
 import type { PlClassification } from "@/types/database";
-
-type SubAccount = {
-  code: string;
-  name: string;
-  is_active: boolean;
-};
+import { getSubAccounts, type SubAccount } from "@/actions/sub-accounts";
+import { getPartners } from "@/actions/partners";
+import { SubAccountManager } from "@/components/accounts/sub-account-manager";
 
 type Account = {
   id: string;
@@ -33,7 +29,6 @@ type Account = {
   is_active: boolean;
   is_default: boolean;
   pl_classification: PlClassification | null;
-  sub_accounts: SubAccount[];
 };
 
 type CategoryKey = "assets" | "liabilities" | "equity" | "revenue" | "expenses";
@@ -130,13 +125,29 @@ export default function AccountsPage() {
             is_active: r.is_active,
             is_default: r.is_default,
             pl_classification: (r as { pl_classification?: PlClassification | null }).pl_classification ?? null,
-            sub_accounts: [],
           });
         }
         return grouped;
       }),
     emptyAccounts
   );
+
+  // 補助科目（件数の表示と検索に使う）と、補助科目名の候補にする取引先マスタ
+  const [subAccounts, setSubAccounts] = useState<SubAccount[]>([]);
+  const [subCountOverrides, setSubCountOverrides] = useState<Record<string, number>>({});
+  const [partnerOptions, setPartnerOptions] = useState<{ id: string; name: string; aliases: string[]; sub: string }[]>([]);
+  useEffect(() => {
+    getSubAccounts(id).then(setSubAccounts).catch(() => setSubAccounts([]));
+    getPartners(id)
+      .then((ps) =>
+        setPartnerOptions(
+          ps.map((p) => ({ id: p.id, name: p.name, aliases: p.aliases ?? [], sub: p.address ?? "" }))
+        )
+      )
+      .catch(() => setPartnerOptions([]));
+  }, [id]);
+  const subCount = (accountId: string) =>
+    subCountOverrides[accountId] ?? subAccounts.filter((s) => s.accountId === accountId).length;
 
   // PL区分の変更（収益・費用科目のみ）。ローカルに反映しつつ保存する。
   const [plOverrides, setPlOverrides] = useState<Record<string, PlClassification | null>>({});
@@ -234,9 +245,7 @@ export default function AccountsPage() {
         return (
           account.code.includes(q) ||
           account.name.toLowerCase().includes(q) ||
-          account.sub_accounts.some(
-            (sa) => sa.code.includes(q) || sa.name.toLowerCase().includes(q)
-          )
+          subAccounts.some((sa) => sa.accountId === account.id && sa.name.toLowerCase().includes(q))
         );
       }
       return true;
@@ -312,7 +321,7 @@ export default function AccountsPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
               type="text"
-              placeholder="科目コード・科目名で検索..."
+              placeholder="科目コード・科目名・補助科目名で検索..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-10 pr-4 py-2 rounded-lg border border-border bg-card text-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
@@ -382,18 +391,15 @@ export default function AccountsPage() {
                       "border-b border-border hover:bg-muted/10 cursor-pointer",
                       !account.is_active && "opacity-50"
                     )}
-                    onClick={() =>
-                      account.sub_accounts.length > 0 && toggleRow(account.code)
-                    }
+                    onClick={() => toggleRow(account.code)}
+                    title="クリックで補助科目を表示・設定"
                   >
                     <td className="px-4 py-3">
-                      {account.sub_accounts.length > 0 ? (
-                        expandedRows.has(account.code) ? (
-                          <ChevronDown className="size-4 text-muted-foreground" />
-                        ) : (
-                          <ChevronRight className="size-4 text-muted-foreground" />
-                        )
-                      ) : null}
+                      {expandedRows.has(account.code) ? (
+                        <ChevronDown className="size-4 text-muted-foreground" />
+                      ) : (
+                        <ChevronRight className="size-4 text-muted-foreground" />
+                      )}
                     </td>
                     <td className="px-4 py-3 font-mono text-muted-foreground">
                       {account.code}
@@ -467,57 +473,22 @@ export default function AccountsPage() {
                       </td>
                     )}
                     <td className="px-4 py-3 text-center text-muted-foreground">
-                      {account.sub_accounts.length > 0
-                        ? `${account.sub_accounts.length}件`
-                        : "-"}
+                      {subCount(account.id) > 0 ? `${subCount(account.id)}件` : "-"}
                     </td>
                   </tr>
-                  {expandedRows.has(account.code) &&
-                    account.sub_accounts
-                      .map((sub) => (
-                        <tr
-                          key={sub.code}
-                          className={cn(
-                            "border-b border-border bg-muted/10",
-                            !sub.is_active && "opacity-50"
-                          )}
-                        >
-                          <td className="px-4 py-2"></td>
-                          <td className="px-4 py-2 pl-12 font-mono text-muted-foreground text-xs">
-                            {sub.code}
-                          </td>
-                          <td className="px-4 py-2 text-foreground text-xs flex items-center gap-2">
-                            <FileText className="size-3 text-muted-foreground" />
-                            {sub.name}
-                          </td>
-                          <td className="px-4 py-2"></td>
-                          <td className="px-4 py-2 text-center">
-                            <span
-                              className={cn(
-                                "inline-flex items-center gap-1.5 text-xs",
-                                sub.is_active
-                                  ? "text-success"
-                                  : "text-muted-foreground"
-                              )}
-                            >
-                              <span
-                                className={cn(
-                                  "size-1.5 rounded-full",
-                                  sub.is_active
-                                    ? "bg-green-500"
-                                    : "bg-muted-foreground/40"
-                                )}
-                              />
-                              {sub.is_active ? "有効" : "無効"}
-                            </span>
-                          </td>
-                          <td className="px-4 py-2 text-center">
-                            <Badge variant="muted">補助</Badge>
-                          </td>
-                          {showPl && <td className="px-4 py-2"></td>}
-                          <td className="px-4 py-2"></td>
-                        </tr>
-                      ))}
+                  {expandedRows.has(account.code) && (
+                    <tr className="border-b border-border bg-muted/10">
+                      <td />
+                      <td colSpan={colCount - 1} className="px-4 py-3">
+                        <SubAccountManager
+                          clientId={id}
+                          account={{ id: account.id, name: account.name }}
+                          partners={partnerOptions}
+                          onCountChange={(n) => setSubCountOverrides((p) => ({ ...p, [account.id]: n }))}
+                        />
+                      </td>
+                    </tr>
+                  )}
                 </Fragment>
               ))}
               {accounts.length === 0 && (

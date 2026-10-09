@@ -3,6 +3,7 @@
 import { createServerSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import type { Database } from "@/types/database";
+import { assignPartnerSubAccounts } from "@/lib/partner-sub-accounts";
 
 type PaymentRow = Database["public"]["Tables"]["payments"]["Row"];
 type PaymentInsert = Database["public"]["Tables"]["payments"]["Insert"];
@@ -148,6 +149,12 @@ async function finalizeReconciliation(
       result.errors.push(`入金仕訳明細の作成エラー: ${lineError.message}`);
     } else {
       result.journalsCreated++;
+      // 回収の行にも取引先の補助科目を付け、売掛帳で相手先ごとの残高が合うようにする
+      try {
+        await assignPartnerSubAccounts(supabase, clientId, { entryIds: [entry.id] });
+      } catch {
+        // 後から元帳の「修正する」でも付けられる
+      }
     }
   }
 

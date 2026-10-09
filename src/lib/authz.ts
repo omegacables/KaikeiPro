@@ -23,6 +23,7 @@ export type ClientScopedTable =
   | "fixed_assets"
   | "business_partners"
   | "accounts"
+  | "sub_accounts"
   | "bank_accounts"
   | "card_accounts"
   | "company_documents"

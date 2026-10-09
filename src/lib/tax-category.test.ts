@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
 import {
+  defaultTaxCategory,
+  taxCategoriesFor,
   normalizeTaxCategory,
   normalizeTaxRate,
   taxFromGross,
@@ -104,5 +106,28 @@ describe("税込金額からの消費税額", () => {
 
   it("0円は0円", () => {
     expect(taxFromGross(0, 0.1)).toBe(0);
+  });
+});
+
+
+describe("手入力の初期の税区分", () => {
+  it("費用は標準税率、給料・租税公課は不課税、支払利息・保険料は非課税", () => {
+    expect(defaultTaxCategory("expenses", "消耗品費")).toBe("purchase_10");
+    expect(defaultTaxCategory("expenses", "水道光熱費")).toBe("purchase_10");
+    expect(defaultTaxCategory("expenses", "給料手当")).toBe("purchase_out_of_scope");
+    expect(defaultTaxCategory("expenses", "租税公課")).toBe("purchase_out_of_scope");
+    expect(defaultTaxCategory("expenses", "支払利息")).toBe("purchase_exempt");
+    expect(defaultTaxCategory("expenses", "損害保険料")).toBe("purchase_exempt");
+  });
+  it("収益は標準税率、受取利息は非課税、受取配当金は不課税", () => {
+    expect(defaultTaxCategory("revenue", "売上高")).toBe("sales_10");
+    expect(defaultTaxCategory("revenue", "受取利息")).toBe("sales_exempt");
+    expect(defaultTaxCategory("revenue", "受取配当金")).toBe("sales_out_of_scope");
+  });
+  it("資産・負債の行には税区分を付けない", () => {
+    expect(defaultTaxCategory("assets", "普通預金")).toBeNull();
+    expect(defaultTaxCategory("liabilities", "買掛金")).toBeNull();
+    expect(taxCategoriesFor("assets")).toEqual([]);
+    expect(taxCategoriesFor("revenue").every((c) => c.side === "sales")).toBe(true);
   });
 });

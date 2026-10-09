@@ -3,6 +3,7 @@
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import { assertRecordsAccess, assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import { recordLearnedRule } from "./learned-rules";
+import { sanitizeTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import type { Database } from "@/types/database";
 
 type JournalEntryRow = Database["public"]["Tables"]["journal_entries"]["Row"];
@@ -145,26 +146,71 @@ export async function updateJournalEntry(
 }
 
 /**
- * 既存仕訳の見出し（日付・摘要）と明細（科目・借方・貸方）を丸ごと更新する。
- * AI生成や取込で作られた draft 仕訳を後から編集するために使う。
+ * 既存仕訳の見出し（日付・摘要）と明細（科目・借方・貸方・補助科目・税区分）を丸ごと更新する。
+ * AI生成や取込で作られた仕訳、帳簿閲覧の元帳から開いた仕訳を後から編集するために使う。
  * - 所有権チェック（resolveClientIdForRecord）とロック会計年度チェックを行う。
  * - 編集＝人手で確認したとみなし、needs_review は既定で解除する。
+ * - 明細は作り直すので、補助科目・税区分・部門も渡された内容で保存する
+ *   （以前は科目と金額しか引き継がず、編集すると税区分が消えていた）。
  */
 export async function updateJournalEntryWithLines(
   id: string,
   header: { entry_date: string; description: string | null; needs_review?: boolean },
-  lines: { account_id: string; debit_amount: number; credit_amount: number }[]
+  lines: {
+    account_id: string;
+    debit_amount: number;
+    credit_amount: number;
+    sub_account_id?: string | null;
+    tax_category?: string | null;
+    department_id?: string | null;
+  }[]
 ): Promise<void> {
-  await resolveClientIdForRecord("journal_entries", id);
+  const clientId = await resolveClientIdForRecord("journal_entries", id);
   const admin = createAdminSupabaseClient();
   await assertNotInLockedFiscalYear(admin, [id]);
 
+  // 補助科目は、その行の科目・この顧問先のものに限る。
+  // 明細は削除→再作成なので、作り直しで失敗しないよう削除の前に確かめる
+  const subIds = [...new Set(lines.map((l) => l.sub_account_id).filter(Boolean))] as string[];
+  if (subIds.length) {
+    const { data: subs } = await admin.from("sub_accounts").select("id, account_id, client_id").in("id", subIds);
+    const subById = new Map((subs ?? []).map((s) => [s.id as string, s]));
+    for (const l of lines) {
+      if (!l.sub_account_id) continue;
+      const s = subById.get(l.sub_account_id);
+      if (!s || s.client_id !== clientId || s.account_id !== l.account_id) {
+        throw new Error("補助科目が勘定科目と合っていません。科目を変えたときは補助科目を選び直してください");
+      }
+    }
+  }
+
+  // 税区分は収益・費用の行にだけ付ける（資産・負債の行に付けると消費税を多重に数える）
+  const accountIds = [...new Set(lines.map((l) => l.account_id).filter(Boolean))];
+  const { data: accts } = await admin
+    .from("accounts")
+    .select("id, account_categories:category_id ( type )")
+    .in("id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"]);
+  const typeOf = new Map(
+    ((accts ?? []) as unknown as { id: string; account_categories: { type: string } | null }[]).map((a) => [
+      a.id,
+      a.account_categories?.type ?? "",
+    ])
+  );
+
   const cleaned = lines
-    .map((l) => ({
-      account_id: l.account_id,
-      debit_amount: Math.round(Number(l.debit_amount) || 0),
-      credit_amount: Math.round(Number(l.credit_amount) || 0),
-    }))
+    .map((l) => {
+      const type = typeOf.get(l.account_id);
+      const code = type === "revenue" || type === "expenses" ? sanitizeTaxCategory(l.tax_category) : null;
+      return {
+        account_id: l.account_id,
+        debit_amount: Math.round(Number(l.debit_amount) || 0),
+        credit_amount: Math.round(Number(l.credit_amount) || 0),
+        sub_account_id: l.sub_account_id || null,
+        department_id: l.department_id || null,
+        tax_category: code,
+        tax_rate: code ? taxCategoryInfo(code)?.rate ?? null : null,
+      };
+    })
     .filter((l) => l.account_id && (l.debit_amount > 0 || l.credit_amount > 0));
 
   if (cleaned.length === 0) throw new Error("仕訳明細を入力してください");
@@ -198,9 +244,7 @@ export async function updateJournalEntryWithLines(
   const { error: insErr } = await admin.from("journal_entry_lines").insert(
     cleaned.map((l, i) => ({
       journal_entry_id: id,
-      account_id: l.account_id,
-      debit_amount: l.debit_amount,
-      credit_amount: l.credit_amount,
+      ...l,
       sort_order: i,
     }))
   );

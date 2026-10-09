@@ -54,6 +54,8 @@ interface PartnerInputProps<T extends PartnerSuggestion> {
   partners: T[];
   placeholder?: string;
   className?: string;
+  /** 何も入力していないときにも候補を出すか（既定は出す） */
+  showOnEmpty?: boolean;
 }
 
 function PartnerInputInner<T extends PartnerSuggestion>({
@@ -63,6 +65,7 @@ function PartnerInputInner<T extends PartnerSuggestion>({
   partners,
   placeholder,
   className,
+  showOnEmpty = true,
 }: PartnerInputProps<T>) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -74,7 +77,7 @@ function PartnerInputInner<T extends PartnerSuggestion>({
   const candidates = useMemo(() => filterPartners(partners, value), [partners, value]);
   // 入力が候補の名前と完全に同じなら、候補を出し続けない
   const exact = candidates.length === 1 && candidates[0].name === value;
-  const show = open && candidates.length > 0 && !exact;
+  const show = open && candidates.length > 0 && !exact && (showOnEmpty || value.trim() !== "");
 
   useEffect(() => {
     if (!show) return;

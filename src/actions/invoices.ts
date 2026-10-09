@@ -3,6 +3,7 @@
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import type { Database } from "@/types/database";
+import { assignPartnerSubAccounts } from "@/lib/partner-sub-accounts";
 
 type InvoiceRow = Database["public"]["Tables"]["invoices"]["Row"];
 type InvoiceInsert = Database["public"]["Tables"]["invoices"]["Insert"];
@@ -373,6 +374,13 @@ export async function issueInvoiceWithJournal(invoiceId: string): Promise<void> 
     .update({ status: "issued" as const, journal_entry_id: journalEntry.id })
     .eq("id", invoiceId);
   if (updateError) throw new Error(`請求書更新エラー: ${updateError.message}`);
+
+  // 売掛金（買掛金）の行に取引先の補助科目を付ける。失敗しても発行は済んでいる
+  try {
+    await assignPartnerSubAccounts(supabase, invoice.client_id, { entryIds: [journalEntry.id] });
+  } catch {
+    // 後から元帳の「修正する」でも付けられる
+  }
 }
 
 // ── 得意先別売掛残高 ──────────────────────────────────────────────────────────

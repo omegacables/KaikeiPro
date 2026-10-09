@@ -48,6 +48,9 @@ import { useAuth } from "@/components/providers/auth-provider";
 import Link from "next/link";
 import { DateInput } from "@/components/ui/date-input";
 import { AmountInput } from "@/components/ui/amount-input";
+import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, type LineSub } from "@/components/journal/line-fields";
+import { getSubAccounts, ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
+import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -469,25 +472,34 @@ export default function JournalsPage() {
       .catch(console.error);
   }, [id]);
 
+  // 補助科目（行の補助科目欄の候補）
+  const [subAccounts, setSubAccounts] = useState<SubAccount[]>([]);
+  useEffect(() => {
+    getSubAccounts(id).then(setSubAccounts).catch(() => setSubAccounts([]));
+  }, [id]);
+
   const [saving, setSaving] = useState(false);
   const [newEntry, setNewEntry] = useState({
     date: new Date().toISOString().split("T")[0],
   });
   // 借方・貸方を独立した配列で管理（金額はstring型で入力途中の値を保持）
-  const [debitLines, setDebitLines] = useState([{ account: "", amount: "" }]);
-  const [creditLines, setCreditLines] = useState([{ account: "", amount: "" }]);
+  // sub は補助科目、tax は税区分（費用・収益の行だけ）
+  type InputLine = { account: string; amount: string; sub: LineSub; tax: string };
+  const newLine = (): InputLine => ({ account: "", amount: "", sub: EMPTY_SUB, tax: "" });
+  const [debitLines, setDebitLines] = useState<InputLine[]>([newLine()]);
+  const [creditLines, setCreditLines] = useState<InputLine[]>([newLine()]);
   // 摘要は行ごとに独立管理
   const [memos, setMemos] = useState([""]);
 
   const addDebitLine = () => {
-    setDebitLines((prev) => [...prev, { account: "", amount: "" }]);
+    setDebitLines((prev) => [...prev, newLine()]);
     setMemos((prev) => {
       const newLen = Math.max(debitLines.length + 1, creditLines.length);
       return newLen > prev.length ? [...prev, ...Array(newLen - prev.length).fill("")] : prev;
     });
   };
   const addCreditLine = () => {
-    setCreditLines((prev) => [...prev, { account: "", amount: "" }]);
+    setCreditLines((prev) => [...prev, newLine()]);
     setMemos((prev) => {
       const newLen = Math.max(debitLines.length, creditLines.length + 1);
       return newLen > prev.length ? [...prev, ...Array(newLen - prev.length).fill("")] : prev;
@@ -495,10 +507,22 @@ export default function JournalsPage() {
   };
   const removeDebitLine = (idx: number) => setDebitLines((prev) => prev.filter((_, i) => i !== idx));
   const removeCreditLine = (idx: number) => setCreditLines((prev) => prev.filter((_, i) => i !== idx));
-  const updateDebitLine = (idx: number, field: string, value: string | number) =>
-    setDebitLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
-  const updateCreditLine = (idx: number, field: string, value: string | number) =>
-    setCreditLines((prev) => prev.map((l, i) => (i === idx ? { ...l, [field]: value } : l)));
+  // 科目を変えたら、補助科目は外し、税区分はその科目の初期値にする
+  const withField = (l: InputLine, field: string, value: unknown): InputLine => {
+    if (field !== "account") return { ...l, [field]: value } as InputLine;
+    if (value === l.account) return l;
+    const acc = accounts.find((a) => a.id === value);
+    return {
+      ...l,
+      account: value as string,
+      sub: EMPTY_SUB,
+      tax: acc ? defaultTaxCategory(acc.categoryType, acc.name) ?? "" : "",
+    };
+  };
+  const updateDebitLine = (idx: number, field: string, value: unknown) =>
+    setDebitLines((prev) => prev.map((l, i) => (i === idx ? withField(l, field, value) : l)));
+  const updateCreditLine = (idx: number, field: string, value: unknown) =>
+    setCreditLines((prev) => prev.map((l, i) => (i === idx ? withField(l, field, value) : l)));
 
   // Arrow key navigation grid: [row][col] where cols = date, debitAccount, debitAmount, creditAccount, creditAmount, memo
   // The submit button is stored as a special extra row at grid[maxRows][0]
@@ -655,21 +679,40 @@ export default function JournalsPage() {
     const validDebits = debitWithAmount;
     const validCredits = creditWithAmount;
 
-    const lines = [
-      ...validDebits.map((l) => ({
-        account_id: l.account,
-        debit_amount: parseAmount(l.amount),
-        credit_amount: 0,
-      })),
-      ...validCredits.map((l) => ({
-        account_id: l.account,
-        debit_amount: 0,
-        credit_amount: parseAmount(l.amount),
-      })),
-    ];
+    // 費用・収益の行の税区分（それ以外の行には付けない）
+    const taxOf = (l: InputLine) => {
+      const acc = accounts.find((a) => a.id === l.account);
+      const isPl = acc?.categoryType === "revenue" || acc?.categoryType === "expenses";
+      const info = isPl ? taxCategoryInfo(l.tax) : null;
+      return { tax_category: info?.code ?? null, tax_rate: info ? info.rate : null };
+    };
 
     setSaving(true);
     try {
+      // 手入力された補助科目名は、ここで補助科目として登録してIDにする
+      const all = [...validDebits, ...validCredits];
+      const subIds = await ensureSubAccounts(
+        id,
+        all.map((l) => ({ accountId: l.account, name: l.sub.id ? "" : l.sub.name }))
+      );
+      const subIdOf = (l: InputLine, i: number) => l.sub.id ?? subIds[i];
+      const lines = [
+        ...validDebits.map((l, i) => ({
+          account_id: l.account,
+          debit_amount: parseAmount(l.amount),
+          credit_amount: 0,
+          sub_account_id: subIdOf(l, i),
+          ...taxOf(l),
+        })),
+        ...validCredits.map((l, i) => ({
+          account_id: l.account,
+          debit_amount: 0,
+          credit_amount: parseAmount(l.amount),
+          sub_account_id: subIdOf(l, validDebits.length + i),
+          ...taxOf(l),
+        })),
+      ];
+
       await createJournalEntry(
         {
           client_id: id,
@@ -1477,7 +1520,7 @@ export default function JournalsPage() {
               const maxRows = Math.max(debitLines.length, creditLines.length);
               return (
                 <div className="overflow-x-auto -mx-2 px-2 mb-4">
-                <table className="w-full text-sm min-w-[640px]">
+                <table className="w-full text-sm min-w-[880px]">
                   <thead>
                     <tr className="border-b-2 border-border">
                       <th rowSpan={2} className="text-center py-2 text-xs font-bold text-muted-foreground border-r border-border w-[150px]">日付</th>
@@ -1522,6 +1565,14 @@ export default function JournalsPage() {
                                 )}
                               </div>
                             ) : null}
+                            {dl?.account ? (
+                              <LineExtras
+                                line={dl}
+                                accounts={accounts}
+                                subAccounts={subAccounts}
+                                onChange={(field, v) => updateDebitLine(idx, field, v)}
+                              />
+                            ) : null}
                           </td>
                           {/* 借方金額 */}
                           <td className="py-1.5 px-1 border-r border-border w-[15%]">
@@ -1547,6 +1598,14 @@ export default function JournalsPage() {
                                   </button>
                                 )}
                               </div>
+                            ) : null}
+                            {cl?.account ? (
+                              <LineExtras
+                                line={cl}
+                                accounts={accounts}
+                                subAccounts={subAccounts}
+                                onChange={(field, v) => updateCreditLine(idx, field, v)}
+                              />
                             ) : null}
                           </td>
                           {/* 貸方金額 */}
@@ -1636,5 +1695,37 @@ export default function JournalsPage() {
         </Card>
 
     </>
+  );
+}
+
+/** 仕訳入力の行の、科目欄の下に出す補助科目と税区分 */
+function LineExtras({
+  line,
+  accounts,
+  subAccounts,
+  onChange,
+}: {
+  line: { account: string; sub: LineSub; tax: string };
+  accounts: AccountOption[];
+  subAccounts: SubAccount[];
+  onChange: (field: "sub" | "tax", value: LineSub | string) => void;
+}) {
+  const acc = accounts.find((a) => a.id === line.account);
+  return (
+    <div className="mt-1 flex items-center gap-1">
+      <div className="flex-1 min-w-0">
+        <SubAccountInput
+          accountId={line.account}
+          subAccounts={subAccounts}
+          value={line.sub}
+          onChange={(v) => onChange("sub", v)}
+        />
+      </div>
+      {acc && (
+        <div className="w-36 shrink-0">
+          <TaxCategorySelect accountType={acc.categoryType} value={line.tax} onChange={(v) => onChange("tax", v)} />
+        </div>
+      )}
+    </div>
   );
 }

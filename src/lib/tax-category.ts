@@ -169,3 +169,36 @@ export function sanitizeTaxCategory(code: string | null | undefined): TaxCategor
   const v = code.trim();
   return BY_CODE.has(v as TaxCategoryCode) ? (v as TaxCategoryCode) : null;
 }
+
+/** その科目の行で選べる税区分（収益は売上側、費用は仕入側。それ以外は税区分を持たない） */
+export function taxCategoriesFor(accountType: string): TaxCategoryInfo[] {
+  if (accountType === "revenue") return TAX_CATEGORY_LIST.filter((c) => c.side === "sales");
+  if (accountType === "expenses") return TAX_CATEGORY_LIST.filter((c) => c.side === "purchase");
+  return [];
+}
+
+// 消費税がかからない費用・収益（科目名で判断できる代表的なもの）
+const PURCHASE_OUT_OF_SCOPE = /給料|給与|賃金|賞与|役員報酬|雑給|退職|法定福利|租税公課|減価償却|寄付|貸倒|法人税|住民税|事業税|繰入/;
+const PURCHASE_EXEMPT = /支払利息|支払利子|保険料|支払保証料/;
+const SALES_EXEMPT = /受取利息/;
+const SALES_OUT_OF_SCOPE = /受取配当|保険金|補助金|助成金|還付|戻入/;
+
+/**
+ * 手入力の仕訳で、科目を選んだときに最初に入れておく税区分。
+ * 画面に表示して人が確かめる前提の初期値で、変更できる。
+ * 給料・租税公課などの不課税、支払利息・保険料などの非課税は科目名で判断し、
+ * それ以外の費用・収益は標準税率（10%）とする。
+ */
+export function defaultTaxCategory(accountType: string, accountName: string): TaxCategoryCode | null {
+  if (accountType === "revenue") {
+    if (SALES_EXEMPT.test(accountName)) return "sales_exempt";
+    if (SALES_OUT_OF_SCOPE.test(accountName)) return "sales_out_of_scope";
+    return "sales_10";
+  }
+  if (accountType === "expenses") {
+    if (PURCHASE_OUT_OF_SCOPE.test(accountName)) return "purchase_out_of_scope";
+    if (PURCHASE_EXEMPT.test(accountName)) return "purchase_exempt";
+    return "purchase_10";
+  }
+  return null;
+}
