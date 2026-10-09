@@ -182,3 +182,29 @@ export function adjacentFiscalPeriodKeys(
     nextKey: addDays(period.endDate, 1),
   };
 }
+
+/**
+ * fromDate を含む事業年度から、指定した事業年度までの期を古い順に並べる。
+ * 前期へのたどり方は adjacentFiscalPeriodKeys と同じ（変則期間も記録どおりにたどる）。
+ * fromDate が指定した期より後なら空。
+ */
+export function fiscalPeriodsUpTo(
+  rows: FiscalPeriodRow[],
+  startMonth: number | null | undefined,
+  target: { startDate: string; endDate: string },
+  fromDate: string,
+  maxPeriods = 80
+): { startDate: string; endDate: string }[] {
+  if (fromDate > target.endDate) return [];
+  const out: { startDate: string; endDate: string }[] = [];
+  let p: { startDate: string; endDate: string } = target;
+  for (let i = 0; i < maxPeriods; i++) {
+    out.push({ startDate: p.startDate, endDate: p.endDate });
+    if (p.startDate <= fromDate) break;
+    const { prevKey } = adjacentFiscalPeriodKeys(rows, p);
+    const prev = resolveFiscalPeriodByKey(rows, startMonth, prevKey);
+    // 前期の期末が当期の期首の前日でない（記録の食い違い）ときは、つながるように合わせる
+    p = { startDate: prev.startDate, endDate: addDays(p.startDate, -1) };
+  }
+  return out.reverse();
+}

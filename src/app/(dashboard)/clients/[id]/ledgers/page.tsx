@@ -46,7 +46,7 @@ import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { deleteJournalEntries, getDescriptionSuggestions } from "@/actions/journals";
 import { getReceipt } from "@/actions/receipts";
-import { getAssets } from "@/actions/assets";
+import { getDepreciationBook, type DepreciationAsset } from "@/actions/assets";
 import type { Database } from "@/types/database";
 import { getAgingReport, type AgingReportRow, type AgingBuckets } from "@/actions/invoices";
 import { MonthInput } from "@/components/ui/month-input";
@@ -323,14 +323,6 @@ const assetCategoryOptions: { key: AssetCategory; label: string; icon: typeof Bu
   { key: "software", label: "ソフトウェア", icon: Code2 },
 ];
 
-const assetCategoryMap: Record<string, AssetCategory> = {
-  "建物": "building",
-  "車両運搬具": "vehicle",
-  "車両": "vehicle",
-  "器具備品": "equipment",
-  "ソフトウェア": "software",
-};
-
 const assetCategoryLabelMap: Record<AssetCategory, string> = {
   all: "すべて",
   building: "建物",
@@ -339,12 +331,13 @@ const assetCategoryLabelMap: Record<AssetCategory, string> = {
   software: "ソフトウェア",
 };
 
-const depMethodLabel: Record<string, string> = {
-  straight_line: "定額法",
-  declining_balance: "定率法",
-};
-
-type AssetRow = Database["public"]["Tables"]["fixed_assets"]["Row"];
+/** 科目名から絞り込みの分類を決める */
+function assetCategoryOf(accountName: string): AssetCategory {
+  if (/建物|構築物/.test(accountName)) return "building";
+  if (/車両|運搬具/.test(accountName)) return "vehicle";
+  if (/ソフトウェア/.test(accountName)) return "software";
+  return "equipment";
+}
 
 type AssetDisplay = {
   id: string;
@@ -358,21 +351,21 @@ type AssetDisplay = {
   bookValue: number;
 };
 
-function mapAssetRows(rows: AssetRow[]): AssetDisplay[] {
-  return rows.map((r) => {
-    const cat = assetCategoryMap[r.category ?? ""] ?? "equipment";
-    return {
-      id: r.id,
-      name: r.name,
-      category: cat,
-      categoryLabel: assetCategoryLabelMap[cat],
-      acquisitionDate: r.acquisition_date.replace(/-/g, "/"),
-      acquisitionCost: r.acquisition_cost,
-      usefulLife: r.useful_life,
-      depreciationMethod: depMethodLabel[r.depreciation_method] ?? r.depreciation_method,
-      bookValue: r.acquisition_cost,
-    };
-  });
+/** 固定資産台帳の計算（当期末の帳簿価額）を表示用にする */
+function mapAssetRows(assets: DepreciationAsset[]): AssetDisplay[] {
+  return assets
+    .filter((a) => !a.disposedAt)
+    .map((a) => ({
+      id: a.id,
+      name: a.name,
+      category: assetCategoryOf(a.accountName),
+      categoryLabel: a.accountName || "その他",
+      acquisitionDate: a.acquisitionDate.replace(/-/g, "/"),
+      acquisitionCost: a.acquisitionCost,
+      usefulLife: a.usefulLife,
+      depreciationMethod: a.kindLabel,
+      bookValue: a.closingBook,
+    }));
 }
 
 function FixedAssetLedgerTable({ assets }: { assets: AssetDisplay[] }) {
@@ -756,8 +749,8 @@ export default function LedgersPage() {
     if (activeTab === "assets") {
       setTabLoading(true);
       beginLoad();
-      getAssets(id)
-        .then(mapAssetRows)
+      getDepreciationBook(id)
+        .then((b) => mapAssetRows(b.assets))
         .then(setAssetsData)
         .catch(console.error)
         .finally(() => { setTabLoading(false); endLoad(); });

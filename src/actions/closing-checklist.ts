@@ -2,7 +2,7 @@
 
 import { createAdminSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
-import { getDepreciationSummary } from "@/actions/closing";
+import { getDepreciationSummary } from "@/actions/assets";
 
 type DbRow = Record<string, unknown>;
 

@@ -10,6 +10,7 @@ import {
   DEFAULT_FISCAL_START_MONTH,
   toJstDate,
   transitionalPeriodEnd,
+  fiscalPeriodsUpTo,
 } from "./fiscal";
 
 describe("fiscalRangeFromStartYear", () => {
@@ -216,5 +217,30 @@ describe("adjacentFiscalPeriodKeys（前期・翌期）", () => {
       "2025-09-01〜2026-08-31",
       "2026-09-01〜2027-08-31",
     ]);
+  });
+});
+
+describe("fiscalPeriodsUpTo（使い始めた期から指定の期まで）", () => {
+  it("12ヶ月の期を古い順にたどる", () => {
+    const target = { startDate: "2026-04-01", endDate: "2027-03-31" };
+    expect(fiscalPeriodsUpTo([], 4, target, "2024-10-15")).toEqual([
+      { startDate: "2024-04-01", endDate: "2025-03-31" },
+      { startDate: "2025-04-01", endDate: "2026-03-31" },
+      { startDate: "2026-04-01", endDate: "2027-03-31" },
+    ]);
+  });
+
+  it("決算月を変えた変則期間を記録どおりにたどる", () => {
+    const rows = [{ start_date: "2025-04-01", end_date: "2025-12-31" }];
+    const target = { startDate: "2026-01-01", endDate: "2026-12-31" };
+    expect(fiscalPeriodsUpTo(rows, 1, target, "2024-06-01")).toEqual([
+      { startDate: "2024-04-01", endDate: "2025-03-31" },
+      { startDate: "2025-04-01", endDate: "2025-12-31" },
+      { startDate: "2026-01-01", endDate: "2026-12-31" },
+    ]);
+  });
+
+  it("指定の期より後に始まるなら空", () => {
+    expect(fiscalPeriodsUpTo([], 4, { startDate: "2024-04-01", endDate: "2025-03-31" }, "2025-04-01")).toEqual([]);
   });
 });

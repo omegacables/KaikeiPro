@@ -1,13 +1,11 @@
 "use server";
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
-import { calculateAnnualDepreciation } from "@/lib/depreciation";
 import { assertClientAccess } from "@/lib/authz";
 import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
 import type { Database } from "@/types/database";
 
 type FiscalYearRow = Database["public"]["Tables"]["fiscal_years"]["Row"];
-type FixedAssetRow = Database["public"]["Tables"]["fixed_assets"]["Row"];
 
 export async function getActiveFiscalYear(clientId: string): Promise<FiscalYearRow | null> {
   await assertClientAccess(clientId);
@@ -119,62 +117,6 @@ export async function getClosingEntries(
         status: entry.status === "confirmed" ? "confirmed" as const : "draft" as const,
       };
     });
-}
-
-export interface DepreciationItem {
-  category: string;
-  amount: number;
-  count: number;
-}
-
-export interface DepreciationSummary {
-  totalAssets: number;
-  totalDepreciation: number;
-  items: DepreciationItem[];
-}
-
-export async function getDepreciationSummary(
-  clientId: string,
-  fiscalYearEndDate: string
-): Promise<DepreciationSummary> {
-  const supabase = await createServerSupabaseClient();
-
-  const { data, error } = await supabase
-    .from("fixed_assets")
-    .select("*")
-    .eq("client_id", clientId)
-    .is("disposed_at", null);
-
-  if (error) throw new Error(error.message);
-
-  const assets = data ?? [];
-  const endDate = new Date(fiscalYearEndDate);
-
-  // Group by category and calculate depreciation
-  const categoryMap = new Map<string, { amount: number; count: number }>();
-
-  for (const asset of assets) {
-    const depreciation = calculateAnnualDepreciation(asset, endDate);
-    const cat = asset.category || "その他";
-    const existing = categoryMap.get(cat) ?? { amount: 0, count: 0 };
-    existing.amount += depreciation;
-    existing.count += 1;
-    categoryMap.set(cat, existing);
-  }
-
-  const items: DepreciationItem[] = [];
-  let totalDepreciation = 0;
-
-  for (const [category, { amount, count }] of categoryMap) {
-    items.push({ category, amount, count });
-    totalDepreciation += amount;
-  }
-
-  return {
-    totalAssets: assets.length,
-    totalDepreciation,
-    items,
-  };
 }
 
 export async function updateFiscalYearStatus(

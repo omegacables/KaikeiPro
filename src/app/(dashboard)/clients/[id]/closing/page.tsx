@@ -22,11 +22,10 @@ import { getClient } from "@/actions/clients";
 import {
   getActiveFiscalYear,
   getClosingEntries,
-  getDepreciationSummary,
   updateFiscalYearStatus,
   type ClosingEntry,
-  type DepreciationSummary,
 } from "@/actions/closing";
+import { getDepreciationSummary, type DepreciationSummary } from "@/actions/assets";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";

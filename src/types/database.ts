@@ -137,6 +137,8 @@ export interface Database {
           invoice_registration_number: string | null;
           entity_type: "individual" | "corporation" | null;
           consumption_tax_status: "taxable" | "exempt";
+          depreciation_rounding: "floor" | "ceil" | "round";
+          depreciation_entry_method: "direct" | "indirect";
           ai_share_company_info: boolean;
           ai_share_personal_info: boolean;
           is_active: boolean;
@@ -159,6 +161,8 @@ export interface Database {
           invoice_registration_number?: string | null;
           entity_type?: "individual" | "corporation" | null;
           consumption_tax_status?: "taxable" | "exempt";
+          depreciation_rounding?: "floor" | "ceil" | "round";
+          depreciation_entry_method?: "direct" | "indirect";
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -181,6 +185,8 @@ export interface Database {
           invoice_registration_number?: string | null;
           entity_type?: "individual" | "corporation" | null;
           consumption_tax_status?: "taxable" | "exempt";
+          depreciation_rounding?: "floor" | "ceil" | "round";
+          depreciation_entry_method?: "direct" | "indirect";
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -1562,6 +1568,11 @@ export interface Database {
           salvage_value: number;
           disposed_at: string | null;
           created_at: string;
+          account_id: string | null;
+          service_start_date: string | null;
+          special_depreciation_rate: number | null;
+          special_depreciation_note: string | null;
+          note: string | null;
         };
         Insert: {
           id?: string;
@@ -1575,6 +1586,11 @@ export interface Database {
           salvage_value?: number;
           disposed_at?: string | null;
           created_at?: string;
+          account_id?: string | null;
+          service_start_date?: string | null;
+          special_depreciation_rate?: number | null;
+          special_depreciation_note?: string | null;
+          note?: string | null;
         };
         Update: {
           id?: string;
@@ -1587,6 +1603,45 @@ export interface Database {
           depreciation_method?: "straight_line" | "declining_balance";
           salvage_value?: number;
           disposed_at?: string | null;
+          account_id?: string | null;
+          service_start_date?: string | null;
+          special_depreciation_rate?: number | null;
+          special_depreciation_note?: string | null;
+          note?: string | null;
+        };
+        Relationships: [];
+      };
+      fixed_asset_depreciations: {
+        Row: {
+          id: string;
+          client_id: string;
+          asset_id: string;
+          period_start: string;
+          period_end: string;
+          booked_amount: number;
+          is_manual: boolean;
+          journal_entry_id: string | null;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          asset_id: string;
+          period_start: string;
+          period_end: string;
+          booked_amount: number;
+          is_manual?: boolean;
+          journal_entry_id?: string | null;
+          note?: string | null;
+        };
+        Update: {
+          booked_amount?: number;
+          period_end?: string;
+          is_manual?: boolean;
+          journal_entry_id?: string | null;
+          note?: string | null;
         };
         Relationships: [];
       };
