@@ -96,7 +96,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/accounts", label: "勘定科目管理", icon: FileText },
       { href: "/learned-rules", label: "仕訳学習", icon: Sparkles },
-      { href: "/allocations", label: "家事按分設定", icon: Home },
+      { href: "/allocations", label: "按分（家事・役員の私的利用）", icon: Home },
       // 消費税計算・会社書類・監査ログ は「設定」ページに集約
       { href: "/settings", label: "設定", icon: Settings },
     ],
