@@ -374,9 +374,26 @@ export async function getMonthlyTrend(
     return m.get(id)!;
   };
 
+  // 残高（BS）では、まだ純資産に振り替えていない損益の累計を純資産の1行として出す
+  // （試算表と同じ考え方。これが無いと資産合計と負債・純資産合計が一致しない）
+  const PL_KEY = "__accumulated_pl__";
+
   for (const line of lines) {
     const info = accountInfo.get(line.account_id);
-    if (!info || !wantType(info.type)) continue;
+    if (!info) continue;
+    const isPlAccount = info.type === "revenue" || info.type === "expenses";
+    if (!isPl && isPlAccount) {
+      const date = (line.journal_entries as unknown as { entry_date: string }).entry_date;
+      const net = line.debit_amount - line.credit_amount; // 借方プラス（純資産の行で符号を反転）
+      const ci = curIdx(date.slice(0, 7));
+      const pi = prIdx(date.slice(0, 7));
+      if (ci >= 0) ensure(curArr, PL_KEY)[ci] += net;
+      else if (date < current.keys[0] + "-01") openCur.set(PL_KEY, (openCur.get(PL_KEY) ?? 0) + net);
+      if (pi >= 0) ensure(prevArr, PL_KEY)[pi] += net;
+      else if (date < prior.keys[0] + "-01") openPrev.set(PL_KEY, (openPrev.get(PL_KEY) ?? 0) + net);
+      continue;
+    }
+    if (!wantType(info.type)) continue;
     const entry = line.journal_entries as unknown as { entry_date: string };
     const date = entry.entry_date;
     const monthKey = date.slice(0, 7);
@@ -401,7 +418,12 @@ export async function getMonthlyTrend(
   }
 
   const rows: MonthlyTrendRow[] = [];
-  const ids = new Set<string>([...curArr.keys(), ...prevArr.keys(), ...openCur.keys(), ...openPrev.keys()]);
+  // 動きの無い科目も含めて全科目を返す（隠すかどうかは画面で選ぶ）
+  const ids = [...accountInfo.entries()].filter(([, a]) => wantType(a.type)).map(([id]) => id);
+  if (!isPl) {
+    ids.push(PL_KEY);
+    accountInfo.set(PL_KEY, { code: "", name: "損益の累計（未振替の利益・損失）", type: "equity" });
+  }
   for (const id of ids) {
     const info = accountInfo.get(id);
     if (!info) continue;
@@ -427,14 +449,11 @@ export async function getMonthlyTrend(
     }
 
     const total = isPl ? months.reduce((s, v) => s + v, 0) : months[11];
-    const allZero =
-      months.every((m) => m === 0) && prevMonths.every((m) => m === 0);
-    if (allZero) continue;
-
     rows.push({ code: info.code, name: info.name, months, prevMonths, total, category });
   }
 
-  rows.sort((a, b) => a.code.localeCompare(b.code));
+  // 科目コード順。損益の累計は純資産の最後に置く
+  rows.sort((a, b) => (a.code === "" ? 1 : 0) - (b.code === "" ? 1 : 0) || a.code.localeCompare(b.code));
   return { rows, monthLabels };
 }
 

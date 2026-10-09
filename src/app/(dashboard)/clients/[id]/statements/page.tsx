@@ -44,8 +44,19 @@ import { getClient } from "@/actions/clients";
 import { getFiscalPeriod } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { DateInput } from "@/components/ui/date-input";
+import { formatYen } from "@/lib/wareki";
+import {
+  MONTH_METRICS,
+  isRatioMetric,
+  monthValue,
+  summaryColumns,
+  sumSeries,
+  subtractSeries,
+  isEmptySeries,
+  type MonthMetric,
+  type TrendSeries,
+} from "@/lib/monthly-trend";
 
-type TrendMetric = "amount" | "yoy" | "mom" | "composition";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -487,166 +498,16 @@ const BS_GROUPS: { key: string; label: string }[] = [
   { key: "liability", label: "負債" },
   { key: "equity", label: "純資産" },
 ];
-const TREND_METRICS: { key: TrendMetric; label: string }[] = [
-  { key: "amount", label: "金額" },
-  { key: "yoy", label: "前年同月比" },
-  { key: "mom", label: "前月比増減率" },
-  { key: "composition", label: "構成比" },
-];
+/** 月次推移表の金額。マイナスは会計慣行の△で表す */
+const yen = (n: number) => (n === 0 ? "-" : formatYen(n));
+const pct = (n: number | null) => (n == null ? "-" : `${n < 0 ? "△" : ""}${Math.abs(n).toFixed(1)}%`);
 
-const fmtPct = (n: number) => `${n.toFixed(1)}%`;
-
-// 金額の短縮表記（億/万）。マイナスは会計慣行の△で表す。
-function fmtCompactJPY(v: number): string {
-  const a = Math.abs(v);
-  const sign = v < 0 ? "△" : "";
-  if (a >= 1e8) return `${sign}${(a / 1e8).toFixed(a >= 1e9 ? 0 : 1)}億`;
-  if (a >= 1e4) return `${sign}${Math.round(a / 1e4).toLocaleString()}万`;
-  return `${sign}${a.toLocaleString()}`;
-}
-
-// 目盛り間隔を 1-2-5 系列の切りのよい値に丸める
-function niceStep(range: number, targetTicks = 4): number {
-  const raw = range / targetTicks;
-  const mag = Math.pow(10, Math.floor(Math.log10(Math.max(raw, 1))));
-  const norm = raw / mag;
-  const step = norm >= 5 ? 10 : norm >= 2 ? 5 : norm >= 1 ? 2 : 1;
-  return step * mag;
-}
-
-// 依存ライブラリなしの軽量な棒グラフ（金額目盛り・ホバーツールチップ付き）
-function MiniBarChart({
-  labels,
-  values,
-  colorize = false,
-}: {
-  labels: string[];
-  values: number[];
-  colorize?: boolean;
-}) {
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-
-  const W = 720;
-  const H = 200;
-  const PAD_L = 64;
-  const PAD_R = 12;
-  const PAD_T = 14;
-  const PAD_B = 24;
-
-  const max = Math.max(0, ...values);
-  const min = Math.min(0, ...values);
-  const step = niceStep(max - min || 1);
-  const top = Math.ceil(max / step) * step || step;
-  const bottom = Math.floor(min / step) * step;
-  const ticks: number[] = [];
-  for (let t = bottom; t <= top; t += step) ticks.push(t);
-
-  const y = (v: number) => PAD_T + ((top - v) / (top - bottom || 1)) * (H - PAD_T - PAD_B);
-  const band = (W - PAD_L - PAD_R) / Math.max(values.length, 1);
-  const barW = Math.min(40, band * 0.55);
-  const xCenter = (i: number) => PAD_L + band * i + band / 2;
-
-  const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xView = ((e.clientX - rect.left) / rect.width) * W;
-    const idx = Math.floor((xView - PAD_L) / band);
-    setHoverIdx(idx >= 0 && idx < values.length ? idx : null);
-  };
-
-  const hovered = hoverIdx !== null ? values[hoverIdx] : null;
-  const tooltipLeftPct = hoverIdx !== null ? (xCenter(hoverIdx) / W) * 100 : 0;
-  const tooltipAlign =
-    tooltipLeftPct < 18 ? "translateX(0)" : tooltipLeftPct > 82 ? "translateX(-100%)" : "translateX(-50%)";
-
-  return (
-    <div className="relative">
-      <svg
-        viewBox={`0 0 ${W} ${H}`}
-        className="w-full min-w-[560px]"
-        role="img"
-        aria-label="月次推移グラフ"
-        onMouseMove={handleMouseMove}
-        onMouseLeave={() => setHoverIdx(null)}
-      >
-        {/* 金額目盛り + グリッドライン */}
-        {ticks.map((t) => (
-          <g key={t}>
-            <line
-              x1={PAD_L}
-              y1={y(t)}
-              x2={W - PAD_R}
-              y2={y(t)}
-              stroke={t === 0 ? "var(--color-muted-foreground)" : "var(--color-border)"}
-              strokeWidth={t === 0 ? 1.2 : 0.6}
-            />
-            <text x={PAD_L - 6} y={y(t) + 3} textAnchor="end" fontSize="9" fill="var(--color-muted-foreground)">
-              {fmtCompactJPY(t)}
-            </text>
-          </g>
-        ))}
-
-        {/* 棒 + 金額ラベル */}
-        {values.map((v, i) => {
-          const h = Math.abs(y(v) - y(0));
-          const yPos = v >= 0 ? y(v) : y(0);
-          const fill = colorize ? (v >= 0 ? "var(--color-primary)" : "var(--color-destructive)") : "var(--color-primary)";
-          const isHover = hoverIdx === i;
-          return (
-            <g key={i}>
-              <rect
-                x={xCenter(i) - barW / 2}
-                y={yPos}
-                width={barW}
-                height={Math.max(h, v !== 0 ? 1.5 : 0)}
-                fill={fill}
-                opacity={hoverIdx === null || isHover ? 1 : 0.45}
-                rx={3}
-              />
-              {v !== 0 && (
-                <text
-                  x={xCenter(i)}
-                  y={v >= 0 ? yPos - 4 : yPos + h + 10}
-                  textAnchor="middle"
-                  fontSize="8.5"
-                  fontWeight={isHover ? "bold" : "normal"}
-                  fill={isHover ? "var(--color-foreground)" : "var(--color-muted-foreground)"}
-                >
-                  {fmtCompactJPY(v)}
-                </text>
-              )}
-              <text
-                x={xCenter(i)}
-                y={H - 8}
-                textAnchor="middle"
-                fontSize="9.5"
-                fontWeight={isHover ? "bold" : "normal"}
-                fill={isHover ? "var(--color-foreground)" : "var(--color-muted-foreground)"}
-              >
-                {labels[i]}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-
-      {/* ホバーツールチップ（正確な金額） */}
-      {hovered !== null && hoverIdx !== null && (
-        <div
-          className="pointer-events-none absolute top-0 z-10 rounded-lg border border-border bg-card px-3 py-2 text-xs shadow-lg whitespace-nowrap"
-          style={{ left: `${tooltipLeftPct}%`, transform: tooltipAlign }}
-        >
-          <p className="font-bold text-foreground mb-0.5">{labels[hoverIdx]}</p>
-          <p className="tabular-nums text-muted-foreground">
-            <span className={cn("font-bold", hovered < 0 ? "text-destructive" : "text-foreground")}>
-              {hovered < 0 ? "△" : ""}{formatCurrency(Math.abs(hovered))}
-            </span>
-          </p>
-        </div>
-      )}
-    </div>
-  );
-}
-
+/**
+ * 月次推移表（全科目）。
+ * 月の欄は 金額・前月との差額・前年同月との差額・前年同月比・構成比 を切り替え、
+ * 右側に 当期（累計／期末残高）・前期・差額・前期比・構成比 を出す。
+ * 構成比の分母は、損益は売上高（収益合計）、残高は総資産。計算は src/lib/monthly-trend.ts。
+ */
 function MonthlyTrendTable({
   data,
   monthLabels,
@@ -658,40 +519,26 @@ function MonthlyTrendTable({
   data: MonthlyTrendRow[];
   monthLabels: string[];
   mode: MonthlyTrendMode;
-  metric: TrendMetric;
+  metric: MonthMetric;
   onModeChange: (m: MonthlyTrendMode) => void;
-  onMetricChange: (m: TrendMetric) => void;
+  onMetricChange: (m: MonthMetric) => void;
 }) {
+  const [hideEmpty, setHideEmpty] = useState(false);
   const groups = mode === "pl" ? PL_GROUPS : BS_GROUPS;
-  const summaryLabel = mode === "pl" ? "累計" : "期末残高";
+  const curLabel = mode === "pl" ? "当期累計" : "期末残高";
+  const prevLabel = mode === "pl" ? "前期累計" : "前期末残高";
 
-  const rowsOf = (cat: string) => data.filter((r) => r.category === cat);
-  const colSum = (rows: MonthlyTrendRow[], idx: number) => rows.reduce((s, r) => s + r.months[idx], 0);
-  const totalSum = (rows: MonthlyTrendRow[]) => rows.reduce((s, r) => s + r.total, 0);
+  const rowsOf = (cat: string) => data.filter((r) => r.category === cat && !(hideEmpty && isEmptySeries(r)));
+  const groupSeries = (cat: string) => sumSeries(data.filter((r) => r.category === cat));
+  // 構成比の分母（損益=売上高、残高=総資産）
+  const base = groupSeries(mode === "pl" ? "revenue" : "asset");
+  const baseLabel = mode === "pl" ? "売上高比" : "総資産比";
 
-  // 月セルの表示値（指標に応じて切替）。groupRows は構成比の分母。
-  const cell = (row: MonthlyTrendRow, idx: number, groupRows: MonthlyTrendRow[]): string => {
-    const v = row.months[idx];
-    if (metric === "amount") return v !== 0 ? formatCurrency(v) : "-";
-    if (metric === "yoy") {
-      const p = row.prevMonths[idx];
-      return p !== 0 ? fmtPct((v / p) * 100) : "-";
-    }
-    if (metric === "mom") {
-      if (idx === 0) return "-";
-      const p = row.months[idx - 1];
-      return p !== 0 ? fmtPct(((v - p) / Math.abs(p)) * 100) : "-";
-    }
-    const t = colSum(groupRows, idx); // composition
-    return t !== 0 ? fmtPct((v / t) * 100) : "-";
+  const monthCell = (series: TrendSeries, idx: number) => {
+    const v = monthValue(series, idx, metric, base);
+    if (v == null) return "-";
+    return isRatioMetric(metric) ? pct(v) : yen(v);
   };
-
-  // グラフ系列
-  const chartValues =
-    mode === "pl"
-      ? monthLabels.map((_, i) => colSum(rowsOf("revenue"), i) - colSum(rowsOf("expense"), i))
-      : monthLabels.map((_, i) => colSum(rowsOf("asset"), i));
-  const chartTitle = mode === "pl" ? "差引損益の推移" : "資産合計の推移";
 
   const Toggle = ({
     active,
@@ -713,21 +560,46 @@ function MonthlyTrendTable({
     </button>
   );
 
+  const SummaryCells = ({ series, strong }: { series: TrendSeries; strong?: boolean }) => {
+    const c = summaryColumns(series, mode, base);
+    const cls = cn("px-2 py-1.5 text-right font-mono whitespace-nowrap", strong && "font-bold");
+    return (
+      <>
+        <td className={cn(cls, "bg-muted/10 border-l border-border text-foreground")}>{yen(c.current)}</td>
+        <td className={cn(cls, "text-muted-foreground")}>{yen(c.prev)}</td>
+        <td className={cn(cls, c.diff < 0 ? "text-destructive" : c.diff > 0 ? "text-success" : "text-muted-foreground")}>
+          {yen(c.diff)}
+        </td>
+        <td className={cn(cls, "text-muted-foreground")}>{pct(c.prevRatio)}</td>
+        <td className={cn(cls, "text-muted-foreground")}>{pct(c.composition)}</td>
+      </>
+    );
+  };
+
+  const profit = subtractSeries(groupSeries("revenue"), groupSeries("expense"));
+  // 残高では、資産合計と並べて確かめられるよう 負債・純資産合計 を出す
+  const liabilitiesAndEquity = sumSeries([groupSeries("liability"), groupSeries("equity")]);
+  const colCount = monthLabels.length + 6;
+
   return (
     <div className="space-y-4">
-      {/* Controls */}
+      {/* 切り替え */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
           <Toggle active={mode === "pl"} onClick={() => onModeChange("pl")}>損益（PL）</Toggle>
           <Toggle active={mode === "bs"} onClick={() => onModeChange("bs")}>残高（BS）</Toggle>
         </div>
-        <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg">
-          {TREND_METRICS.map((o) => (
+        <div className="inline-flex flex-wrap gap-1 bg-muted/20 p-1 rounded-lg">
+          {MONTH_METRICS.map((o) => (
             <Toggle key={o.key} active={metric === o.key} onClick={() => onMetricChange(o.key)}>
               {o.label}
             </Toggle>
           ))}
         </div>
+        <label className="inline-flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+          <input type="checkbox" checked={hideEmpty} onChange={(e) => setHideEmpty(e.target.checked)} className="size-3.5" />
+          動きのない科目を隠す
+        </label>
       </div>
 
       {data.length === 0 ? (
@@ -736,94 +608,116 @@ function MonthlyTrendTable({
         </div>
       ) : (
         <>
-          {/* Chart */}
-          <div className="rounded-xl border border-border p-3 overflow-x-auto">
-            <div className="text-xs font-bold text-muted-foreground mb-2">{chartTitle}</div>
-            <MiniBarChart labels={monthLabels} values={chartValues} colorize={mode === "pl"} />
-          </div>
-
-          {/* Table */}
-          <div className="overflow-x-auto rounded-xl border border-border">
+          {/* 全科目を出すと縦に長いので、表の中でスクロールし見出しの行を上に残す */}
+          <div className="overflow-auto max-h-[75vh] rounded-xl border border-border">
             <table className="w-full text-xs">
               <thead>
-                <tr className="bg-muted/20 border-b border-border">
-                  <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground sticky left-0 bg-muted/20 min-w-[140px]">
+                <tr className="border-b border-border [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-muted">
+                  <th className="text-left px-3 py-2 text-xs font-bold text-muted-foreground sticky left-0 !z-30 bg-muted min-w-[150px]">
                     科目
                   </th>
                   {monthLabels.map((m) => (
-                    <th key={m} className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[85px]">
+                    <th key={m} className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[90px]">
                       {m}
                     </th>
                   ))}
-                  <th className="text-right px-3 py-2 text-xs font-bold text-muted-foreground min-w-[100px] bg-muted/10">
-                    {summaryLabel}
+                  <th className="text-right px-2 py-2 text-xs font-bold text-foreground min-w-[100px] bg-muted/10 border-l border-border">
+                    {curLabel}
+                  </th>
+                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[100px]">{prevLabel}</th>
+                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[100px]">差額</th>
+                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[70px]">前期比</th>
+                  <th className="text-right px-2 py-2 text-xs font-bold text-muted-foreground min-w-[70px]">
+                    構成比
+                    <div className="font-normal text-[10px]">（{baseLabel}）</div>
                   </th>
                 </tr>
               </thead>
               <tbody>
                 {groups.map((g) => {
                   const rows = rowsOf(g.key);
-                  if (rows.length === 0) return null;
+                  const all = data.filter((r) => r.category === g.key);
+                  if (all.length === 0) return null;
+                  const subtotal = sumSeries(all);
                   return (
                     <Fragment key={g.key}>
                       <tr className="bg-muted/10 border-t border-border">
-                        <td colSpan={monthLabels.length + 2} className="px-3 py-1.5 text-xs font-bold text-primary">
+                        <td colSpan={colCount} className="px-3 py-1.5 text-xs font-bold text-primary sticky left-0">
                           {g.label}
                         </td>
                       </tr>
                       {rows.map((row) => (
-                        <tr key={row.code} className="border-b border-border/50 bg-card hover:bg-muted/10 transition-colors">
-                          <td className="px-3 py-1.5 text-foreground font-medium sticky left-0 bg-card">{row.name}</td>
+                        <tr
+                          key={row.code}
+                          className={cn(
+                            "border-b border-border/50 bg-card hover:bg-muted/10 transition-colors",
+                            isEmptySeries(row) && "text-muted-foreground/60"
+                          )}
+                        >
+                          <td className="px-3 py-1.5 font-medium sticky left-0 z-10 bg-card whitespace-nowrap">
+                            <span className="text-muted-foreground font-mono mr-1.5">{row.code}</span>
+                            {row.name}
+                          </td>
                           {monthLabels.map((_, idx) => (
-                            <td key={idx} className="px-2 py-1.5 text-right font-mono text-muted-foreground">
-                              {cell(row, idx, rows)}
+                            <td key={idx} className="px-2 py-1.5 text-right font-mono text-muted-foreground whitespace-nowrap">
+                              {monthCell(row, idx)}
                             </td>
                           ))}
-                          <td className="px-3 py-1.5 text-right font-mono font-bold text-foreground bg-muted/10">
-                            {formatCurrency(row.total)}
-                          </td>
+                          <SummaryCells series={row} />
                         </tr>
                       ))}
                       <tr className="bg-muted/20 border-y border-border font-bold">
-                        <td className="px-3 py-1.5 sticky left-0 bg-muted/20">{g.label}合計</td>
+                        <td className="px-3 py-1.5 sticky left-0 z-10 bg-muted">{g.label}合計</td>
                         {monthLabels.map((_, idx) => (
-                          <td key={idx} className="px-2 py-1.5 text-right font-mono">
-                            {formatCurrency(colSum(rows, idx))}
+                          <td key={idx} className="px-2 py-1.5 text-right font-mono whitespace-nowrap">
+                            {monthCell(subtotal, idx)}
                           </td>
                         ))}
-                        <td className="px-3 py-1.5 text-right font-mono bg-muted/10">{formatCurrency(totalSum(rows))}</td>
+                        <SummaryCells series={subtotal} strong />
                       </tr>
                     </Fragment>
                   );
                 })}
                 {mode === "pl" && (
                   <tr className="bg-primary/5 border-t-2 border-primary/30 font-bold">
-                    <td className="px-3 py-2 text-foreground sticky left-0 bg-primary/5">差引損益</td>
+                    <td className="px-3 py-2 text-foreground sticky left-0 z-10 bg-card">差引損益</td>
                     {monthLabels.map((_, idx) => {
-                      const profit = colSum(rowsOf("revenue"), idx) - colSum(rowsOf("expense"), idx);
+                      const v = monthValue(profit, idx, metric, base);
                       return (
-                        <td key={idx} className={cn("px-2 py-2 text-right font-mono", profit >= 0 ? "text-success" : "text-destructive")}>
-                          {profit !== 0 ? formatCurrency(profit) : "-"}
+                        <td
+                          key={idx}
+                          className={cn(
+                            "px-2 py-2 text-right font-mono whitespace-nowrap",
+                            v != null && v < 0 ? "text-destructive" : "text-success"
+                          )}
+                        >
+                          {monthCell(profit, idx)}
                         </td>
                       );
                     })}
-                    <td className="px-3 py-2 text-right font-mono bg-muted/10">
-                      {(() => {
-                        const p = totalSum(rowsOf("revenue")) - totalSum(rowsOf("expense"));
-                        return <span className={p >= 0 ? "text-success" : "text-destructive"}>{formatCurrency(p)}</span>;
-                      })()}
-                    </td>
+                    <SummaryCells series={profit} strong />
+                  </tr>
+                )}
+                {mode === "bs" && (
+                  <tr className="bg-primary/5 border-t-2 border-primary/30 font-bold">
+                    <td className="px-3 py-2 text-foreground sticky left-0 z-10 bg-card">負債・純資産合計</td>
+                    {monthLabels.map((_, idx) => (
+                      <td key={idx} className="px-2 py-2 text-right font-mono whitespace-nowrap">
+                        {monthCell(liabilitiesAndEquity, idx)}
+                      </td>
+                    ))}
+                    <SummaryCells series={liabilitiesAndEquity} strong />
                   </tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {metric !== "amount" && (
-            <p className="text-xs text-muted-foreground">
-              ※ 月の各セルは「{TREND_METRICS.find((o) => o.key === metric)?.label}」表示です。{summaryLabel}列・小計は金額（円）を表示しています。
-            </p>
-          )}
+          <p className="text-xs text-muted-foreground">
+            月の欄は「{MONTH_METRICS.find((o) => o.key === metric)?.label}」を表示しています。右側の
+            {curLabel}・{prevLabel}・差額は金額、前期比は{curLabel}÷{prevLabel}、構成比は{baseLabel}です。
+            前期は1年前の同じ月です。要確認の仕訳は含めていません。
+          </p>
         </>
       )}
     </div>
@@ -1216,7 +1110,7 @@ export default function StatementsPage() {
   const [trendData, setTrendData] = useState<MonthlyTrendRow[]>([]);
   const [trendMonthLabels, setTrendMonthLabels] = useState<string[]>([]);
   const [trendMode, setTrendMode] = useState<MonthlyTrendMode>("pl");
-  const [trendMetric, setTrendMetric] = useState<TrendMetric>("amount");
+  const [trendMetric, setTrendMetric] = useState<MonthMetric>("amount");
   const [inventoryData, setInventoryData] = useState<InventoryScheduleRow[]>([]);
   const [inventoryMode, setInventoryMode] = useState<"physical" | "journal">("physical");
 
