@@ -4,6 +4,7 @@ import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/sup
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import type { Database } from "@/types/database";
 import { assignPartnerSubAccounts } from "@/lib/partner-sub-accounts";
+import { splitInvoiceByRate } from "@/lib/tax-book";
 
 type InvoiceRow = Database["public"]["Tables"]["invoices"]["Row"];
 type InvoiceInsert = Database["public"]["Tables"]["invoices"]["Insert"];
@@ -335,32 +336,48 @@ export async function issueInvoiceWithJournal(invoiceId: string): Promise<void> 
     debit_amount: number;
     credit_amount: number;
     sort_order: number;
+    tax_category?: string | null;
+    tax_rate?: number | null;
   };
 
+  // 売上高（仕入高）は明細の税率ごとに行を分け、税区分を付ける（消費税の集計に入れるため）。
+  // 仮受消費税（仮払消費税）の科目があれば税抜経理、無ければ消費税を含めた税込経理で立てる
   const taxId = acctMap.get(isPurchase ? "仮払消費税" : "仮受消費税");
-  let lines: LineInsert[];
-  if (isPurchase) {
-    // （借）仕入高 + （借）仮払消費税 ／（貸）買掛金
-    lines = [
-      { journal_entry_id: journalEntry.id, account_id: plId, debit_amount: subtotal, credit_amount: 0, sort_order: 0 },
-      { journal_entry_id: journalEntry.id, account_id: partyId, debit_amount: 0, credit_amount: totalAmount, sort_order: 2 },
-    ];
-    if (taxId && taxAmount > 0) {
-      lines.push({ journal_entry_id: journalEntry.id, account_id: taxId, debit_amount: taxAmount, credit_amount: 0, sort_order: 1 });
-    } else if (!taxId && taxAmount > 0) {
-      lines[0].debit_amount += taxAmount;
-    }
-  } else {
-    // （借）売掛金 ／（貸）売上高 +（貸）仮受消費税
-    lines = [
-      { journal_entry_id: journalEntry.id, account_id: partyId, debit_amount: totalAmount, credit_amount: 0, sort_order: 0 },
-      { journal_entry_id: journalEntry.id, account_id: plId, debit_amount: 0, credit_amount: subtotal, sort_order: 1 },
-    ];
-    if (taxId && taxAmount > 0) {
-      lines.push({ journal_entry_id: journalEntry.id, account_id: taxId, debit_amount: 0, credit_amount: taxAmount, sort_order: 2 });
-    } else if (!taxId && taxAmount > 0) {
-      lines[1].credit_amount += taxAmount;
-    }
+  const items = ((invoice as unknown as { invoice_items?: { tax_rate: number | null; subtotal: number; tax_amount: number | null }[] }).invoice_items ?? []).map(
+    (it) => ({ taxRate: it.tax_rate, subtotal: it.subtotal, taxAmount: it.tax_amount })
+  );
+  const portions = splitInvoiceByRate(items, subtotal, taxAmount);
+  const codeOf = (rate: 0.1 | 0.08 | null) =>
+    rate === 0.1 ? (isPurchase ? "purchase_10" : "sales_10") : rate === 0.08 ? (isPurchase ? "purchase_08_reduced" : "sales_08_reduced") : null;
+
+  const plLines: LineInsert[] = portions.map((p, i) => {
+    const amount = taxId ? p.net : p.net + p.tax;
+    return {
+      journal_entry_id: journalEntry.id,
+      account_id: plId,
+      debit_amount: isPurchase ? amount : 0,
+      credit_amount: isPurchase ? 0 : amount,
+      sort_order: 1 + i,
+      tax_category: codeOf(p.rate),
+      tax_rate: p.rate,
+    };
+  });
+  const partyLine: LineInsert = {
+    journal_entry_id: journalEntry.id,
+    account_id: partyId,
+    debit_amount: isPurchase ? 0 : totalAmount,
+    credit_amount: isPurchase ? totalAmount : 0,
+    sort_order: 0,
+  };
+  const lines: LineInsert[] = [partyLine, ...plLines];
+  if (taxId && taxAmount > 0) {
+    lines.push({
+      journal_entry_id: journalEntry.id,
+      account_id: taxId,
+      debit_amount: isPurchase ? taxAmount : 0,
+      credit_amount: isPurchase ? 0 : taxAmount,
+      sort_order: 1 + plLines.length,
+    });
   }
 
   const { error: linesError } = await supabase.from("journal_entry_lines").insert(lines);

@@ -118,6 +118,9 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
     ? Math.floor(totalSalesTax - (totalSalesTax * simplifiedDeemPurchase) / simplifiedTotal)
     : 0;
 
+  // 仕入税額の方が多いときは還付。マイナス表記は使わず「還付」と書く
+  const shownPayable = taxMethod === "standard" ? taxPayable : simplifiedTax;
+
   const salesCategories = [
     { label: "課税売上", total: taxSummary.sales10 + taxSummary.sales8 },
     { label: "非課税売上", total: taxSummary.salesExempt },
@@ -171,7 +174,7 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-2">
             <TrendingUp className="size-4 text-success" />
-            <span className="text-sm text-muted-foreground">課税売上合計</span>
+            <span className="text-sm text-muted-foreground">課税売上合計（税抜）</span>
           </div>
           <p className="text-2xl font-bold text-foreground">
             {formatCurrency(taxSummary.sales10 + taxSummary.sales8)}
@@ -183,7 +186,7 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
         <Card className="p-5">
           <div className="flex items-center gap-2 mb-2">
             <TrendingDown className="size-4 text-primary-light" />
-            <span className="text-sm text-muted-foreground">課税仕入合計</span>
+            <span className="text-sm text-muted-foreground">課税仕入合計（税抜）</span>
           </div>
           <p className="text-2xl font-bold text-foreground">
             {formatCurrency(taxSummary.purchase10 + taxSummary.purchase8)}
@@ -196,11 +199,11 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
           <div className="flex items-center gap-2 mb-2">
             <Percent className="size-4 text-primary" />
             <span className="text-sm text-muted-foreground">
-              納付税額（{taxMethod === "standard" ? "本則" : "簡易"}）
+              {shownPayable < 0 ? "還付税額" : "納付税額"}（{taxMethod === "standard" ? "本則" : "簡易"}）
             </span>
           </div>
           <p className="text-2xl font-bold text-primary">
-            {formatCurrency(taxMethod === "standard" ? taxPayable : simplifiedTax)}
+            {formatCurrency(Math.abs(shownPayable))}
           </p>
           <p className="text-xs text-muted-foreground mt-1">
             売上税額 - 仕入税額控除
@@ -308,10 +311,12 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
                       </td>
                     </tr>
                     <tr className="bg-muted/10">
-                      <td className="px-4 py-3 font-bold text-foreground">差引納付税額</td>
+                      <td className="px-4 py-3 font-bold text-foreground">
+                        {taxPayable < 0 ? "差引還付税額" : "差引納付税額"}
+                      </td>
                       <td className="px-4 py-3" colSpan={4}></td>
                       <td className="px-4 py-3 text-right font-mono font-bold text-primary text-lg">
-                        {formatCurrency(taxPayable)}
+                        {formatCurrency(Math.abs(taxPayable))}
                       </td>
                     </tr>
                   </tbody>
@@ -334,7 +339,7 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
                         区分
                       </th>
                       <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">
-                        合計金額
+                        合計金額（税抜）
                       </th>
                       <th className="text-right px-4 py-3 text-xs font-bold text-muted-foreground">
                         構成比

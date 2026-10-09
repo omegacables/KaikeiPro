@@ -70,7 +70,7 @@ export function TaxCategoryView({
     if (!data) return onCsv(null);
     onCsv({
       filename: `税区分別_${dateFrom}_${dateTo}.csv`,
-      headers: ["日付", "区分", "税区分", "勘定科目", "補助科目", "摘要", "金額（税込）", "状態"],
+      headers: ["日付", "区分", "税区分", "勘定科目", "補助科目", "摘要", "税抜金額", "消費税", "税込金額", "経理方式", "状態"],
       rows: lines.map((l) => [
         l.entryDate,
         l.side === "sales" ? "売上" : "仕入",
@@ -78,7 +78,10 @@ export function TaxCategoryView({
         l.accountName,
         l.subAccountName ?? "",
         l.description,
-        l.amount,
+        l.net,
+        l.tax,
+        l.gross,
+        l.exclusive ? "税抜" : "税込",
         l.needsReview ? "要確認" : "",
       ]),
     });
@@ -100,8 +103,9 @@ export function TaxCategoryView({
       side,
       label: side === "sales" ? "売上" : "仕入",
       rows,
-      amount: rows.reduce((s, r) => s + r.amount, 0),
+      net: rows.reduce((s, r) => s + r.net, 0),
       tax: rows.reduce((s, r) => s + r.tax, 0),
+      gross: rows.reduce((s, r) => s + r.gross, 0),
       count: rows.reduce((s, r) => s + r.count, 0),
     };
   });
@@ -124,8 +128,9 @@ export function TaxCategoryView({
                 <tr className="bg-muted/20 border-b border-border text-xs text-muted-foreground">
                   <th className="px-3 py-2 text-left font-bold">{s.label}の税区分</th>
                   <th className="px-3 py-2 text-right font-bold">件数</th>
-                  <th className="px-3 py-2 text-right font-bold">金額（税込）</th>
-                  <th className="px-3 py-2 text-right font-bold">うち消費税</th>
+                  <th className="px-3 py-2 text-right font-bold">税抜金額</th>
+                  <th className="px-3 py-2 text-right font-bold">消費税</th>
+                  <th className="px-3 py-2 text-right font-bold">税込金額</th>
                 </tr>
               </thead>
               <tbody>
@@ -142,14 +147,15 @@ export function TaxCategoryView({
                     >
                       <td className={cn("px-3 py-2", r.code === "none" ? "text-warning" : "text-primary")}>{r.name}</td>
                       <td className="px-3 py-2 text-right text-muted-foreground">{r.count}</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatYen(r.amount)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatYen(r.net)}</td>
                       <td className="px-3 py-2 text-right font-mono">{r.tax ? formatYen(r.tax) : "-"}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatYen(r.gross)}</td>
                     </tr>
                   );
                 })}
                 {s.rows.length === 0 && (
                   <tr>
-                    <td colSpan={4} className="px-3 py-6 text-center text-muted-foreground text-xs">
+                    <td colSpan={5} className="px-3 py-6 text-center text-muted-foreground text-xs">
                       この期間の{s.label}はありません
                     </td>
                   </tr>
@@ -163,8 +169,9 @@ export function TaxCategoryView({
                 >
                   <td className="px-3 py-2">{s.label}合計</td>
                   <td className="px-3 py-2 text-right">{s.count}</td>
-                  <td className="px-3 py-2 text-right font-mono">{formatYen(s.amount)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{formatYen(s.net)}</td>
                   <td className="px-3 py-2 text-right font-mono">{formatYen(s.tax)}</td>
+                  <td className="px-3 py-2 text-right font-mono">{formatYen(s.gross)}</td>
                 </tr>
               </tfoot>
             </table>
@@ -210,7 +217,9 @@ export function TaxCategoryView({
               <th className="px-2 py-2 text-left font-bold">勘定科目</th>
               <th className="px-2 py-2 text-left font-bold">補助科目</th>
               <th className="px-2 py-2 text-left font-bold">摘要</th>
-              <th className="px-2 py-2 text-right font-bold">金額（税込）</th>
+              <th className="px-2 py-2 text-right font-bold">税抜金額</th>
+              <th className="px-2 py-2 text-right font-bold">消費税</th>
+              <th className="px-2 py-2 text-right font-bold">税込金額</th>
             </tr>
           </thead>
           <tbody>
@@ -234,12 +243,14 @@ export function TaxCategoryView({
                     </Badge>
                   )}
                 </td>
-                <td className="px-2 py-1.5 text-right font-mono">{formatYen(l.amount)}</td>
+                <td className="px-2 py-1.5 text-right font-mono">{formatYen(l.net)}</td>
+                <td className="px-2 py-1.5 text-right font-mono">{l.tax ? formatYen(l.tax) : "-"}</td>
+                <td className="px-2 py-1.5 text-right font-mono">{formatYen(l.gross)}</td>
               </tr>
             ))}
             {lines.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-2 py-8 text-center text-muted-foreground">
+                <td colSpan={9} className="px-2 py-8 text-center text-muted-foreground">
                   該当する取引はありません
                 </td>
               </tr>
@@ -248,7 +259,7 @@ export function TaxCategoryView({
         </table>
       </div>
       <p className="text-[11px] text-muted-foreground">
-        金額は税込で、消費税額は税込金額から計算しています（消費税の集計と同じ方法）。要確認の仕訳は一覧には出しますが、合計には含めません。
+        消費税は仕訳ごとに、税込経理なら金額から取り出し、税抜経理（仮受消費税・仮払消費税を別に立てた仕訳）なら税抜金額×税率で出しています（消費税計算の画面と同じ方法）。要確認の仕訳は一覧には出しますが、合計には含めません。
       </p>
     </div>
   );

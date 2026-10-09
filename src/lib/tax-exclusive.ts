@@ -1,0 +1,70 @@
+/**
+ * 期間内の仕訳のうち、税抜経理で付けられたもの（仮受消費税・仮払消費税の行があるもの）を調べ、
+ * 消費税の集計に渡す行（TaxBookLine）を作る。消費税の出し方は src/lib/tax-book.ts。
+ * サーバー処理からだけ呼ぶ（呼び出し側で顧問先へのアクセス権を確かめておくこと）。
+ */
+
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { fetchAllRows } from "@/lib/fetch-all";
+import { OUTPUT_TAX_ACCOUNT, INPUT_TAX_ACCOUNT, taxCodeOfLine, type TaxBookLine } from "@/lib/tax-book";
+import { taxCategoryInfo } from "@/lib/tax-category";
+
+/** 税抜経理の仕訳と、その仕訳に記録された消費税額（売上側＝仮受、仕入側＝仮払） */
+export type ExclusiveEntries = { sales: Map<string, number>; purchase: Map<string, number> };
+
+export async function loadExclusiveEntries(
+  db: SupabaseClient,
+  clientId: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<ExclusiveEntries> {
+  type Row = { journal_entry_id: string; debit_amount: number; credit_amount: number; accounts: { name: string } | null };
+  const rows = await fetchAllRows<Row>((from, to) =>
+    db
+      .from("journal_entry_lines")
+      .select("journal_entry_id, debit_amount, credit_amount, accounts!inner ( name ), journal_entries!inner ( client_id, entry_date )")
+      .eq("journal_entries.client_id", clientId)
+      .gte("journal_entries.entry_date", dateFrom)
+      .lte("journal_entries.entry_date", dateTo)
+      .ilike("accounts.name", "%消費税%")
+      .range(from, to) as unknown as PromiseLike<{ data: Row[] | null; error: { message: string } | null }>
+  );
+  const result: ExclusiveEntries = { sales: new Map(), purchase: new Map() };
+  const add = (m: Map<string, number>, id: string, v: number) => m.set(id, (m.get(id) ?? 0) + v);
+  for (const r of rows) {
+    const name = r.accounts?.name ?? "";
+    const d = Number(r.debit_amount) || 0;
+    const c = Number(r.credit_amount) || 0;
+    if (OUTPUT_TAX_ACCOUNT.test(name)) add(result.sales, r.journal_entry_id, c - d);
+    if (INPUT_TAX_ACCOUNT.test(name)) add(result.purchase, r.journal_entry_id, d - c);
+  }
+  return result;
+}
+
+export type RawTaxLine = Omit<TaxBookLine, "exclusive" | "recordedTax"> & { entryId: string };
+
+/**
+ * 集計に渡す行を作る。税抜経理の仕訳で、課税の売上（仕入）の行が1行だけなら、
+ * 記録された消費税額をその行の消費税とする（レシート・請求書の額と一致させるため）。
+ */
+export function toTaxBookLines(raw: RawTaxLine[], ex: ExclusiveEntries): TaxBookLine[] {
+  const sideOf = (t: string) => (t === "revenue" ? "sales" : "purchase");
+  const isTaxable = (l: RawTaxLine) => {
+    const code = taxCodeOfLine(l);
+    return code !== undefined && code !== "none" && (taxCategoryInfo(code)?.rate ?? 0) > 0;
+  };
+  // 仕訳×売上/仕入ごとの、課税の行の数
+  const taxableCount = new Map<string, number>();
+  for (const l of raw) {
+    if (!isTaxable(l)) continue;
+    const k = `${l.entryId}:${sideOf(l.accountType)}`;
+    taxableCount.set(k, (taxableCount.get(k) ?? 0) + 1);
+  }
+  return raw.map(({ entryId, ...l }) => {
+    const side = sideOf(l.accountType);
+    const recorded = ex[side].get(entryId);
+    const exclusive = recorded !== undefined;
+    const single = taxableCount.get(`${entryId}:${side}`) === 1 && isTaxable({ entryId, ...l });
+    return { ...l, exclusive, ...(exclusive && single ? { recordedTax: recorded } : {}) };
+  });
+}

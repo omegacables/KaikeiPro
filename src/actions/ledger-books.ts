@@ -17,7 +17,9 @@ import {
   type LedgerLine,
   type SubAccountSummaryRow,
 } from "@/lib/ledger";
-import { summarizeByTaxCategory, taxCodeOfLine, taxBookAmount, type TaxBookRow } from "@/lib/tax-book";
+import { summarizeByTaxCategory, taxCodeOfLine, lineTaxAmounts, type TaxBookRow } from "@/lib/tax-book";
+import { loadExclusiveEntries, toTaxBookLines } from "@/lib/tax-exclusive";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { taxCategoryInfo } from "@/lib/tax-category";
 
 type Admin = ReturnType<typeof createAdminSupabaseClient>;
@@ -315,7 +317,12 @@ export type TaxBookLineView = {
   side: "sales" | "purchase";
   code: string;
   codeName: string;
-  amount: number;
+  /** 税抜金額・消費税額・税込金額 */
+  net: number;
+  tax: number;
+  gross: number;
+  /** 税抜経理の仕訳か（仮受消費税・仮払消費税を別に立てている） */
+  exclusive: boolean;
   subAccountName: string | null;
   needsReview: boolean;
 };
@@ -354,15 +361,20 @@ export async function getTaxCategoryBook(
       .range(from, to) as unknown as PromiseLike<{ data: Raw[] | null; error: { message: string } | null }>
   );
   const subNames = await subAccountNames(admin, clientId);
+  const exclusive = await loadExclusiveEntries(admin as unknown as SupabaseClient, clientId, dateFrom, dateTo);
 
-  const bookLines = raw.map((l) => ({
-    accountType: l.accounts?.account_categories?.type ?? "",
-    taxCategory: l.tax_category,
-    taxRate: l.tax_rate,
-    debit: Number(l.debit_amount) || 0,
-    credit: Number(l.credit_amount) || 0,
-    needsReview: Boolean(l.journal_entries.needs_review),
-  }));
+  const bookLines = toTaxBookLines(
+    raw.map((l) => ({
+      entryId: l.journal_entry_id,
+      accountType: l.accounts?.account_categories?.type ?? "",
+      taxCategory: l.tax_category,
+      taxRate: l.tax_rate,
+      debit: Number(l.debit_amount) || 0,
+      credit: Number(l.credit_amount) || 0,
+      needsReview: Boolean(l.journal_entries.needs_review),
+    })),
+    exclusive
+  );
   const summary = summarizeByTaxCategory(bookLines);
 
   const lines: TaxBookLineView[] = [];
@@ -379,7 +391,8 @@ export async function getTaxCategoryBook(
       side: b.accountType === "revenue" ? "sales" : "purchase",
       code,
       codeName: code === "none" ? "税区分未設定" : taxCategoryInfo(code)?.name ?? code,
-      amount: taxBookAmount(b),
+      ...lineTaxAmounts(b),
+      exclusive: b.exclusive,
       subAccountName: l.sub_account_id ? subNames.get(l.sub_account_id) ?? null : null,
       needsReview: b.needsReview,
     });
