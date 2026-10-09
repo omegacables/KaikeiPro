@@ -45,6 +45,8 @@ import { getFiscalPeriod } from "@/lib/fiscal";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { DateInput } from "@/components/ui/date-input";
 import { formatYen } from "@/lib/wareki";
+import { YearMonthDayInput } from "@/components/ui/year-month-day-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import {
   MONTH_METRICS,
   isRatioMetric,
@@ -1092,6 +1094,8 @@ export default function StatementsPage() {
   const { id } = useParams<{ id: string }>();
 
   const [activeTab, setActiveTab] = useState<StatementTab>("trial_balance");
+  // 期間指定で選べる年（来年から7年前まで）
+  const periodYears = Array.from({ length: 8 }, (_, i) => new Date().getFullYear() + 1 - i);
   // 集計期間（開始日〜終了日）。既定は「期首〜今月末」。
   // 開始日は決算月を読み込んでから決める（それまで空）
   const [rangeStart, setRangeStart] = useState("");
@@ -1316,24 +1320,13 @@ export default function StatementsPage() {
       {/* Controls */}
       <Card className="mb-4 w-fit">
         <CardContent className="py-2 px-3">
-          <div className="flex flex-wrap items-center gap-2">
+          {/* 期間: 年は選択・月日は入力（例 4/1）。Enter／←→ で隣の欄へ移れる */}
+          <div className="flex flex-wrap items-center gap-2" onKeyDown={handleBarKeyNav}>
             <Calendar className="size-4 text-muted-foreground" />
             <label className="text-sm text-foreground font-bold">期間</label>
-            <div className="w-40">
-              <DateInput
-                value={rangeStart}
-                onChange={setRangeStart}
-                className="w-full pl-2 pr-7 py-1 rounded-lg border border-border bg-card text-foreground text-[15px] tabular-nums"
-              />
-            </div>
+            <YearMonthDayInput label="開始日" value={rangeStart} onChange={setRangeStart} years={periodYears} />
             <span className="text-foreground">〜</span>
-            <div className="w-40">
-              <DateInput
-                value={rangeEnd}
-                onChange={setRangeEnd}
-                className="w-full pl-2 pr-7 py-1 rounded-lg border border-border bg-card text-foreground text-[15px] tabular-nums"
-              />
-            </div>
+            <YearMonthDayInput label="終了日" value={rangeEnd} onChange={setRangeEnd} years={periodYears} />
             <div className="flex gap-1">
               {([
                 ["ytd", "当期累計"],

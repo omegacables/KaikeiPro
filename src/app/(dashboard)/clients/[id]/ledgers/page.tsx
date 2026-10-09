@@ -32,6 +32,8 @@ import { getJournalLedger, type JournalLedgerRow } from "@/actions/ledgers";
 import { getSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { JournalEntryPanel } from "@/components/journal/journal-entry-panel";
 import { TaxBadge } from "@/components/journal/tax-badge";
+import { YearMonthDayInput } from "@/components/ui/year-month-day-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import { GeneralLedgerView, type CsvSpec } from "@/components/ledgers/general-ledger-view";
 import { SubLedgerView } from "@/components/ledgers/sub-ledger-view";
 import { TaxCategoryView } from "@/components/ledgers/tax-category-view";
@@ -565,7 +567,8 @@ export default function LedgersPage() {
   const [subLedgerAccount, setSubLedgerAccount] = useState("売掛金");
 
   // 仕訳帳・総勘定元帳共通の拡張フィルター
-  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month">("none");
+  // 期間の選び方: 年度・月・自分で指定（開始日〜終了日）
+  const [periodMode, setPeriodMode] = useState<"none" | "year" | "month" | "custom">("none");
   const [fiscalYear, setFiscalYear] = useState("");
   const [accountFilter, setAccountFilter] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -615,6 +618,8 @@ export default function LedgersPage() {
   const [reloadKey, setReloadKey] = useState(0);
   // 元帳・補助元帳・税区分別のCSV出力の中身（各表示が作って渡す）
   const [csvSpec, setCsvSpec] = useState<CsvSpec | null>(null);
+  // 期間指定で選べる年（来年から7年前まで）
+  const periodYears = Array.from({ length: 8 }, (_, i) => year + 1 - i);
   const accountIdByName = (name: string) => accountOptions.find((a) => a.name === name)?.id ?? "";
 
   // 指定した日付の月を表示期間にする（証憑や仕訳の詳細から移ってきたとき）
@@ -868,8 +873,8 @@ export default function LedgersPage() {
       <Card className="mb-4">
         <CardContent className="py-2.5 px-3">
           {(
-            /* 期間（年度・月）・科目・並べ替え */
-            <div className="flex flex-wrap items-end gap-4">
+            /* 期間（年度・月・期間指定）・科目・並べ替え。Enter／←→ で隣の欄へ移れる */
+            <div className="flex flex-wrap items-end gap-4" onKeyDown={handleBarKeyNav}>
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground font-bold">年度別</label>
                 <select
@@ -908,7 +913,7 @@ export default function LedgersPage() {
                 <label className="text-xs text-muted-foreground font-bold">月別</label>
                 <MonthInput
                   allowEmpty wheelFromEmpty wrapperClassName="w-36"
-                  value={periodMode === "year" ? "" : dateFrom.slice(0, 7)}
+                  value={periodMode === "month" || periodMode === "none" ? dateFrom.slice(0, 7) : ""}
                   onChange={(v) => {
                     if (!v) {
                       setPeriodMode("none");
@@ -923,6 +928,34 @@ export default function LedgersPage() {
                   }}
                   className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm w-full pr-7"
                 />
+              </div>
+              <div className="flex flex-col gap-1">
+                <label className="text-xs text-muted-foreground font-bold">
+                  期間指定 <span className="font-normal">（年は選択・月日は入力 例: 4/1）</span>
+                </label>
+                <div className="flex items-center gap-1.5">
+                  <YearMonthDayInput
+                    label="開始日"
+                    value={dateFrom}
+                    years={periodYears}
+                    onChange={(v) => {
+                      setDateFrom(v);
+                      if (v > dateTo) setDateTo(v);
+                      setPeriodMode("custom");
+                    }}
+                  />
+                  <span className="text-muted-foreground">〜</span>
+                  <YearMonthDayInput
+                    label="終了日"
+                    value={dateTo}
+                    years={periodYears}
+                    onChange={(v) => {
+                      setDateTo(v);
+                      if (v < dateFrom) setDateFrom(v);
+                      setPeriodMode("custom");
+                    }}
+                  />
+                </div>
               </div>
               {activeTab === "journal" && (
                 <div className="flex flex-col gap-1">
