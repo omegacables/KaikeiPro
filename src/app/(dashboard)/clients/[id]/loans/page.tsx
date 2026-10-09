@@ -711,12 +711,13 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
           <h1 className="text-xl font-bold">借入金台帳</h1>
         </div>
         <div className="flex items-center gap-2">
-          {/* 法人税申告に添付する「借入金及び支払利子の内訳書」（要件3-6） */}
+          {/* 法人税申告に添付する「借入金及び支払利子の内訳書」（要件3-6）。
+              内訳書が要るのは決算後なので、直前に終わった事業年度を開く */}
           <Button
             variant="outline"
             onClick={() =>
               router.push(
-                `/clients/${id}/loans/breakdown/${currentFiscalStartYear(fiscalStartMonth)}`
+                `/clients/${id}/breakdown/${currentFiscalStartYear(fiscalStartMonth) - 1}/11`
               )
             }
           >

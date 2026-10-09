@@ -27,6 +27,7 @@ const clientSubPageTitles: Record<string, string> = {
   tax: "消費税計算",
   closing: "決算処理",
   "closing-checklist": "決算前チェック",
+  breakdown: "勘定科目内訳明細書",
   payroll: "給与台帳",
   loans: "借入金台帳",
   "opening-balances": "期首残高設定",

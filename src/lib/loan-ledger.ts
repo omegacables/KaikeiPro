@@ -14,6 +14,7 @@
 // 以降の残高がすべて再計算される。
 
 import { fiscalRangeFromStartYear, getFiscalPeriod } from "@/lib/fiscal";
+import { LOAN_LISTING_RULE, isListed, selectListedRows } from "@/lib/breakdown";
 
 export type LoanDirection = "borrow" | "lend";
 export type LoanEntryType = "borrow" | "advance" | "repay" | "interest" | "adjust";
@@ -827,13 +828,15 @@ export function entryFromJournalLines(params: {
 // ---------------------------------------------------------------------------
 // 借入金及び支払利子の内訳書：記載対象の判定
 // ---------------------------------------------------------------------------
+// 判定の本体は勘定科目内訳明細書の共通ロジック（src/lib/breakdown.ts）にある。
+// ここは借入金台帳から呼ぶための薄い入口。
 
 /** 各別に記入する基準（記載要領）。期末現在高がこの額以上なら各別記入 */
-export const BREAKDOWN_BALANCE_THRESHOLD = 500_000;
+export const BREAKDOWN_BALANCE_THRESHOLD = LOAN_LISTING_RULE.amountThreshold;
 /** 期末残高が無くても、期中の支払利子がこの額以上なら各別記入 */
-export const BREAKDOWN_INTEREST_THRESHOLD = 30_000;
+export const BREAKDOWN_INTEREST_THRESHOLD = LOAN_LISTING_RULE.secondaryThreshold!;
 /** 各別に記入できる口数の上限。超える分は最後の行にまとめる */
-export const BREAKDOWN_MAX_ROWS = 100;
+export const BREAKDOWN_MAX_ROWS = LOAN_LISTING_RULE.maxRows;
 
 export type BreakdownCandidate = {
   closingBalance: number;
@@ -841,6 +844,12 @@ export type BreakdownCandidate = {
   /** 役員・株主・関係会社かどうか。該当すれば金額に関わらず各別記入 */
   isRelatedParty: boolean;
 };
+
+const loanFacts = (c: BreakdownCandidate) => ({
+  amount: c.closingBalance,
+  secondary: c.interestPaid,
+  mustList: c.isRelatedParty,
+});
 
 /**
  * その借入先を各別に記入するかを判定する。
@@ -851,15 +860,9 @@ export type BreakdownCandidate = {
  *      期末現在高が無くても、期中の支払利子額（未払利子を含む）が
  *      3万円以上のものも各別記入
  *   3. それ以外は一括して記入
- *
- * これまでは「役員なら出す、残高か利子があれば出す」だけで、
- * 50万円・3万円の基準を見ていなかった。
  */
 export function isSeparatelyListed(c: BreakdownCandidate): boolean {
-  if (c.isRelatedParty) return true;
-  if (c.closingBalance >= BREAKDOWN_BALANCE_THRESHOLD) return true;
-  if (c.interestPaid >= BREAKDOWN_INTEREST_THRESHOLD) return true;
-  return false;
+  return isListed(loanFacts(c), LOAN_LISTING_RULE);
 }
 
 /**
@@ -872,35 +875,11 @@ export function isSeparatelyListed(c: BreakdownCandidate): boolean {
 export function buildBreakdownRows<T extends BreakdownCandidate>(
   candidates: T[]
 ): { separate: T[]; othersBalance: number; othersInterest: number; othersCount: number } {
-  const separate: T[] = [];
-  let othersBalance = 0;
-  let othersInterest = 0;
-  let othersCount = 0;
-
-  for (const c of candidates) {
-    if (isSeparatelyListed(c)) separate.push(c);
-    else {
-      othersBalance += c.closingBalance;
-      othersInterest += c.interestPaid;
-      othersCount++;
-    }
-  }
-
-  // 関連者を先に確保し、残りを期末現在高の多い順に埋める
-  separate.sort((a, b) => {
-    if (a.isRelatedParty !== b.isRelatedParty) return a.isRelatedParty ? -1 : 1;
-    return b.closingBalance - a.closingBalance;
-  });
-
-  // 100口を超える分は「その他」に寄せる（最後の1行を残額用に空ける）
-  if (separate.length > BREAKDOWN_MAX_ROWS) {
-    const overflow = separate.splice(BREAKDOWN_MAX_ROWS - 1);
-    for (const c of overflow) {
-      othersBalance += c.closingBalance;
-      othersInterest += c.interestPaid;
-      othersCount++;
-    }
-  }
-
-  return { separate, othersBalance, othersInterest, othersCount };
+  const r = selectListedRows(candidates, LOAN_LISTING_RULE, loanFacts);
+  return {
+    separate: r.listed,
+    othersBalance: r.rest.amount,
+    othersInterest: r.rest.secondary,
+    othersCount: r.rest.count,
+  };
 }

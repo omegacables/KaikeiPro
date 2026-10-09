@@ -21,6 +21,7 @@ import {
   Landmark,
   Scale,
   ListChecks,
+  ClipboardList,
   LogOut,
   ChevronDown,
   Loader2,
@@ -73,6 +74,7 @@ const navGroups: NavGroup[] = [
       { href: "/closing-checklist", label: "決算前チェック", icon: ListChecks },
       { href: "/closing", label: "決算処理", icon: Archive },
       { href: "/opening-balances", label: "期首残高設定", icon: Scale },
+      { href: "/breakdown", label: "勘定科目内訳明細書", icon: ClipboardList },
     ],
   },
   {
@@ -100,6 +102,15 @@ const navGroups: NavGroup[] = [
 ];
 
 /**
+ * メニュー項目が現在のページに当たるか。
+ * 内訳書のように下の階層（/breakdown/2025/11）を持つページでも選択状態にする。
+ * 前方一致だけにすると /closing が /closing-checklist にも当たるので、区切りの「/」まで見る。
+ */
+function isNavActive(pathname: string, href: string): boolean {
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/**
  * 業務メニュー（アコーディオン）。
  * 現在ページを含むグループは自動で開き、開閉状態はユーザーごとに保存する。
  */
@@ -108,7 +119,7 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
 
   // 現在ページが属するグループ
   const activeGroupKey = navGroups.find((g) =>
-    g.items.some((item) => pathname === `${basePath}${item.href}`)
+    g.items.some((item) => isNavActive(pathname, `${basePath}${item.href}`))
   )?.key;
 
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
@@ -159,7 +170,7 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
               <div className="ml-4 pl-3 border-l border-slate-purple/40 flex flex-col gap-0.5 py-0.5">
                 {group.items.map((item) => {
                   const fullHref = `${basePath}${item.href}`;
-                  const isActive = pathname === fullHref;
+                  const isActive = isNavActive(pathname, fullHref);
                   return (
                     <Link
                       key={item.href}

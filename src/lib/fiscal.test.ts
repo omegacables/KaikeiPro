@@ -5,6 +5,8 @@ import {
   settlementMonth,
   startMonthFromSettlement,
   currentFiscalStartYear,
+  resolveFiscalPeriodByKey,
+  adjacentFiscalPeriodKeys,
   DEFAULT_FISCAL_START_MONTH,
   toJstDate,
   transitionalPeriodEnd,
@@ -119,5 +121,100 @@ describe("transitionalPeriodEnd", () => {
 
   it("期首月と同じ月を決算月にすると1ヶ月の期間になる", () => {
     expect(transitionalPeriodEnd("2026-04-01", startMonthFromSettlement(4))).toBe("2026-04-30");
+  });
+});
+
+describe("resolveFiscalPeriodByKey（帳票に使う事業年度）", () => {
+  it("年で指定し、記録が無ければ期首月から計算する", () => {
+    expect(resolveFiscalPeriodByKey([], 4, "2025")).toEqual({
+      startDate: "2025-04-01",
+      endDate: "2026-03-31",
+      fromFiscalYears: false,
+    });
+  });
+
+  it("記録された期間があればそれを使う", () => {
+    const rows = [{ start_date: "2025-04-01", end_date: "2026-03-31" }];
+    expect(resolveFiscalPeriodByKey(rows, 4, "2025")).toEqual({
+      startDate: "2025-04-01",
+      endDate: "2026-03-31",
+      fromFiscalYears: true,
+    });
+  });
+
+  it("3月決算→12月決算の変則期間（4/1〜12/31）は、新しい期末日で年を引き当てる", () => {
+    const rows = [
+      { start_date: "2025-04-01", end_date: "2026-03-31" },
+      { start_date: "2026-04-01", end_date: "2026-12-31" },
+    ];
+    // 期首月だけで計算すると 2026-01-01〜2026-12-31 になり誤る
+    expect(resolveFiscalPeriodByKey(rows, 1, "2026")).toMatchObject({
+      startDate: "2026-04-01",
+      endDate: "2026-12-31",
+    });
+    expect(resolveFiscalPeriodByKey(rows, 1, "2027").startDate).toBe("2027-01-01");
+  });
+
+  // MRコネクトの実例: 3月決算→8月決算。2025年に始まる期が2つある
+  const mr = [{ start_date: "2025-04-01", end_date: "2025-08-31" }];
+
+  it("同じ年に始まる期が2つあっても、年の指定は今の決算月の期を開く", () => {
+    expect(resolveFiscalPeriodByKey(mr, 9, "2025")).toEqual({
+      startDate: "2025-09-01",
+      endDate: "2026-08-31",
+      fromFiscalYears: false,
+    });
+  });
+
+  it("開始日で指定すれば変則期間も開ける", () => {
+    expect(resolveFiscalPeriodByKey(mr, 9, "2025-04-01")).toEqual({
+      startDate: "2025-04-01",
+      endDate: "2025-08-31",
+      fromFiscalYears: true,
+    });
+  });
+
+  it("記録の無い期を開始日で指定したら12ヶ月とみなす", () => {
+    expect(resolveFiscalPeriodByKey(mr, 9, "2024-04-01")).toMatchObject({
+      startDate: "2024-04-01",
+      endDate: "2025-03-31",
+    });
+  });
+
+  it("解釈できない指定はエラーにする（別の期にすり替えない）", () => {
+    expect(() => resolveFiscalPeriodByKey([], 4, "abc")).toThrow();
+    expect(() => resolveFiscalPeriodByKey([], 4, "2025-13-01")).toThrow();
+  });
+});
+
+describe("adjacentFiscalPeriodKeys（前期・翌期）", () => {
+  const mr = [{ start_date: "2025-04-01", end_date: "2025-08-31" }];
+
+  it("翌期は期末日の翌日から、前期は前日に終わる記録の期", () => {
+    expect(
+      adjacentFiscalPeriodKeys(mr, { startDate: "2025-09-01", endDate: "2026-08-31" })
+    ).toEqual({ prevKey: "2025-04-01", nextKey: "2026-09-01" });
+  });
+
+  it("変則期間の前期は、記録が無ければ12ヶ月前から", () => {
+    expect(
+      adjacentFiscalPeriodKeys(mr, { startDate: "2025-04-01", endDate: "2025-08-31" })
+    ).toEqual({ prevKey: "2024-04-01", nextKey: "2025-09-01" });
+  });
+
+  it("前後にたどると変則期間を含めて期が途切れずにつながる", () => {
+    const seq: string[] = [];
+    let key = "2024-04-01";
+    for (let i = 0; i < 4; i++) {
+      const p = resolveFiscalPeriodByKey(mr, 9, key);
+      seq.push(`${p.startDate}〜${p.endDate}`);
+      key = adjacentFiscalPeriodKeys(mr, p).nextKey;
+    }
+    expect(seq).toEqual([
+      "2024-04-01〜2025-03-31",
+      "2025-04-01〜2025-08-31",
+      "2025-09-01〜2026-08-31",
+      "2026-09-01〜2027-08-31",
+    ]);
   });
 });

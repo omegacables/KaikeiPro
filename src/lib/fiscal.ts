@@ -93,3 +93,92 @@ export function toJstDate(iso: string | null | undefined): string {
     day: "2-digit",
   }).format(d);
 }
+
+/** 記録された事業年度（fiscal_years の行） */
+export type FiscalPeriodRow = { start_date: string; end_date: string };
+
+export type ResolvedFiscalPeriod = {
+  startDate: string;
+  endDate: string;
+  /** fiscal_years に記録された期間を使ったか（決算月を変えた変則期間など） */
+  fromFiscalYears: boolean;
+};
+
+function parseIso(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+function addDays(iso: string, days: number): string {
+  const d = parseIso(iso);
+  d.setDate(d.getDate() + days);
+  return fmt(d);
+}
+function addMonthsToDate(iso: string, months: number): string {
+  const d = parseIso(iso);
+  return fmt(new Date(d.getFullYear(), d.getMonth() + months, d.getDate()));
+}
+
+/**
+ * 帳票に使う事業年度の期間を決める。期は次のどちらかで指定する。
+ *   "2025"       … 期首月から計算した、その年に始まる事業年度
+ *   "2025-09-01" … その日に始まる事業年度（前期・翌期への移動はこちらを使う）
+ *
+ * 決算月を変えた年度は12ヶ月より短い変則期間になり、その実際の期間は
+ * fiscal_years テーブルにだけ残る。期首月からの計算だけで期間を出すと、
+ * 変則期間の帳票を誤った期間で作ってしまう。そこで記録された期間を優先する。
+ *
+ * 決算月を変えると同じ年に始まる期が2つでき（例: 2025/4〜8月の変則期間と
+ * 2025/9月〜）、「開始年」だけでは区別できない。年で指定されたときは
+ * 「今の期首月で計算した期末日」と期末日が一致する期を選び、
+ * それ以外の期には開始日での指定と前後の移動でたどり着けるようにする。
+ */
+export function resolveFiscalPeriodByKey(
+  rows: FiscalPeriodRow[],
+  startMonth: number | null | undefined,
+  key: string
+): ResolvedFiscalPeriod {
+  const row = (r: FiscalPeriodRow | undefined): ResolvedFiscalPeriod | null =>
+    r ? { startDate: r.start_date, endDate: r.end_date, fromFiscalYears: true } : null;
+
+  if (/^\d{4}$/.test(key)) {
+    const computed = fiscalRangeFromStartYear(startMonth, Number(key));
+    return (
+      row(rows.find((r) => r.end_date === computed.endDate)) ??
+      row(rows.find((r) => r.start_date === computed.startDate)) ?? {
+        ...computed,
+        fromFiscalYears: false,
+      }
+    );
+  }
+
+  // 2025-13-01 のような存在しない日付は Date が翌年1月に繰り上げてしまうので、
+  // 往復変換して元の文字列に戻るものだけを受け付ける
+  if (/^\d{4}-\d{2}-\d{2}$/.test(key) && fmt(parseIso(key)) === key) {
+    // 記録が無い期は12ヶ月とみなす（変則期間は必ず fiscal_years に残るため）
+    return (
+      row(rows.find((r) => r.start_date === key)) ?? {
+        startDate: key,
+        endDate: addDays(addMonthsToDate(key, 12), -1),
+        fromFiscalYears: false,
+      }
+    );
+  }
+
+  throw new Error(`事業年度の指定が正しくありません: ${key}`);
+}
+
+/**
+ * 前期・翌期の開始日。翌期はこの期の期末日の翌日から始まる。
+ * 前期は、この期の期首日の前日に終わる記録があればその期、無ければ12ヶ月前から。
+ */
+export function adjacentFiscalPeriodKeys(
+  rows: FiscalPeriodRow[],
+  period: { startDate: string; endDate: string }
+): { prevKey: string; nextKey: string } {
+  const prevEnd = addDays(period.startDate, -1);
+  const prevRow = rows.find((r) => r.end_date === prevEnd);
+  return {
+    prevKey: prevRow ? prevRow.start_date : addMonthsToDate(period.startDate, -12),
+    nextKey: addDays(period.endDate, 1),
+  };
+}

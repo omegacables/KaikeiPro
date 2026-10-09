@@ -16,13 +16,11 @@ import {
   entryFromJournalLines,
   generateRepaymentSchedule,
   reconcileLoanLedger,
-  buildBreakdownRows,
   type RepaymentMethod,
   type DueDateMode,
   type ReconcileResult,
   type JournalLineForCheck,
 } from "@/lib/loan-ledger";
-import { fiscalRangeFromStartYear } from "@/lib/fiscal";
 import type { Json } from "@/types/database";
 import type {
   Loan,
@@ -36,8 +34,8 @@ import type {
   LoanAiEvidence,
   StatutoryInterestRate,
   LoanRepaymentSchedule,
-  LoanBreakdownReport,
   LoanBreakdownRow,
+  LoanBreakdownSource,
 } from "@/types/index";
 
 type DbRow = Record<string, unknown>;
@@ -976,36 +974,31 @@ export async function reconcileLoan(loanId: string): Promise<ReconcileResult> {
 }
 
 // ---------------------------------------------------------------------------
-// 勘定科目内訳明細書「借入金及び支払利子の内訳書」（要件3-6）
+// 勘定科目内訳明細書（借入金及び支払利子／貸付金及び受取利息）の元データ
 // ---------------------------------------------------------------------------
 
 /**
- * 期末現在高と期中の支払利子額を、指定した会計年度で集計する。
- * 役員借入金は内訳書の記載対象になるため、残高が0でも行として残す。
+ * 指定した期間について、借入先（または貸付先）ごとの期末現在高と
+ * 期中の利息額を台帳から集計する。記載基準での絞り込みと試算表との照合は
+ * 勘定科目内訳明細書の側（src/actions/breakdown.ts）で行う。
+ *
+ * 期間は呼び出し側で決める（決算月を変えた変則期間は fiscal_years に従うため）。
  */
-export async function getLoanBreakdownReport(
+export async function getLoanBreakdownSource(
   clientId: string,
-  fiscalStartYear: number
-): Promise<LoanBreakdownReport> {
+  direction: LoanDirection,
+  period: { startDate: string; endDate: string }
+): Promise<LoanBreakdownSource> {
   await assertClientAccess(clientId);
   const supabase = await createServerSupabaseClient();
+  const { startDate, endDate } = period;
 
-  const { data: client } = await supabase
-    .from("clients")
-    .select("name, fiscal_year_start_month")
-    .eq("id", clientId)
-    .single();
-
-  const { startDate, endDate } = fiscalRangeFromStartYear(
-    (client as DbRow | null)?.fiscal_year_start_month as number | undefined,
-    fiscalStartYear
-  );
-
-  const { data: loanRows } = await supabase
+  const { data: loanRows, error } = await supabase
     .from("loans")
-    .select("*, business_partners(address)")
+    .select("*, business_partners(address, invoice_registration_number)")
     .eq("client_id", clientId)
-    .eq("direction", "borrow");
+    .eq("direction", direction);
+  if (error) throw new Error(error.message);
 
   const entryRows = await fetchAllRows<DbRow>((from, to) =>
     supabase.from("loan_entries").select("*").eq("client_id", clientId).range(from, to)
@@ -1019,70 +1012,37 @@ export async function getLoanBreakdownReport(
     else byLoan.set(e.loan_id, [e]);
   }
 
+  const accountIds = new Set<string>();
   const rows: LoanBreakdownRow[] = (loanRows ?? []).map((raw) => {
     const loan = rowToLoan(raw as DbRow);
+    if (loan.liability_account_id) accountIds.add(loan.liability_account_id);
     const es = byLoan.get(loan.id) ?? [];
-    const partner = (raw as DbRow).business_partners as { address?: string } | null;
+    const partner = (raw as DbRow).business_partners as {
+      address?: string | null;
+      invoice_registration_number?: string | null;
+    } | null;
 
     return {
       lender_name: loan.lender_name,
       address: partner?.address ?? null,
+      registration_number: partner?.invoice_registration_number ?? null,
       // 期末現在高＝決算日時点の残高
       closing_balance: balanceAsOf(es, endDate),
-      // 期中の支払利子額。返済と同時に支払った利息（repay の interest_amount）と、
-      // 元本に加算した未払利息（entry_type='interest'）の両方を数える。
+      // 期中の利息額。返済と同時に授受した利息（repay の interest_amount）と、
+      // 元本に加算した未払（未収）利息（entry_type='interest'）の両方を数える。
       // 前者を数え漏らすと、銀行返済では常に0になってしまう。
       interest_paid: interestTotals(es, { from: startDate, to: endDate }).total,
       interest_rate: loan.interest_rate,
       relationship: loan.relationship,
       collateral: loan.collateral,
-      // 役員からの借入は関連者。ほかに株主・関係会社があれば
+      // 役員との貸借は関連者。ほかに株主・関係会社があれば
       // 「法人・代表者との関係」欄への記入で関連者として扱う
       is_related_party:
         loan.counterparty_kind === "officer" || Boolean(loan.relationship?.trim()),
     };
   });
 
-  // 記載要領に沿って各別記入と一括記入を分ける。
-  // 以前は「役員なら出す、残高か利子があれば出す」だけで、
-  // 50万円・3万円・100口の基準を見ていなかった。
-  const built = buildBreakdownRows(
-    rows.map((r) => ({
-      ...r,
-      closingBalance: r.closing_balance,
-      interestPaid: r.interest_paid,
-      isRelatedParty: r.is_related_party,
-    }))
-  );
-
-  const visible: LoanBreakdownRow[] = built.separate.map(
-    ({ closingBalance: _b, interestPaid: _i, isRelatedParty: _r, ...row }) => row
-  );
-
-  // 各別記入にならなかったものは1行にまとめる（記載要領3）
-  if (built.othersCount > 0) {
-    visible.push({
-      lender_name: `その他（${built.othersCount}口）`,
-      address: null,
-      closing_balance: built.othersBalance,
-      interest_paid: built.othersInterest,
-      interest_rate: null,
-      relationship: null,
-      collateral: null,
-      is_related_party: false,
-      merged_count: built.othersCount,
-    });
-  }
-
-  return {
-    clientName: ((client as DbRow | null)?.name as string) ?? "",
-    fiscalYear: fiscalStartYear,
-    periodStart: startDate,
-    periodEnd: endDate,
-    rows: visible,
-    totalClosingBalance: visible.reduce((s, r) => s + r.closing_balance, 0),
-    totalInterestPaid: visible.reduce((s, r) => s + r.interest_paid, 0),
-  };
+  return { rows, accountIds: [...accountIds] };
 }
 
 

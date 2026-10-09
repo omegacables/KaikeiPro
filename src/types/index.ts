@@ -638,14 +638,19 @@ export type LoanRepaymentScheduleInput = Omit<
 
 // --- 勘定科目内訳明細書（要件3-6） -----------------------------------------
 
-/** 「借入金及び支払利子の内訳書」の1行 */
+/**
+ * 「借入金及び支払利子の内訳書」「貸付金及び受取利息の内訳書」の1行。
+ * 借入・貸付どちらも同じ形で持ち、利息は向きに応じて支払利子／受取利息になる。
+ */
 export interface LoanBreakdownRow {
   lender_name: string;
   /** 取引先マスタから引いた所在地 */
   address: string | null;
+  /** 取引先マスタの登録番号（適格請求書発行事業者）。貸付金の内訳書に記入する */
+  registration_number: string | null;
   /** 期末現在高 */
   closing_balance: number;
-  /** 期中の支払利子額 */
+  /** 期中の利息額（借入は支払利子額、貸付は受取利息額。未払・未収を含む） */
   interest_paid: number;
   /** 年利(%) */
   interest_rate: number | null;
@@ -662,14 +667,11 @@ export interface LoanBreakdownRow {
   merged_count?: number;
 }
 
-export interface LoanBreakdownReport {
-  clientName: string;
-  fiscalYear: number;
-  periodStart: string;
-  periodEnd: string;
+/** 内訳書の元になる借入・貸付の一覧（記載基準で絞り込む前） */
+export interface LoanBreakdownSource {
   rows: LoanBreakdownRow[];
-  totalClosingBalance: number;
-  totalInterestPaid: number;
+  /** 台帳に設定された勘定科目（試算表との照合に使う） */
+  accountIds: string[];
 }
 
 // --- 認定利息の利率マスタ --------------------------------------------------
