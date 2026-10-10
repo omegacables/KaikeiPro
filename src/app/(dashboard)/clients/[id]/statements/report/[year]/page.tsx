@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect, use } from "react";
-import { Loader2, Printer, ArrowLeft } from "lucide-react";
+import { Loader2, Printer, ArrowLeft, Download } from "lucide-react";
+import { getEtaxFinancialCsv } from "@/actions/etax-financial";
 import { useRouter } from "next/navigation";
 import {
   getSettlementReport,
@@ -404,6 +405,46 @@ function EquityChangesTable({
 }
 
 // ---------------------------------------------------------------------------
+// e-Tax 用 CSV（貸借対照表・損益計算書）
+// ---------------------------------------------------------------------------
+
+function EtaxFinancialButtons({ clientId, year }: { clientId: string; year: number }) {
+  const [busy, setBusy] = useState<"BS" | "PL" | null>(null);
+  const download = async (kind: "BS" | "PL") => {
+    setBusy(kind);
+    try {
+      const r = await getEtaxFinancialCsv(clientId, year, kind);
+      const bin = atob(r.base64);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      const url = URL.createObjectURL(new Blob([bytes], { type: "text/csv" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+      if (r.unsupported.length) alert(`e-Taxで使えない文字（${r.unsupported.join("")}）を「〓」にしました。科目名などを直してから取り込んでください。`);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "作れませんでした");
+    } finally {
+      setBusy(null);
+    }
+  };
+  const cls = "inline-flex items-center gap-1 px-3 py-2 rounded-lg border border-border text-sm hover:bg-muted/30 disabled:opacity-50";
+  return (
+    <>
+      <span className="text-xs text-muted-foreground hidden md:inline">e-Tax用CSV:</span>
+      {(["BS", "PL"] as const).map((k) => (
+        <button key={k} className={cls} disabled={busy !== null} onClick={() => download(k)} title="e-Taxソフトの「財務諸表等の組み込み」で取り込めます（HOT010 Ver.3.0）">
+          {busy === k ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+          {k === "BS" ? "貸借対照表" : "損益計算書"}
+        </button>
+      ))}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
 // ページ本体
 // ---------------------------------------------------------------------------
 
@@ -458,13 +499,16 @@ export default function SettlementReportPage({
           <ArrowLeft className="size-4" />
           試算表・財務諸表に戻る
         </button>
-        <button
-          onClick={() => window.print()}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
-        >
-          <Printer className="size-4" />
-          印刷 / PDF保存
-        </button>
+        <div className="flex items-center gap-2">
+          <EtaxFinancialButtons clientId={id} year={Number(year)} />
+          <button
+            onClick={() => window.print()}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
+          >
+            <Printer className="size-4" />
+            印刷 / PDF保存
+          </button>
+        </div>
       </div>
 
       {!data.bs.balanced && (
