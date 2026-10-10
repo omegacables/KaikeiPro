@@ -676,6 +676,8 @@ function AssetForm({
   const [error, setError] = useState<string | null>(null);
   const accountName = book.assetAccounts.find((a) => a.id === f.accountId)?.name ?? "";
   const slOnly = f.acquisitionDate ? straightLineOnlyReason(accountName, f.acquisitionDate) : null;
+  // 定額法しか使えない資産は、定率法を選べない（一括償却資産・少額減価償却資産は選べる）
+  const method = slOnly && f.method === "declining_balance" ? "straight_line" : f.method;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -690,8 +692,8 @@ function AssetForm({
           acquisitionDate: f.acquisitionDate,
           serviceStartDate: f.serviceStartDate || null,
           acquisitionCost: Number(f.acquisitionCost),
-          usefulLife: Number(f.usefulLife),
-          method: slOnly ? "straight_line" : f.method,
+          usefulLife: method === "lump_sum" ? 3 : Number(f.usefulLife),
+          method,
           specialRatePercent: f.special ? Number(f.special) : null,
           specialNote: f.specialNote,
           note: f.note,
@@ -749,21 +751,26 @@ function AssetForm({
             type="number"
             min={MIN_USEFUL_LIFE}
             max={MAX_USEFUL_LIFE}
-            value={f.usefulLife}
+            value={method === "lump_sum" ? "3" : f.usefulLife}
+            disabled={method === "lump_sum"}
             onChange={(e) => setF({ ...f, usefulLife: e.target.value })}
             className={fieldCls}
           />
+          {method === "lump_sum" && <span className="block text-[11px] text-muted-foreground mt-1">一括償却資産は耐用年数にかかわらず3年で均等に償却します</span>}
         </label>
         <label>
           {label("償却方法 *")}
           <select
-            value={slOnly ? "straight_line" : f.method}
-            disabled={Boolean(slOnly)}
+            value={method}
             onChange={(e) => setF({ ...f, method: e.target.value as AssetInput["method"] })}
             className={fieldCls}
           >
             <option value="straight_line">定額法（毎年同じ額）</option>
-            <option value="declining_balance">定率法（初めに多く、だんだん少なく）</option>
+            <option value="declining_balance" disabled={Boolean(slOnly)}>
+              定率法（初めに多く、だんだん少なく）
+            </option>
+            <option value="lump_sum">一括償却資産（20万円未満・3年で均等）</option>
+            <option value="small_immediate">少額減価償却資産（30万円未満・全額を経費）</option>
           </select>
           {slOnly && <span className="block text-[11px] text-muted-foreground mt-1">{slOnly}</span>}
         </label>

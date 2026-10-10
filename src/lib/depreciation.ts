@@ -29,12 +29,21 @@
  *   計上額が償却限度額を超えた分は、その期の損金にならない（償却超過額。別表四で加算）。
  *   後の期で計上額が限度額に満たないときは、その不足分まで、繰り越した償却超過額を損金にできる（認容。減算）。
  *   税務上の未償却残高 ＝ 帳簿価額 ＋ 繰越償却超過額。定率法の計算はこの税務上の残高を使う。
+ *
+ * ■ 特別償却不足額の繰越
+ *   特別償却の限度額まで計上しなかったときの不足分（特別償却不足額）は、翌期に1年だけ繰り越して上乗せできる。
+ *
+ * ■ 一括償却資産（取得価額20万円未満）
+ *   取得価額 × その期の月数 ÷ 36 を、使い始めた期から3年で均等に損金にする（1円も残さない。除却しても続ける）。
+ *
+ * ■ 少額減価償却資産（中小企業者等の特例、取得価額30万円未満、年300万円まで）
+ *   使い始めた期に取得価額の全額を損金にする。
  */
 
-export type DepreciationMethod = "straight_line" | "declining_balance";
+export type DepreciationMethod = "straight_line" | "declining_balance" | "lump_sum" | "small_immediate";
 export type DepreciationRounding = "floor" | "ceil" | "round";
 /** 実際に使う償却の方法 */
-export type DepreciationKind = "sl" | "db200" | "db250" | "unsupported";
+export type DepreciationKind = "sl" | "db200" | "db250" | "lump" | "immediate" | "unsupported";
 
 export const ROUNDING_LABELS: Record<DepreciationRounding, string> = {
   floor: "切り捨て",
@@ -46,6 +55,8 @@ export const KIND_LABELS: Record<DepreciationKind, string> = {
   sl: "定額法",
   db200: "定率法（200%）",
   db250: "定率法（250%）",
+  lump: "一括償却資産（3年均等）",
+  immediate: "少額減価償却資産（全額）",
   unsupported: "旧定額法・旧定率法（手入力）",
 };
 
@@ -141,7 +152,7 @@ export const MAX_USEFUL_LIFE = 50;
 /** 耐用年数の償却率（画面の表示用。小数） */
 export function rateInfo(usefulLife: number, kind: DepreciationKind) {
   const row = RATE_TABLE.get(usefulLife);
-  if (!row || kind === "unsupported") return null;
+  if (!row || kind === "unsupported" || kind === "lump" || kind === "immediate") return null;
   const f = (v: bigint) => Number(v) / 100000;
   if (kind === "sl") return { rate: f(row.sl), revised: null, guarantee: null };
   const r = row[kind];
@@ -150,6 +161,8 @@ export function rateInfo(usefulLife: number, kind: DepreciationKind) {
 
 /** 取得日と選んだ方法から、実際に使う償却の方法を決める */
 export function depreciationKind(method: DepreciationMethod, acquisitionDate: string): DepreciationKind {
+  if (method === "lump_sum") return "lump";
+  if (method === "small_immediate") return "immediate";
   if (acquisitionDate < "2007-04-01") return "unsupported";
   if (method === "straight_line") return "sl";
   return acquisitionDate >= "2012-04-01" ? "db200" : "db250";
@@ -227,8 +240,10 @@ export type ScheduleRow = {
   openingExcess: number;
   /** 普通償却限度額 */
   ordinaryLimit: number;
-  /** 特別償却限度額 */
+  /** 特別償却限度額（前期から繰り越した特別償却不足額を含む） */
   specialLimit: number;
+  /** 翌期へ繰り越す特別償却不足額 */
+  specialShortfall: number;
   /** 償却限度額（普通＋特別）。旧定額法・旧定率法は計算しないので null */
   limit: number | null;
   /** 帳簿に計上する償却額（会計上） */
@@ -266,9 +281,15 @@ export function buildDepreciationSchedule(
   /** 定率法の改定取得価額（切り替わった期の期首の税務上の未償却残高） */
   let revisedBase: bigint | null = null;
   let firstPeriod = true;
+  /** 前期から繰り越した特別償却不足額（1年だけ） */
+  let specialCarry = ZERO;
+  /** 一括償却資産は除却しても3年で損金にする */
+  const ignoresDisposal = kind === "lump";
+  /** 一括償却資産: 使い始めた期からの月数の合計（36か月に達した期で残りをすべて損金にする） */
+  let lumpMonths = 0;
 
   for (const p of periods) {
-    const months = serviceMonths(p, serviceStart, asset.disposedAt);
+    const months = serviceMonths(p, serviceStart, ignoresDisposal ? null : asset.disposedAt);
     if (months === 0) {
       if (rows.length > 0) break; // 除却した後
       continue; // 使い始める前
@@ -276,7 +297,9 @@ export function buildDepreciationSchedule(
     const m = BigInt(months);
     const pm = BigInt(periodMonths(p));
     const taxOpening = openingBook + openingExcess;
-    const room = taxOpening > ONE ? taxOpening - ONE : ZERO; // 1円（備忘価額）を残す
+    // 1円（備忘価額）を残す。一括償却資産・少額減価償却資産は全額を損金にする
+    const keepsOne = kind !== "lump" && kind !== "immediate";
+    const room = keepsOne ? (taxOpening > ONE ? taxOpening - ONE : ZERO) : taxOpening;
     const min = (a: bigint, b: bigint) => (a < b ? a : b);
     /** base × 率（その期の月数で調整）× 使った月数 ÷ その期の月数 */
     const depreciate = (base: bigint, rate: bigint) => mulDiv(base, shortPeriodRate(rate, pm) * m, SCALE * pm, rounding);
@@ -286,7 +309,16 @@ export function buildDepreciationSchedule(
     let revised = false;
     let limit: bigint | null = null;
 
-    if (kind !== "unsupported" && rates) {
+    let specialThisPeriod = ZERO;
+    if (kind === "lump") {
+      // 取得価額 × その期の月数 ÷ 36（使った月数ではなく、その期の月数）
+      lumpMonths += Number(pm);
+      ordinary = lumpMonths >= 36 ? room : min(mulDiv(cost, pm, BigInt(36), rounding), room);
+      limit = ordinary;
+    } else if (kind === "immediate") {
+      ordinary = firstPeriod ? room : ZERO;
+      limit = ordinary;
+    } else if (kind !== "unsupported" && rates) {
       if (kind === "sl") {
         ordinary = depreciate(cost, rates.sl);
       } else {
@@ -301,12 +333,13 @@ export function buildDepreciationSchedule(
       ordinary = min(ordinary, room);
       if (firstPeriod && asset.specialRate && asset.specialRate > 0) {
         const sr = BigInt(Math.round(asset.specialRate * 100000));
-        special = min(mulDiv(cost, sr, SCALE, rounding), room - ordinary);
+        specialThisPeriod = min(mulDiv(cost, sr, SCALE, rounding), room - ordinary);
       }
+      special = min(specialThisPeriod + specialCarry, room - ordinary);
       limit = ordinary + special;
     }
 
-    const bookRoom = openingBook > ONE ? openingBook - ONE : ZERO;
+    const bookRoom = keepsOne ? (openingBook > ONE ? openingBook - ONE : ZERO) : openingBook;
     const fixed = booked[p.start];
     const overridden = fixed !== undefined;
     let amount = overridden ? BigInt(Math.max(0, Math.round(fixed))) : (limit ?? ZERO);
@@ -320,6 +353,11 @@ export function buildDepreciationSchedule(
     }
     const closingExcess = openingExcess + excess - allowed;
     const closingBook = openingBook - amount;
+    // 当期に生じた特別償却不足額（計上額のうち普通償却を超える部分で、特別償却の限度額に届かなかった分）を翌期へ。
+    // 繰り越してきた不足額は、さらに繰り越せない
+    const specialUsed = amount > ordinary ? amount - ordinary : ZERO;
+    const shortfall = specialThisPeriod > specialUsed ? specialThisPeriod - specialUsed : ZERO;
+    specialCarry = limit === null ? ZERO : min(shortfall, specialThisPeriod);
 
     rows.push({
       start: p.start,
@@ -329,6 +367,7 @@ export function buildDepreciationSchedule(
       openingExcess: Number(openingExcess),
       ordinaryLimit: Number(ordinary),
       specialLimit: Number(special),
+      specialShortfall: Number(specialCarry),
       limit: limit === null ? null : Number(limit),
       booked: Number(amount),
       excess: Number(excess),

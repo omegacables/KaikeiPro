@@ -226,3 +226,50 @@ describe("任意償却と償却超過額", () => {
     expect(rows[1]).toMatchObject({ limit: null, booked: 0 });
   });
 });
+
+describe("一括償却資産・少額減価償却資産", () => {
+  it("一括償却資産は取得価額 × その期の月数 ÷ 36。3年目に残りをすべて、1円も残さない", () => {
+    const rows = buildDepreciationSchedule(
+      asset({ method: "lump_sum", acquisitionCost: 100_000, acquisitionDate: "2024-10-15", usefulLife: 3 }),
+      years(2024, 4),
+      {},
+      "floor"
+    );
+    // 期の途中から使っても、その期の月数（12か月）で計算する
+    expect(booked(rows)).toEqual([33_333, 33_333, 33_334, 0]);
+    expect(rows[2].closingBook).toBe(0);
+  });
+
+  it("一括償却資産は除却しても3年で損金にする", () => {
+    const rows = buildDepreciationSchedule(
+      asset({ method: "lump_sum", acquisitionCost: 150_000, usefulLife: 3, disposedAt: "2024-12-01" }),
+      years(2024, 3),
+      {},
+      "floor"
+    );
+    expect(booked(rows)).toEqual([50_000, 50_000, 50_000]);
+  });
+
+  it("少額減価償却資産は使い始めた期に全額", () => {
+    const rows = buildDepreciationSchedule(
+      asset({ method: "small_immediate", acquisitionCost: 250_000, acquisitionDate: "2025-03-20", usefulLife: 4 }),
+      years(2024, 2),
+      {},
+      "floor"
+    );
+    expect(booked(rows)).toEqual([250_000, 0]);
+    expect(rows[0].closingBook).toBe(0);
+  });
+});
+
+describe("特別償却不足額の繰越", () => {
+  it("特別償却の限度額まで計上しなかった分を、翌期に1年だけ上乗せできる", () => {
+    // 普通償却 200,000 + 特別償却 300,000 の限度額に対して 300,000 だけ計上 → 不足 200,000 を翌期へ
+    const rows = buildDepreciationSchedule(asset({ specialRate: 0.3 }), years(2024, 3), { "2024-04-01": 300_000 }, "floor");
+    expect(rows[0]).toMatchObject({ limit: 500_000, booked: 300_000, specialShortfall: 200_000, excess: 0 });
+    expect(rows[1]).toMatchObject({ ordinaryLimit: 200_000, specialLimit: 200_000, limit: 400_000, specialShortfall: 0 });
+    // さらに翌期には繰り越さない
+    expect(rows[2]).toMatchObject({ specialLimit: 0 });
+  });
+});
+

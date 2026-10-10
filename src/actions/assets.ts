@@ -242,6 +242,14 @@ async function computeBook(clientId: string, periodKey?: string): Promise<Deprec
     if (ctx.entityType === "individual" && current?.overridden && current.limit !== null && current.booked !== current.limit)
       warnings.push("個人事業主は償却限度額どおりに計上します（任意償却はできません）");
     if (current && current.excess > 0) warnings.push("償却限度額を超えています。超えた分は損金になりません（償却超過額）");
+    if (kind === "lump" && Number(a.acquisition_cost) >= 200_000)
+      warnings.push("一括償却資産にできるのは、取得価額が20万円未満の資産です");
+    if (kind === "immediate" && Number(a.acquisition_cost) >= 300_000)
+      warnings.push("少額減価償却資産にできるのは、取得価額が30万円未満の資産です");
+    if (kind === "immediate")
+      warnings.push("少額減価償却資産の特例は、中小企業者等（青色申告）だけが使えます。別表十六(七)の添付が必要です");
+    if (current && current.specialShortfall > 0)
+      warnings.push(`特別償却不足額 ${current.specialShortfall.toLocaleString()}円を翌期へ繰り越します（翌期の償却限度額に上乗せされます）`);
 
     return {
       id: a.id,
@@ -294,6 +302,23 @@ async function computeBook(clientId: string, periodKey?: string): Promise<Deprec
         amount: es.reduce((s, e) => s + e.journal_entry_lines.reduce((t, l) => t + Number(l.debit_amount || 0), 0), 0),
       };
     }
+  }
+
+  // 少額減価償却資産は、その期に使い始めた分の合計が年300万円（月割り）まで
+  const immediateTotal = list
+    .filter((a) => a.kind === "immediate" && a.current && a.current.booked > 0)
+    .reduce((s, a) => s + a.acquisitionCost, 0);
+  const months = (() => {
+    const [ys, ms] = p.startDate.split("-").map(Number);
+    const [ye, me] = p.endDate.split("-").map(Number);
+    return ye * 12 + me - (ys * 12 + ms) + 1;
+  })();
+  const immediateLimit = Math.floor((3_000_000 * months) / 12);
+  if (immediateTotal > immediateLimit) {
+    for (const a of list.filter((x) => x.kind === "immediate" && x.current && x.current.booked > 0))
+      a.warnings.push(
+        `この期の少額減価償却資産の合計 ${immediateTotal.toLocaleString()}円が、限度額 ${immediateLimit.toLocaleString()}円（年300万円の月割り）を超えています。超える分は通常の減価償却にしてください`
+      );
   }
 
   const missingAccounts: string[] = [];
@@ -395,7 +420,8 @@ function validateAsset(input: AssetInput) {
   if (!(input.acquisitionCost > 0)) throw new Error("取得価額を入力してください");
   if (!Number.isInteger(input.usefulLife) || input.usefulLife < MIN_USEFUL_LIFE || input.usefulLife > MAX_USEFUL_LIFE)
     throw new Error(`耐用年数は${MIN_USEFUL_LIFE}〜${MAX_USEFUL_LIFE}年で入力してください`);
-  if (input.method !== "straight_line" && input.method !== "declining_balance") throw new Error("償却方法を選んでください");
+  if (!["straight_line", "declining_balance", "lump_sum", "small_immediate"].includes(input.method))
+    throw new Error("償却方法を選んでください");
   const sr = input.specialRatePercent;
   if (sr != null && !(sr > 0 && sr <= 100)) throw new Error("特別償却率は0より大きく100%以下で入力してください");
 }
