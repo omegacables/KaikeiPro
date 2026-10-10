@@ -16,8 +16,7 @@ import {
   type ClosingChecklist,
   type ChecklistStatus,
 } from "@/actions/closing-checklist";
-import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear, currentFiscalStartYear } from "@/lib/fiscal";
+import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 
 const statusMeta: Record<
   ChecklistStatus,
@@ -35,28 +34,19 @@ export default function ClosingChecklistPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [startMonth, setStartMonth] = useState(4);
-  const [startYear, setStartYear] = useState<number>(() => new Date().getFullYear());
+  // 期の選択肢（翌期から過去5期。決算月を変えた年の変則期間は記録どおり）。値は期首日
+  const { options, current } = useFiscalPeriods(id, { past: 5, future: 1 });
+  const [periodKey, setPeriodKey] = useState("");
   const [result, setResult] = useState<ClosingChecklist | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    getClient(id)
-      .then((c) => {
-        const sm = c.fiscal_year_start_month ?? 4;
-        setStartMonth(sm);
-        setStartYear(currentFiscalStartYear(sm));
-      })
-      .catch(() => {});
-  }, [id]);
-
-  const { startDate, endDate } = useMemo(
-    () => fiscalRangeFromStartYear(startMonth, startYear),
-    [startMonth, startYear]
-  );
+  const selected = options.find((o) => o.key === periodKey) ?? current;
+  const startDate = selected?.startDate ?? "";
+  const endDate = selected?.endDate ?? "";
 
   const run = useCallback(async () => {
+    if (!startDate) return;
     setLoading(true);
     setError(null);
     try {
@@ -73,9 +63,6 @@ export default function ClosingChecklistPage({
     run();
   }, [run]);
 
-  const yearOptions: number[] = [];
-  const baseYear = currentFiscalStartYear(startMonth);
-  for (let y = baseYear + 1; y >= baseYear - 5; y--) yearOptions.push(y);
 
   const counts = useMemo(() => {
     const c = { ok: 0, warning: 0, todo: 0, info: 0 };
@@ -93,18 +80,15 @@ export default function ClosingChecklistPage({
         </div>
         <div className="flex items-center gap-2">
           <select
-            value={startYear}
-            onChange={(e) => setStartYear(Number(e.target.value))}
+            value={selected?.key ?? ""}
+            onChange={(e) => setPeriodKey(e.target.value)}
             className="px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
-            {yearOptions.map((y) => {
-              const r = fiscalRangeFromStartYear(startMonth, y);
-              return (
-                <option key={y} value={y}>
-                  {r.startDate} 〜 {r.endDate} 期
-                </option>
-              );
-            })}
+            {options.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.startDate} 〜 {o.endDate} 期{o.short ? "（変則期間）" : ""}
+              </option>
+            ))}
           </select>
           <Button onClick={run} disabled={loading}>
             {loading ? <Loader2 className="size-4 animate-spin" /> : <ListChecks className="size-4" />}

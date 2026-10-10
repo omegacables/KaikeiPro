@@ -137,17 +137,26 @@ ${accounts.map((a) => `- ${a.name}`).join("\n")}
   return out;
 }
 
+/**
+ * 期の指定: 期首の年（2025）か期首日（"2025-04-01"）。決算月を変えた年は同じ年に始まる期が2つあるので、
+ * 変則期間は期首日で指定する。按分率は期首の年ごとに持つ（同じ年に始まる2つの期は同じ按分率）
+ */
+export type PeriodKey = number | string;
+function rateYear(key: PeriodKey): number {
+  return typeof key === "number" ? key : Number(String(key).slice(0, 4));
+}
+
 // 指定年度の按分率設定を account_id をキーに取得
 export async function getAllocationRates(
   clientId: string,
-  fiscalYear: number
+  fiscalYear: PeriodKey
 ): Promise<Record<string, AllocationRate>> {
   const supabase = await createServerSupabaseClient();
   const { data, error } = await supabase
     .from("allocation_rate_settings")
     .select("account_id, business_ratio, basis_note")
     .eq("client_id", clientId)
-    .eq("fiscal_year", fiscalYear);
+    .eq("fiscal_year", rateYear(fiscalYear));
   if (error) {
     // テーブル未適用でも落とさない
     return {};
@@ -166,7 +175,7 @@ export async function getAllocationRates(
 // 按分率の登録・更新（UNIQUE制約に依存しない検索→更新/挿入方式）
 export async function upsertAllocationRate(
   clientId: string,
-  fiscalYear: number,
+  fiscalYear: PeriodKey,
   accountId: string,
   businessRatio: number,
   basisNote: string | null
@@ -180,7 +189,7 @@ export async function upsertAllocationRate(
     .from("allocation_rate_settings")
     .select("id")
     .eq("client_id", clientId)
-    .eq("fiscal_year", fiscalYear)
+    .eq("fiscal_year", rateYear(fiscalYear))
     .eq("account_id", accountId)
     .limit(1)
     .maybeSingle();
@@ -197,7 +206,7 @@ export async function upsertAllocationRate(
 
   const { error } = await supabase.from("allocation_rate_settings").insert({
     client_id: clientId,
-    fiscal_year: fiscalYear,
+    fiscal_year: rateYear(fiscalYear),
     account_id: accountId,
     business_ratio: businessRatio,
     basis_note: basisNote,
@@ -373,12 +382,12 @@ export interface BatchAllocationPreview {
 
 /** 期末一括の仕訳の摘要（二重作成の確認と、集計から除くのに使う） */
 const BATCH_PREFIXES = ["家事按分（期末一括）", "役員の私的利用分（期末一括）"];
-function batchDescription(fiscalYear: number, entityType: PrivateUseSetup["entityType"]) {
-  return `${entityType === "corporation" ? BATCH_PREFIXES[1] : BATCH_PREFIXES[0]}${fiscalYear}年度`;
+function batchDescription(fiscalYear: PeriodKey, entityType: PrivateUseSetup["entityType"]) {
+  return `${entityType === "corporation" ? BATCH_PREFIXES[1] : BATCH_PREFIXES[0]}${rateYear(fiscalYear)}年度`;
 }
 
 /** 按分率の年度（期首の年）から、事業年度の期間（決算月を変えた変則期間も記録どおり） */
-async function fiscalRange(db: Db, clientId: string, fiscalYear: number) {
+async function fiscalRange(db: Db, clientId: string, fiscalYear: PeriodKey) {
   const [{ data: client }, { data: fyRows }] = await Promise.all([
     db.from("clients").select("fiscal_year_start_month").eq("id", clientId).maybeSingle(),
     db.from("fiscal_years").select("start_date, end_date").eq("client_id", clientId),
@@ -430,7 +439,7 @@ async function loadSourceLines(db: Db, clientId: string, start: string, end: str
   };
 }
 
-async function computeBatch(db: Db, clientId: string, fiscalYear: number) {
+async function computeBatch(db: Db, clientId: string, fiscalYear: PeriodKey) {
   const { start, end } = await fiscalRange(db, clientId, fiscalYear);
   const ratesMap = await getAllocationRates(clientId, fiscalYear);
   // 0% は画面で「未設定」と同じ扱い（空欄にすると0%で保存される）。全額を私用として振り替えてしまわないよう除く
@@ -464,7 +473,7 @@ async function computeBatch(db: Db, clientId: string, fiscalYear: number) {
 }
 
 // 期末一括按分のプレビュー（対象年度の科目別 期中合計と按分額）
-export async function getBatchAllocationPreview(clientId: string, fiscalYear: number): Promise<BatchAllocationPreview> {
+export async function getBatchAllocationPreview(clientId: string, fiscalYear: PeriodKey): Promise<BatchAllocationPreview> {
   await assertClientAccess(clientId);
   const db = await createServerSupabaseClient();
   const { adj, rows, start, end, posted } = await computeBatch(db, clientId, fiscalYear);
@@ -483,7 +492,7 @@ export interface AllocationReportRow {
 }
 
 // 実績集計レポート：対象年度の実際の仕訳から科目別に総額/事業分/私用分を集計
-export async function getAllocationReport(clientId: string, fiscalYear: number): Promise<AllocationReportRow[]> {
+export async function getAllocationReport(clientId: string, fiscalYear: PeriodKey): Promise<AllocationReportRow[]> {
   await assertClientAccess(clientId);
   const db = await createServerSupabaseClient();
   const { rows, ratesMap } = await computeBatch(db, clientId, fiscalYear);
@@ -500,7 +509,7 @@ export async function getAllocationReport(clientId: string, fiscalYear: number):
  */
 export async function runBatchAllocation(
   clientId: string,
-  fiscalYear: number,
+  fiscalYear: PeriodKey,
   destinationAccountId?: string | null
 ): Promise<{ count: number }> {
   await assertClientAccess(clientId);

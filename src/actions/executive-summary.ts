@@ -7,7 +7,7 @@
 import { createAdminSupabaseClient } from "@/lib/supabase";
 import { fetchAllRows } from "@/lib/fetch-all";
 import { assertClientAccess } from "@/lib/authz";
-import { fiscalRangeFromStartYear, currentFiscalStartYear } from "@/lib/fiscal";
+import { fiscalPeriodContaining, type FiscalPeriodRow } from "@/lib/fiscal";
 
 type DbRow = Record<string, unknown>;
 
@@ -78,10 +78,11 @@ export async function getExecutiveSummary(clientId: string): Promise<ExecutiveSu
   if (clientErr) throw new Error(clientErr.message);
   const c = clientRow as DbRow;
   const startMonth = (c.fiscal_year_start_month as number) ?? 4;
-  const fy = fiscalRangeFromStartYear(startMonth, currentFiscalStartYear(startMonth));
-
   const today = new Date();
   const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
+  // 今日を含む事業年度（決算月を変えた年の変則期間は fiscal_years の記録どおり）
+  const { data: fyRows } = await admin.from("fiscal_years").select("start_date, end_date").eq("client_id", clientId);
+  const fy = fiscalPeriodContaining((fyRows ?? []) as FiscalPeriodRow[], startMonth, todayStr);
   const asOf = todayStr < fy.endDate ? todayStr : fy.endDate;
 
   // 期首月〜基準日の月キー

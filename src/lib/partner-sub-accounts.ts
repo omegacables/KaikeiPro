@@ -189,3 +189,29 @@ export async function assignPartnerSubAccounts(
   }
   return result;
 }
+
+/**
+ * 摘要に書かれた取引先名から、行の相手先の候補を出す（「売上計上: 株式会社あおば工業 4月分」など）。
+ * 名前・別名が摘要に含まれる取引先が1つに決まるときだけ返す。
+ * 「あおば」と「あおば工業」のように片方がもう片方を含むときは長い方を取る。
+ * 決まらなければ null（期首残高のまとめた行など）。人が確かめてから付けるための候補で、自動では書き込まない。
+ */
+export function suggestPartnerFromDescription(
+  description: string | null | undefined,
+  partners: { id: string; name: string; aliases?: string[] | null }[]
+): PartnerRef | null {
+  if (!description?.trim()) return null;
+  const norm = (v: string) => v.normalize("NFKC").replace(/\s+/g, "");
+  const text = norm(description);
+  const hits: { partner: PartnerRef; key: string }[] = [];
+  for (const p of partners) {
+    for (const n of [p.name, ...(p.aliases ?? [])]) {
+      const key = n ? norm(n) : "";
+      if (key.length >= 2 && text.includes(key)) hits.push({ partner: { id: p.id, name: p.name }, key });
+    }
+  }
+  // 他の候補の名前に含まれてしまう短い名前は外す
+  const kept = hits.filter((h) => !hits.some((o) => o.key !== h.key && o.key.includes(h.key)));
+  const ids = new Set(kept.map((h) => h.partner.id));
+  return ids.size === 1 ? kept[0].partner : null;
+}

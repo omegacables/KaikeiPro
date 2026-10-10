@@ -13,7 +13,7 @@
 // この方針により、途中の明細を修正・削除しても runningBalances を通すだけで
 // 以降の残高がすべて再計算される。
 
-import { fiscalRangeFromStartYear, getFiscalPeriod } from "@/lib/fiscal";
+import { fiscalPeriodContaining, type FiscalPeriodRow } from "@/lib/fiscal";
 import { LOAN_LISTING_RULE, isListed, selectListedRows } from "@/lib/breakdown";
 
 export type LoanDirection = "borrow" | "lend";
@@ -343,26 +343,26 @@ export type ImputedInterestAlert = {
  * 役員貸付金（会社が役員に貸す）は期末をまたいで残高があると
  * 認定利息の計上義務が生じ、常態化すると役員賞与と認定される。
  *
- * 決算日は fiscalRangeFromStartYear() の endDate をそのまま使う（再計算しない）。
+ * 決算日は今日を含む事業年度の期末日（決算月を変えた年の変則期間は fiscal_years の記録どおり）。
  * 利率は貸付を行った暦年で引く（会計年度ではない）。
  */
 export function imputedInterestAlert(params: {
   entries: LedgerEntry[];
   fiscalStartMonth: number | null | undefined;
+  /** 記録された事業年度（変則期間）。省けば期首月から計算 */
+  fiscalPeriods?: FiscalPeriodRow[];
   /** 判定基準日。既定は今日 */
   today?: string;
   /** 貸付けを行った暦年 → 年利(%) */
   rateByLoanYear?: Record<number, number>;
 }): ImputedInterestAlert {
   const today = params.today ?? new Date().toISOString().slice(0, 10);
-  const [y, m] = today.split("-").map(Number);
-
-  const period = getFiscalPeriod(params.fiscalStartMonth, y, m);
+  const rows = params.fiscalPeriods ?? [];
+  const period = fiscalPeriodContaining(rows, params.fiscalStartMonth, today);
   const fiscalYearEnd = period.endDate;
-  const priorFiscalYearEnd = fiscalRangeFromStartYear(
-    params.fiscalStartMonth,
-    period.startYear - 1
-  ).endDate;
+  // 前期末 = 当期首の前日
+  const [sy, sm, sd] = period.startDate.split("-").map(Number);
+  const priorFiscalYearEnd = new Date(Date.UTC(sy, sm - 1, sd - 1)).toISOString().slice(0, 10);
 
   const balance = currentBalance(params.entries);
   const balanceAtPriorYearEnd = balanceAsOf(params.entries, priorFiscalYearEnd);

@@ -12,6 +12,7 @@ import {
   transitionalPeriodEnd,
   fiscalPeriodsUpTo,
   fiscalPeriodContaining,
+  fiscalPeriodOptions,
 } from "./fiscal";
 
 describe("fiscalRangeFromStartYear", () => {
@@ -262,5 +263,15 @@ describe("fiscalPeriodContaining（日付が属する事業年度・変則期間
   });
   it("記録が無ければ期首月から計算", () => {
     expect(fiscalPeriodContaining([], 4, "2026-03-31")).toEqual({ startDate: "2025-04-01", endDate: "2026-03-31" });
+  });
+});
+
+describe("fiscalPeriodOptions（年度の選択肢）", () => {
+  const rows = [{ start_date: "2025-04-01", end_date: "2025-08-31" }];
+  it("変則期間を記録どおりに並べ、同じ年に始まる期は期首日で区別する", () => {
+    const o = fiscalPeriodOptions(rows, 9, "2026-10-11", { past: 3, future: 1 });
+    expect(o.map((x) => x.key)).toEqual(["2027-09-01", "2026-09-01", "2025-09-01", "2025-04-01", "2024-04-01"]);
+    expect(o[3]).toMatchObject({ short: true, label: "2025年度（2025/04〜2025/08・変則期間）" });
+    expect(o[2].label).toBe("2025年度（2025/09〜2026/08）");
   });
 });

@@ -79,11 +79,20 @@ import type {
   OfficerPaymentClassification,
   LoanRepaymentSchedule,
 } from "@/types/index";
-import { currentFiscalStartYear } from "@/lib/fiscal";
+import { fiscalPeriodContaining, toJstDate, type FiscalPeriodRow } from "@/lib/fiscal";
+import { getFiscalPeriodRows } from "@/actions/fiscal-month";
 import { useRouter } from "next/navigation";
 import { toHalfWidth } from "@/lib/account-reading";
 import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
+
+/** 直前に終わった事業年度の期首日（内訳書を開くのに使う。変則期間は記録どおり） */
+function previousPeriodStart(rows: FiscalPeriodRow[], startMonth: number): string {
+  const cur = fiscalPeriodContaining(rows, startMonth, toJstDate(new Date().toISOString()));
+  const [y, m, d] = cur.startDate.split("-").map(Number);
+  const before = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  return fiscalPeriodContaining(rows, startMonth, before).startDate;
+}
 
 const num = (s: string) => Math.round(Number(s) || 0);
 
@@ -192,6 +201,11 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
   const [expenseAccounts, setExpenseAccounts] = useState<AccountOption[]>([]);
   const [rates, setRates] = useState<Record<number, number>>({});
   const [fiscalStartMonth, setFiscalStartMonth] = useState<number>(4);
+  // 記録された事業年度（決算月を変えた年の変則期間）
+  const [fiscalRows, setFiscalRows] = useState<FiscalPeriodRow[]>([]);
+  useEffect(() => {
+    getFiscalPeriodRows(id).then(setFiscalRows).catch(() => {});
+  }, [id]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -315,11 +329,12 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
         alert: imputedInterestAlert({
           entries: l.entries,
           fiscalStartMonth,
+          fiscalPeriods: fiscalRows,
           rateByLoanYear: rates,
         }),
       }))
       .filter((a) => a.alert.level !== "none");
-  }, [ledgers, fiscalStartMonth, rates]);
+  }, [ledgers, fiscalStartMonth, fiscalRows, rates]);
 
   const worstAlert: ImputedInterestAlert | null = useMemo(() => {
     const required = lendAlerts.find((a) => a.alert.level === "required");
@@ -717,7 +732,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
             variant="outline"
             onClick={() =>
               router.push(
-                `/clients/${id}/breakdown/${currentFiscalStartYear(fiscalStartMonth) - 1}/11`
+                `/clients/${id}/breakdown/${previousPeriodStart(fiscalRows, fiscalStartMonth)}/11`
               )
             }
           >

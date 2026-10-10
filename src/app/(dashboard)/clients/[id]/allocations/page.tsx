@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useParams } from "next/navigation";
 import { Home, Loader2, Plus, FileSpreadsheet, FileText, Sparkles } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,7 +8,7 @@ import { AmountInput } from "@/components/ui/amount-input";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
 import { downloadCSV, printPage } from "@/lib/export";
-import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 import { getClient, updateClient } from "@/actions/clients";
 import {
   getAllocatableAccounts,
@@ -41,11 +41,12 @@ export default function AllocationsPage() {
   const isStaff = clientRole?.canWrite ?? false;
 
   // 会計年度（クライアントの決算月基準）
-  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
-  const currentFy = currentFiscalStartYear(fiscalStartMonth);
-  const [fiscalYear, setFiscalYear] = useState(currentFy);
-  // 決算月の読込後に対象年度を当年度へ合わせる（初回のみ）
-  const fyInitedRef = useRef(false);
+  // 期の選択肢（決算月を変えた年の変則期間も記録どおり）。期は期首日で指定する
+  const { options: fiscalOptions, current: currentPeriod } = useFiscalPeriods(id, { past: 4, future: 1 });
+  const [periodKey, setPeriodKey] = useState("");
+  const selectedPeriod = fiscalOptions.find((o) => o.key === periodKey) ?? currentPeriod;
+  const fiscalYear = selectedPeriod?.key ?? "";
+  const fyLabel = selectedPeriod ? `${selectedPeriod.startDate.slice(0, 4)}年度${selectedPeriod.short ? "（変則期間）" : ""}` : "";
 
   const [accounts, setAccounts] = useState<AllocatableAccount[]>([]);
   const [paymentAccounts, setPaymentAccounts] = useState<AllocatableAccount[]>([]);
@@ -76,6 +77,7 @@ export default function AllocationsPage() {
   }, [id, entityType]);
 
   const load = useCallback(async () => {
+    if (!fiscalYear) return;
     setLoading(true);
     try {
       const [accs, payAccs, rateMap, client] = await Promise.all([
@@ -88,13 +90,6 @@ export default function AllocationsPage() {
       setPaymentAccounts(payAccs);
       setRates(rateMap);
       setEntityType((client as { entity_type?: "individual" | "corporation" | null } | null)?.entity_type ?? null);
-      const sm = (client as { fiscal_year_start_month?: number } | null)?.fiscal_year_start_month ?? 4;
-      setFiscalStartMonth(sm);
-      // 初回のみ、対象年度を決算月基準の当年度へ補正
-      if (!fyInitedRef.current) {
-        fyInitedRef.current = true;
-        setFiscalYear(currentFiscalStartYear(sm));
-      }
       setDrafts({});
     } catch (e) {
       console.error("家事按分設定の取得に失敗:", e);
@@ -162,7 +157,7 @@ export default function AllocationsPage() {
   }
 
   async function runBatch() {
-    if (!confirm(`${fiscalYear}年度の期末一括按分仕訳を作成しますか？`)) return;
+    if (!confirm(`${fyLabel}の期末一括按分仕訳を作成しますか？`)) return;
     setBatchRunning(true);
     try {
       const { count } = await runBatchAllocation(id, fiscalYear, destId || null);
@@ -200,7 +195,7 @@ export default function AllocationsPage() {
       return;
     }
     downloadCSV(
-      `${term.doc}実績_${fiscalYear}年度.csv`,
+      `${term.doc}実績_${fiscalYear}.csv`,
       ["コード", "勘定科目", `${term.ratio}(%)`, "総額", term.business, term.private, "按分根拠"],
       reportRows.map((r) => [r.code, r.name, r.ratio, r.total, r.business, r.private, r.note ?? ""])
     );
@@ -286,7 +281,6 @@ export default function AllocationsPage() {
     }
   }
 
-  const years = Array.from({ length: 5 }, (_, i) => currentFy - i);
 
   // ---- AI按分提案 ----
   const [aiSuggesting, setAiSuggesting] = useState(false);
@@ -320,7 +314,7 @@ export default function AllocationsPage() {
       return;
     }
     downloadCSV(
-      `${term.doc}設定_${fiscalYear}年度.csv`,
+      `${term.doc}設定_${fiscalYear}.csv`,
       ["コード", "勘定科目", `${term.ratio}(%)`, "按分根拠"],
       rows
     );
@@ -359,17 +353,14 @@ export default function AllocationsPage() {
             <label className="text-xs text-muted-foreground font-bold">対象年度:</label>
             <select
               value={fiscalYear}
-              onChange={(e) => setFiscalYear(Number(e.target.value))}
+              onChange={(e) => setPeriodKey(e.target.value)}
               className="px-2 py-1 rounded-lg border border-border bg-card text-foreground text-sm"
             >
-              {years.map((y) => {
-                const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, y);
-                return (
-                  <option key={y} value={y}>
-                    {y}年度（{startDate.slice(0, 7).replace("-", "/")}〜{endDate.slice(0, 7).replace("-", "/")}）
-                  </option>
-                );
-              })}
+              {fiscalOptions.map((o) => (
+                <option key={o.key} value={o.key}>
+                  {o.label}
+                </option>
+              ))}
             </select>
           </div>
         </CardContent>
@@ -593,7 +584,7 @@ export default function AllocationsPage() {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               <Home className="size-5 text-primary" />
-              期末一括按分（{fiscalYear}年度）
+              期末一括按分（{fyLabel}）
             </CardTitle>
           </CardHeader>
           <CardContent>
@@ -677,7 +668,7 @@ export default function AllocationsPage() {
           <div className="flex items-center justify-between gap-2">
             <CardTitle className="text-base flex items-center gap-2">
               <FileText className="size-5 text-primary" />
-              {term.doc}の実績レポート（{fiscalYear}年度）
+              {term.doc}の実績レポート（{fyLabel}）
             </CardTitle>
             <div className="flex items-center gap-2 print:hidden">
               <Button variant="outline" size="sm" onClick={loadReport} disabled={reportLoading}>

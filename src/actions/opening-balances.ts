@@ -3,7 +3,7 @@
 import { createAdminSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
 import { getTrialBalance } from "@/actions/statements";
-import { fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { adjacentFiscalPeriodKeys, resolveFiscalPeriodByKey, type FiscalPeriodRow } from "@/lib/fiscal";
 
 type DbRow = Record<string, unknown>;
 
@@ -217,12 +217,16 @@ export async function carryForwardOpeningBalances(
   fiscalYearStart: string
 ): Promise<CarryForwardResult> {
   await assertClientAccess(clientId);
-  // 前年度の期間を算出（当期首=fiscalYearStart の前年度）
-  const [y, m] = fiscalYearStart.split("-").map(Number);
-  const { startDate: priorStart, endDate: priorEnd } = fiscalRangeFromStartYear(
-    m,
-    y - 1
-  );
+  // 前年度の期間（当期首=fiscalYearStart の前日まで）。決算月を変えた年の変則期間は fiscal_years の記録どおり
+  const { data: fyRows } = await createAdminSupabaseClient()
+    .from("fiscal_years")
+    .select("start_date, end_date")
+    .eq("client_id", clientId);
+  const rows = (fyRows ?? []) as FiscalPeriodRow[];
+  const [y, m, d] = fiscalYearStart.split("-").map(Number);
+  const priorEnd = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  const { prevKey } = adjacentFiscalPeriodKeys(rows, { startDate: fiscalYearStart, endDate: fiscalYearStart });
+  const priorStart = resolveFiscalPeriodByKey(rows, m, prevKey).startDate;
 
   // 前期末時点の各科目残高（currentBalance は借方プラスの累計残高）
   const trial = await getTrialBalance(clientId, priorStart, priorEnd);

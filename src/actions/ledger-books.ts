@@ -8,7 +8,7 @@
 import { createAdminSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
 import { fetchAllRows } from "@/lib/fetch-all";
-import { getFiscalPeriod } from "@/lib/fiscal";
+import { fiscalPeriodContaining, type FiscalPeriodRow } from "@/lib/fiscal";
 import { CATEGORY_BY_DB_TYPE } from "@/lib/trial-balance";
 import {
   buildLedger,
@@ -82,17 +82,10 @@ async function loadAccount(admin: Admin, clientId: string, accountId: string): P
 async function fiscalStartOf(admin: Admin, clientId: string, date: string): Promise<string> {
   const [{ data: client }, { data: fy }] = await Promise.all([
     admin.from("clients").select("fiscal_year_start_month").eq("id", clientId).single(),
-    admin
-      .from("fiscal_years")
-      .select("start_date")
-      .eq("client_id", clientId)
-      .lte("start_date", date)
-      .gte("end_date", date)
-      .limit(1),
+    admin.from("fiscal_years").select("start_date, end_date").eq("client_id", clientId),
   ]);
-  if (fy && fy.length) return fy[0].start_date as string;
-  const [y, m] = date.split("-").map(Number);
-  return getFiscalPeriod(client?.fiscal_year_start_month as number | null, y, m).startDate;
+  // 記録の無い期も、変則期間の前後は記録からたどる
+  return fiscalPeriodContaining((fy ?? []) as FiscalPeriodRow[], client?.fiscal_year_start_month as number | null, date).startDate;
 }
 
 type RawLine = {

@@ -43,8 +43,7 @@ import {
   type InvoiceCheck,
 } from "@/lib/receipt-review";
 import { getReceipts, updateReceipt, deleteReceipt, deleteReceipts } from "@/actions/receipts";
-import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { processReceiptOcr, updateOcrResult } from "@/actions/ocr";
 import { generateJournalSuggestion, approveJournalSuggestion } from "@/actions/ai-journal";
@@ -505,12 +504,8 @@ export function ReceiptsPageContent({
   const [directionFilter, setDirectionFilter] = useState<"all" | "received" | "issued">("all");
   // インボイス登録番号フィルター（受領側でのみ使用）
   const [invoiceFilter, setInvoiceFilter] = useState<"all" | "registered" | "unregistered">("all");
-  const [receiptFiscalStartMonth, setReceiptFiscalStartMonth] = useState(4);
-  useEffect(() => {
-    getClient(id)
-      .then((c) => setReceiptFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
-      .catch(() => {});
-  }, [id]);
+  // 年度の選択肢（決算月を変えた年の変則期間も記録どおり）
+  const { options: fiscalOptions } = useFiscalPeriods(id);
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   const [searchQuery, setSearchQuery] = useState("");
   // デフォルトは今月分を表示（月セレクタを空にすると全期間）
@@ -720,19 +715,18 @@ export function ReceiptsPageContent({
               const v = e.target.value;
               setFiscalYear(v);
               if (!v) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
-              const fy = parseInt(v);
-              const { startDate, endDate } = fiscalRangeFromStartYear(receiptFiscalStartMonth, fy);
-              setDateFrom(startDate);
-              setDateTo(endDate);
+              const p = fiscalOptions.find((o) => o.key === v);
+              if (!p) return;
+              setDateFrom(p.startDate);
+              setDateTo(p.endDate);
               setPeriodMode("year");
             }}
             className="px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-xs"
           >
             <option value="">年度</option>
-            {Array.from({ length: 5 }, (_, i) => {
-              const y = new Date().getFullYear() - i;
-              return <option key={y} value={y}>{y}年度</option>;
-            })}
+            {fiscalOptions.map((o) => (
+              <option key={o.key} value={o.key}>{o.label}</option>
+            ))}
           </select>
           <MonthInput
             allowEmpty wheelFromEmpty wrapperClassName="w-32 shrink-0"

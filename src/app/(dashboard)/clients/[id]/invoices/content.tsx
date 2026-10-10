@@ -30,8 +30,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
 import { getInvoices, createInvoice, updateInvoice, deleteInvoice, deleteAllInvoices, issueInvoiceWithJournal } from "@/actions/invoices";
 import { getPartners } from "@/actions/partners";
-import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 import { importRaqtoSalesOrders, exportRaqtoPaymentStatus, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
@@ -147,12 +146,8 @@ export function InvoicesPageContent({
   const [fiscalYear, setFiscalYear] = useState("");
   const [dateFrom, setDateFrom] = useState(initialPeriod.from);
   const [dateTo, setDateTo] = useState(initialPeriod.to);
-  const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
-  useEffect(() => {
-    getClient(id)
-      .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
-      .catch(() => {});
-  }, [id]);
+  // 年度の選択肢（決算月を変えた年の変則期間も記録どおり）
+  const { options: fiscalOptions } = useFiscalPeriods(id);
   const [directionFilter, setDirectionFilter] = useState<"all" | Direction>("all");
   const [showNewForm, setShowNewForm]     = useState(false);
   const [saving, setSaving]               = useState(false);
@@ -773,19 +768,18 @@ export function InvoicesPageContent({
             const v = e.target.value;
             setFiscalYear(v);
             if (!v) { setPeriodMode("none"); setDateFrom(""); setDateTo(""); return; }
-            const fy = parseInt(v);
-            const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, fy);
-            setDateFrom(startDate);
-            setDateTo(endDate);
+            const p = fiscalOptions.find((o) => o.key === v);
+            if (!p) return;
+            setDateFrom(p.startDate);
+            setDateTo(p.endDate);
             setPeriodMode("year");
           }}
           className="px-2 py-2 rounded-lg border border-border bg-card text-foreground text-xs shrink-0"
         >
           <option value="">年度</option>
-          {Array.from({ length: 5 }, (_, i) => {
-            const y = new Date().getFullYear() - i;
-            return <option key={y} value={y}>{y}年度</option>;
-          })}
+          {fiscalOptions.map((o) => (
+            <option key={o.key} value={o.key}>{o.label}</option>
+          ))}
         </select>
         <MonthInput
           allowEmpty wheelFromEmpty wrapperClassName="w-32 shrink-0"

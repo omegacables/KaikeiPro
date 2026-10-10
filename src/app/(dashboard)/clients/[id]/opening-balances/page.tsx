@@ -13,8 +13,7 @@ import {
   type OpeningBalanceRow,
   type BsCategory,
 } from "@/actions/opening-balances";
-import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear, currentFiscalStartYear } from "@/lib/fiscal";
+import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 import { formatCurrency } from "@/lib/utils";
 
 const num = (s: string) => Math.round(Number(s) || 0);
@@ -35,10 +34,9 @@ export default function OpeningBalancesPage({
   params: Promise<{ id: string }>;
 }) {
   const { id } = use(params);
-  const [startMonth, setStartMonth] = useState(4);
-  const [startYear, setStartYear] = useState<number>(
-    () => new Date().getFullYear()
-  );
+  // 期の選択肢（翌期から過去5期。決算月を変えた年の変則期間は記録どおり）。値は期首日
+  const { options, current } = useFiscalPeriods(id, { past: 5, future: 1 });
+  const [periodKey, setPeriodKey] = useState("");
   const [rows, setRows] = useState<OpeningBalanceRow[]>([]);
   const [values, setValues] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -47,23 +45,11 @@ export default function OpeningBalancesPage({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
-  // クライアントの期首月を取得して開始年の初期値を決める
-  useEffect(() => {
-    getClient(id)
-      .then((c) => {
-        const sm = c.fiscal_year_start_month ?? 4;
-        setStartMonth(sm);
-        setStartYear(currentFiscalStartYear(sm));
-      })
-      .catch(() => {});
-  }, [id]);
-
-  const fiscalYearStart = useMemo(
-    () => fiscalRangeFromStartYear(startMonth, startYear).startDate,
-    [startMonth, startYear]
-  );
+  const selected = options.find((o) => o.key === periodKey) ?? current;
+  const fiscalYearStart = selected?.startDate ?? "";
 
   const fetchData = useCallback(async () => {
+    if (!fiscalYearStart) return;
     setLoading(true);
     setSuccess(null);
     try {
@@ -158,10 +144,6 @@ export default function OpeningBalancesPage({
     }
   }
 
-  // 年の選択肢（前後5年）
-  const yearOptions: number[] = [];
-  const baseYear = currentFiscalStartYear(startMonth);
-  for (let y = baseYear + 1; y >= baseYear - 5; y--) yearOptions.push(y);
 
   const grouped = categoryOrder.map((cat) => ({
     cat,
@@ -178,18 +160,15 @@ export default function OpeningBalancesPage({
         </div>
         <div className="flex items-center gap-2">
           <select
-            value={startYear}
-            onChange={(e) => setStartYear(Number(e.target.value))}
+            value={selected?.key ?? ""}
+            onChange={(e) => setPeriodKey(e.target.value)}
             className="px-3 py-2 rounded-lg border border-border bg-background text-sm focus:outline-none focus:ring-2 focus:ring-primary/40"
           >
-            {yearOptions.map((y) => {
-              const { startDate, endDate } = fiscalRangeFromStartYear(startMonth, y);
-              return (
-                <option key={y} value={y}>
-                  {startDate} 〜 {endDate} 期
-                </option>
-              );
-            })}
+            {options.map((o) => (
+              <option key={o.key} value={o.key}>
+                {o.startDate} 〜 {o.endDate} 期{o.short ? "（変則期間）" : ""}
+              </option>
+            ))}
           </select>
           <Button
             variant="outline"

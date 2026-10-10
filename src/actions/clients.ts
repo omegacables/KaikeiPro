@@ -4,7 +4,7 @@ import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/sup
 import { assertClientAccess, resolveClientIdForRecord, isSuperAdmin } from "@/lib/authz";
 import type { Database } from "@/types/database";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { getFiscalPeriod } from "@/lib/fiscal";
+import { fiscalPeriodContaining, type FiscalPeriodRow } from "@/lib/fiscal";
 import { deferToBusinessDay } from "@/lib/japanese-holidays";
 
 type ClientRow = Database["public"]["Tables"]["clients"]["Row"];
@@ -284,10 +284,18 @@ export async function getTaxCalendar(): Promise<TaxCalendarItem[]> {
 
   const items: TaxCalendarItem[] = [];
 
+  // 記録された事業年度（決算月を変えた年の変則期間）
+  const clientIds = (clients ?? []).map((c) => (c as { id: string }).id);
+  const { data: fyRows } = clientIds.length
+    ? await supabase.from("fiscal_years").select("client_id, start_date, end_date").in("client_id", clientIds)
+    : { data: [] };
+  const rowsOf = (id: string) =>
+    ((fyRows ?? []) as (FiscalPeriodRow & { client_id: string })[]).filter((r) => r.client_id === id);
+
   // ① 顧問先ごとの決算・申告
   for (const c of clients ?? []) {
     const startMonth = (c as { fiscal_year_start_month?: number }).fiscal_year_start_month;
-    const { startDate, endDate } = getFiscalPeriod(startMonth, now.getFullYear(), now.getMonth() + 1);
+    const { startDate, endDate } = fiscalPeriodContaining(rowsOf((c as { id: string }).id), startMonth, fmtYmd(today));
 
     // 次回決算日（本日が属する会計年度の期末日）
     const settlement = parseYmd(endDate);

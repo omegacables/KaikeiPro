@@ -249,3 +249,51 @@ export function fiscalPeriodContaining(
   const r = getFiscalPeriod(startMonth, y, m);
   return { startDate: r.startDate, endDate: r.endDate };
 }
+
+export type FiscalPeriodOption = {
+  /** 期の指定に使う値（期首日） */
+  key: string;
+  startDate: string;
+  endDate: string;
+  /** 12ヶ月より短い（決算月を変えた年の変則期間） */
+  short: boolean;
+  /** 例: 2025年度（2025/04〜2025/08・変則期間） */
+  label: string;
+};
+
+/**
+ * 年度の選択肢。今日を含む期から past 期さかのぼり、future 期先まで（新しい順）。
+ * 変則期間は fiscal_years の記録どおり（同じ年に始まる期が2つあっても期首日で区別できる）。
+ */
+export function fiscalPeriodOptions(
+  rows: FiscalPeriodRow[],
+  startMonth: number | null | undefined,
+  todayYmd: string,
+  opts: { past?: number; future?: number } = {}
+): FiscalPeriodOption[] {
+  const { past = 4, future = 0 } = opts;
+  const option = (p: { startDate: string; endDate: string }): FiscalPeriodOption => {
+    const [sy, sm] = p.startDate.split("-").map(Number);
+    const [ey, em] = p.endDate.split("-").map(Number);
+    const short = (ey - sy) * 12 + (em - sm) + 1 < 12;
+    const ym = (d: string) => d.slice(0, 7).replace("-", "/");
+    return {
+      key: p.startDate,
+      startDate: p.startDate,
+      endDate: p.endDate,
+      short,
+      label: `${sy}年度（${ym(p.startDate)}〜${ym(p.endDate)}${short ? "・変則期間" : ""}）`,
+    };
+  };
+  const current = fiscalPeriodContaining(rows, startMonth, todayYmd);
+  const out = [current];
+  for (let i = 0, p = current; i < future; i++) {
+    p = fiscalPeriodContaining(rows, startMonth, addDays(p.endDate, 1));
+    out.unshift(p);
+  }
+  for (let i = 0, p = current; i < past; i++) {
+    p = fiscalPeriodContaining(rows, startMonth, addDays(p.startDate, -1));
+    out.push(p);
+  }
+  return out.map(option);
+}

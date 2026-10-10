@@ -36,12 +36,14 @@ import { YearMonthDayInput } from "@/components/ui/year-month-day-input";
 import { handleBarKeyNav } from "@/lib/key-nav";
 import { GeneralLedgerView, type CsvSpec } from "@/components/ledgers/general-ledger-view";
 import { SubLedgerView } from "@/components/ledgers/sub-ledger-view";
+import { UnassignedPartnerLinesCard } from "@/components/ledgers/unassigned-partner-lines";
 import { TaxCategoryView } from "@/components/ledgers/tax-category-view";
 import { Badge } from "@/components/ui/badge";
 import { AccountLookup } from "@/components/ui/account-lookup";
 import { getAccounts } from "@/actions/accounts";
 import { getClient } from "@/actions/clients";
-import { fiscalRangeFromStartYear, toJstDate } from "@/lib/fiscal";
+import { fiscalPeriodOptions, toJstDate, type FiscalPeriodRow } from "@/lib/fiscal";
+import { getFiscalPeriodRows } from "@/actions/fiscal-month";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { getReceiptImageUrl } from "@/actions/receipt-storage";
 import { deleteJournalEntries, getDescriptionSuggestions } from "@/actions/journals";
@@ -531,6 +533,8 @@ export default function LedgersPage() {
   const defaultTo = `${year}-${mm}-${String(monthLastDay).padStart(2, "0")}`;
   // 決算月（期首月）— 年度セレクタ用。既定4月
   const [fiscalStartMonth, setFiscalStartMonth] = useState(4);
+  // 記録された事業年度（決算月を変えた年の変則期間）
+  const [fiscalRows, setFiscalRows] = useState<FiscalPeriodRow[]>([]);
 
   // URLクエリパラメータ（B/S等からの遷移用）
   const validTabs: LedgerTab[] = ["journal", "general", "subledger", "receivable", "payable", "tax", "assets"];
@@ -554,7 +558,13 @@ export default function LedgersPage() {
     getClient(id)
       .then((c) => setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4))
       .catch(() => {});
+    getFiscalPeriodRows(id).then(setFiscalRows).catch(() => {});
   }, [id]);
+  // 年度の選択肢: 今日を含む期から5期さかのぼる（変則期間は記録どおり）
+  const fiscalPeriodOptionList = useMemo(
+    () => fiscalPeriodOptions(fiscalRows, fiscalStartMonth, toJstDate(new Date().toISOString()), { past: 4 }),
+    [fiscalRows, fiscalStartMonth]
+  );
   // 総勘定元帳と補助元帳で表示する科目（名前で持ち、科目一覧からIDを引く）
   const [glAccount, setGlAccount] = useState(initialAccount);
   const [subLedgerAccount, setSubLedgerAccount] = useState("売掛金");
@@ -882,24 +892,21 @@ export default function LedgersPage() {
                       setDateTo(defaultTo);
                       return;
                     }
-                    const fy = parseInt(v);
-                    const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, fy);
-                    setDateFrom(startDate);
-                    setDateTo(endDate);
+                    // 値は期の開始日
+                    const p = fiscalPeriodOptionList.find((o) => o.key === v);
+                    if (!p) return;
+                    setDateFrom(p.startDate);
+                    setDateTo(p.endDate);
                     setPeriodMode("year");
                   }}
                   className="px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm"
                 >
                   <option value="">選択なし</option>
-                  {Array.from({ length: 5 }, (_, i) => {
-                    const y = new Date().getFullYear() - i;
-                    const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, y);
-                    return (
-                      <option key={y} value={y}>
-                        {y}年度（{startDate.slice(0, 7).replace("-", "/")}〜{endDate.slice(0, 7).replace("-", "/")}）
-                      </option>
-                    );
-                  })}
+                  {fiscalPeriodOptionList.map((o) => (
+                    <option key={o.key} value={o.key}>
+                      {o.label}
+                    </option>
+                  ))}
                 </select>
               </div>
               <div className="flex flex-col gap-1">
@@ -1098,6 +1105,20 @@ export default function LedgersPage() {
           reloadKey={reloadKey}
           onOpenEntry={setOpenEntryId}
           onCsv={setCsvSpec}
+        />
+      )}
+
+      {(activeTab === "receivable" || activeTab === "payable") && (
+        <UnassignedPartnerLinesCard
+          key={`unassigned-${activeTab}`}
+          clientId={id}
+          accountName={activeTab === "receivable" ? "売掛金" : "買掛金"}
+          reloadKey={reloadKey}
+          onAssigned={() => {
+            setReloadKey((k) => k + 1);
+            loadSubAccounts();
+          }}
+          onOpenEntry={setOpenEntryId}
         />
       )}
 

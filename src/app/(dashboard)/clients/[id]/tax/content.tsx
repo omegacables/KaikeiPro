@@ -18,7 +18,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { useData } from "@/lib/use-data";
 import { getTaxSummary, type TaxSummary } from "@/actions/tax";
 import { getClient, updateClient } from "@/actions/clients";
-import { currentFiscalStartYear, fiscalRangeFromStartYear } from "@/lib/fiscal";
+import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 
 type TaxMethod = "standard" | "simplified";
 
@@ -72,7 +72,6 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
     useCallback(() => getClient(clientId) as Promise<{ fiscal_year_start_month?: number }>, [clientId]),
     null
   );
-  const fiscalStartMonth = client ? client.fiscal_year_start_month ?? 4 : null;
   useEffect(() => {
     if (!client) return;
     setTaxMethod(client.tax_method ?? "standard");
@@ -92,23 +91,18 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
   };
   const isExempt = taxStatus === "exempt";
 
-  // Build period options（当期から過去5年度分）
-  const periods = useMemo(() => {
-    if (fiscalStartMonth === null) return [];
-    const currentYear = currentFiscalStartYear(fiscalStartMonth);
-    return Array.from({ length: 5 }, (_, i) => {
-      const y = currentYear - i;
-      const { startDate, endDate } = fiscalRangeFromStartYear(fiscalStartMonth, y);
-      const sm = Number(startDate.slice(5, 7));
-      const em = Number(endDate.slice(5, 7));
-      return {
-        value: String(y),
-        label: `${y}年度 通期 (${sm}月〜${em}月)`,
-        startDate,
-        endDate,
-      };
-    });
-  }, [fiscalStartMonth]);
+  // 期の選択肢（当期から過去5期。決算月を変えた年の変則期間は記録どおり）
+  const { options: fiscalOptions } = useFiscalPeriods(clientId);
+  const periods = useMemo(
+    () =>
+      fiscalOptions.map((o) => ({
+        value: o.key,
+        label: `${o.startDate.slice(0, 4)}年度 ${o.short ? "変則期間" : "通期"} (${Number(o.startDate.slice(5, 7))}月〜${Number(o.endDate.slice(5, 7))}月)`,
+        startDate: o.startDate,
+        endDate: o.endDate,
+      })),
+    [fiscalOptions]
+  );
 
   const selectedPeriod = periods[selectedPeriodIdx] ?? null;
 
