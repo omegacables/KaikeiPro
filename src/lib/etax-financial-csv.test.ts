@@ -1,5 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { balanceSheetCsv, incomeStatementCsv, checkLevels, type FsInput } from "./etax-financial-csv";
+import { balanceSheetCsv, incomeStatementCsv, changesInEquityCsv, notesCsv, checkLevels, type FsInput } from "./etax-financial-csv";
+import { buildEquityChanges } from "./equity-changes";
+import { buildNotes } from "./financial-notes";
 
 const input: FsInput = {
   companyName: "株式会社MR Connect",
@@ -103,5 +105,61 @@ describe("財務諸表 e-Tax CSV（HOT010 Ver.3.0）", () => {
     const { rows } = incomeStatementCsv({ ...input, pl: { ...input.pl, operatingProfit: -100, ordinaryProfit: -100, pretaxProfit: -100, netIncome: -100 } });
     expect(rows.find((r) => r[4] === "10F000110")).toEqual(["営業損失", "-100", "1", "2", "10F000110"]);
     expect(rows.find((r) => r[4] === "10F000160")).toEqual(["当期純損失", "-100", "1", "2", "10F000160"]);
+  });
+});
+
+describe("株主資本等変動計算書・個別注記表の e-Tax CSV", () => {
+  const ce = buildEquityChanges(
+    [
+      { name: "資本金", opening: 1_000_000, closing: 1_000_000 },
+      { name: "繰越利益剰余金", opening: 900_000, closing: 800_000 },
+      { name: "別途積立金", opening: 0, closing: 100_000 },
+    ],
+    2_030_089
+  );
+  const ss = changesInEquityCsv({ companyName: input.companyName, period: input.period, ce });
+
+  it("SS: 先頭5行、全行5列、階層番号の決まり、コードの重複なし", () => {
+    expect(ss.fileName).toBe("HOT010_3.0_SS.csv");
+    expect(ss.rows.slice(0, 5).map((r) => r[0])).toEqual(["A", "B", "C1", "C2", "株主資本等変動計算書"]);
+    expect(ss.rows[0][1]).toBe("SS");
+    expect(ss.rows.every((r) => r.length === 5)).toBe(true);
+    expect(checkLevels(ss.rows)).toBe(true);
+    const c = codes(ss.rows);
+    expect(new Set(c).size).toBe(c.length);
+  });
+
+  it("SS: 項目ごとに 期首→当期変動額→事由→合計→期末。純利益は繰越利益剰余金と合計の列に", () => {
+    const row = (code: string) => ss.rows.find((r) => r[4] === code);
+    expect(row("SS0201")?.slice(1, 4)).toEqual(["1000000", "1", "4"]);
+    expect(row("SS2000")?.slice(0, 4)).toEqual(["繰越利益剰余金", "", "T", "5"]);
+    expect(row("SS2006")?.[1]).toBe("2030089");
+    expect(row("SS2002-1")?.[1]).toBe("-100000"); // 別途積立金への積立
+    expect(row("SS2099")?.[1]).toBe("2830089");
+    expect(row("SS0900-1")?.[0]).toBe("別途積立金");
+    expect(row("SS0900-1-2-15")?.[1]).toBe("100000");
+    expect(row("SS0906")?.[1]).toBe("2030089");
+    expect(row("SS3106")?.[1]).toBe("2030089");
+    expect(row("SS3199")?.[1]).toBe("3930089");
+    expect(row("SS2306")).toBeDefined();
+    expect(row("SS0300")).toBeUndefined(); // 資本剰余金が無ければ書かない
+  });
+
+  it("NT: 減価償却は NT0205、消費税は「その他」の項目名・内容。行区分は2、カンマは全角", () => {
+    const notes = buildNotes({ depreciationMethods: ["declining_balance"], taxAccounting: "exclusive", hasTreasuryStock: false });
+    notes[0].items[0].text += "（A,B）";
+    const nt = notesCsv({ companyName: input.companyName, period: input.period, notes });
+    expect(nt.fileName).toBe("HOT010_3.0_NT.csv");
+    expect(nt.rows[0][1]).toBe("NT");
+    expect(nt.rows.every((r) => r.length === 5)).toBe(true);
+    expect(checkLevels(nt.rows)).toBe(true);
+    expect(codes(nt.rows)).toEqual(["NT0201", "NT0205", "NT0208", "NT0210", "NT0211", "NT0212", "NT0501", "NT0522"]);
+    const dep = nt.rows.find((r) => r[4] === "NT0205")!;
+    expect(dep[2]).toBe("2");
+    expect(dep[1]).toContain("（A，B）");
+    expect(nt.rows.find((r) => r[4] === "NT0211")![1]).toBe("消費税等の会計処理");
+    expect(nt.rows.find((r) => r[4] === "NT0212")![1]).toBe("消費税等の会計処理は、税抜方式によっている。");
+    expect(nt.rows.find((r) => r[4] === "NT0210")!.slice(1, 4)).toEqual(["", "T", "4"]);
+    expect(nt.rows.find((r) => r[4] === "NT0522")![1]).toContain("自己株式は保有していない");
   });
 });

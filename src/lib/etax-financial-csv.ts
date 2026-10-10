@@ -1,15 +1,17 @@
 /**
- * 財務諸表（貸借対照表・損益計算書）の e-Tax 用 CSV（HOT010 Ver.3.0、勘定科目コード表 2019年版・一般商工業）。純粋関数。
+ * 財務諸表（貸借対照表・損益計算書・株主資本等変動計算書・個別注記表）の e-Tax 用 CSV（HOT010 Ver.3.0、勘定科目コード表 2019年版・一般商工業）。純粋関数。
  *
- *   - 1ファイル1種類: HOT010_3.0_BS.csv / HOT010_3.0_PL.csv。全行5列、見出し行なし、Shift_JIS（src/lib/sjis.ts）
+ *   - 1ファイル1種類: HOT010_3.0_BS.csv / _PL / _SS / _NT。全行5列、見出し行なし、Shift_JIS（src/lib/sjis.ts）
  *   - 先頭5行: A,種類 / B,法人名 / C1,期首日 / C2,期末日 / 財務諸表名
- *   - 6行目以降: 勘定科目名,金額,行区分(1=金額 / T=タイトル),階層番号,勘定科目コード
+ *   - 6行目以降: 勘定科目名,金額（注記表は文）,行区分(1=金額 / 2=文 / T=タイトル),階層番号,勘定科目コード
  *   - 階層番号は1行上より大きくするとき +1 まで。e-Tax は合計を計算しないので、合計の行も自分で書く
  *   - コード表に無い科目は、その区分のタイトルのコードに枝番（-1, -2, …）を付ける。同じコードは1回しか使えない
  *   - 控除科目（貸倒引当金・減価償却累計額など）と損失はマイナス（半角「-」）。様式の決まり
  */
 
 import { zen } from "@/lib/etax-breakdown-csv";
+import type { EquityChanges, EquityColumn, EquityKind } from "@/lib/equity-changes";
+import type { NoteSection } from "@/lib/financial-notes";
 
 export type FsLine = { name: string; amount: number };
 export type FsGroup = { title: string; lines: FsLine[]; total: number; subgroups?: FsGroup[] };
@@ -178,11 +180,13 @@ class Builder {
   }
 }
 
-const header = (kind: "BS" | "PL", i: FsInput, title: string): Row[] => [
+export type EtaxFinancialKind = "BS" | "PL" | "SS" | "NT";
+
+const headerOf = (kind: EtaxFinancialKind, companyName: string, period: { start: string; end: string }, title: string): Row[] => [
   ["A", kind, "", "", ""],
-  ["B", zen(i.companyName, 50), "", "", ""],
-  ["C1", i.period.start, "", "", ""],
-  ["C2", i.period.end, "", "", ""],
+  ["B", zen(companyName, 50), "", "", ""],
+  ["C1", period.start, "", "", ""],
+  ["C2", period.end, "", "", ""],
   [title, "", "", "", ""],
 ];
 
@@ -245,7 +249,7 @@ export function balanceSheetCsv(i: FsInput): { fileName: string; rows: string[][
   b.amount("純資産合計", i.bs.totalEquity, 3, "10C000030");
   b.amount("負債純資産合計", i.bs.totalLiabilities + i.bs.totalEquity, 2, "10C000040");
 
-  return { fileName: "HOT010_3.0_BS.csv", rows: [...header("BS", i, "貸借対照表"), ...b.rows] };
+  return { fileName: "HOT010_3.0_BS.csv", rows: [...headerOf("BS", i.companyName, i.period, "貸借対照表"), ...b.rows] };
 }
 
 /** 損益計算書 HOT010_3.0_PL.csv */
@@ -274,7 +278,7 @@ export function incomeStatementCsv(i: FsInput): { fileName: string; rows: string
     b.amount("法人税等合計", p.taxT, 2, "10F100060");
   }
   b.amount(p.netIncome < 0 ? "当期純損失" : "当期純利益", p.netIncome, 2, "10F000160");
-  return { fileName: "HOT010_3.0_PL.csv", rows: [...header("PL", i, "損益計算書"), ...b.rows] };
+  return { fileName: "HOT010_3.0_PL.csv", rows: [...headerOf("PL", i.companyName, i.period, "損益計算書"), ...b.rows] };
 }
 
 /** 階層番号の決まり（1行上より大きくするときは +1 まで・2以上）を満たしているか */
@@ -286,4 +290,133 @@ export function checkLevels(rows: string[][]): boolean {
     prev = lv;
   }
   return true;
+}
+
+
+// ---------------------------------------------------------------------------
+// 株主資本等変動計算書 HOT010_3.0_SS.csv
+//   項目ごとに「タイトル → 当期首残高 → 当期変動額（T）→ 変動事由 → 当期変動額合計 → 当期末残高」を縦に並べる。
+//   当期純利益以外の変動（配当・積立など）は、当期変動額のコードに枝番を付けて「その他の変動額」として書く
+// ---------------------------------------------------------------------------
+
+type SsValues = Pick<EquityColumn, "opening" | "netIncome" | "other" | "change" | "closing">;
+type SsCodes = { title: string; open: string; chg: string; ni?: string; other: string; total: string; close: string };
+
+/** コード表にある項目（SS02 → SS0200, SS0201, SS0202, SS02xx, SS0298, SS0299） */
+const ssCodes = (p: string, ni?: boolean): SsCodes => ({
+  title: `${p}00`,
+  open: `${p}01`,
+  chg: `${p}02`,
+  ni: ni ? `${p}06` : undefined,
+  other: `${p}02-1`,
+  total: `${p}98`,
+  close: `${p}99`,
+});
+/** コード表に無い項目（標準フォームの「追加内訳項目」と同じ枝番の付け方: SS0900-1, SS0900-1-1, …） */
+const ssBranchCodes = (b: string): SsCodes => ({
+  title: b,
+  open: `${b}-1`,
+  chg: `${b}-2`,
+  ni: `${b}-2-4`,
+  other: `${b}-2-15`,
+  total: `${b}-2-18`,
+  close: `${b}-2-19`,
+});
+
+export function changesInEquityCsv(i: {
+  companyName: string;
+  period: { start: string; end: string };
+  ce: EquityChanges;
+}): { fileName: string; rows: string[][] } {
+  const rows: Row[] = [];
+  const t = (name: string, level: number, code: string) => rows.push([zen(name, 60), "", "T", String(level), code]);
+  const a = (name: string, v: number, level: number, code: string) =>
+    rows.push([zen(name, 60), String(Math.round(v)), "1", String(level), code]);
+  const item = (name: string, level: number, c: SsCodes, v: SsValues) => {
+    t(name, level, c.title);
+    a("当期首残高", v.opening, level + 1, c.open);
+    t("当期変動額", level + 1, c.chg);
+    if (c.ni && v.netIncome !== 0) a(v.netIncome < 0 ? "当期純損失" : "当期純利益", v.netIncome, level + 2, c.ni);
+    if (v.other !== 0) a("その他の変動額", v.other, level + 2, c.other);
+    a("当期変動額合計", v.change, level + 2, c.total);
+    a("当期末残高", v.closing, level + 1, c.close);
+  };
+  const cols = i.ce.columns;
+  const of = (...kinds: EquityKind[]) => cols.filter((c) => kinds.includes(c.kind));
+  const sum = (cs: EquityColumn[]): SsValues => ({
+    opening: cs.reduce((s, c) => s + c.opening, 0),
+    netIncome: cs.reduce((s, c) => s + c.netIncome, 0),
+    other: cs.reduce((s, c) => s + c.other, 0),
+    change: cs.reduce((s, c) => s + c.change, 0),
+    closing: cs.reduce((s, c) => s + c.closing, 0),
+  });
+
+  t("株主資本", 2, "SS0100");
+  for (const c of of("capital")) item(c.label, 3, ssCodes("SS02"), c);
+  const surplus = of("capital_reserve", "other_capital_surplus");
+  if (surplus.length) {
+    t("資本剰余金", 3, "SS0300");
+    for (const c of of("capital_reserve")) item(c.label, 4, ssCodes("SS04"), c);
+    for (const c of of("other_capital_surplus")) item(c.label, 4, ssCodes("SS05"), c);
+    item("資本剰余金合計", 4, ssCodes("SS06"), sum(surplus));
+  }
+  const retainedAll = of("legal_reserve", "voluntary_reserve", "retained");
+  t("利益剰余金", 3, "SS0700");
+  for (const c of of("legal_reserve")) item(c.label, 4, ssCodes("SS08"), c);
+  const otherRetained = of("voluntary_reserve", "retained");
+  item("その他利益剰余金", 4, ssCodes("SS09", true), sum(otherRetained));
+  of("voluntary_reserve").forEach((c, n) => item(c.label, 5, ssBranchCodes(`SS0900-${n + 1}`), c));
+  for (const c of of("retained")) item(c.label, 5, ssCodes("SS20", true), c);
+  item("利益剰余金合計", 4, ssCodes("SS21", true), sum(retainedAll));
+  for (const c of of("treasury")) item(c.label, 3, ssCodes("SS22"), c);
+  of("other").forEach((c, n) => item(c.label, 3, ssBranchCodes(`SS0100-${n + 1}`), c));
+  item("株主資本合計", 3, ssCodes("SS23", true), i.ce.total);
+  item("純資産合計", 2, ssCodes("SS31", true), i.ce.total);
+
+  return { fileName: "HOT010_3.0_SS.csv", rows: [...headerOf("SS", i.companyName, i.period, "株主資本等変動計算書"), ...rows] };
+}
+
+// ---------------------------------------------------------------------------
+// 個別注記表 HOT010_3.0_NT.csv（行区分 2 = 文字。内容は2列目）
+// ---------------------------------------------------------------------------
+
+/** 注記の文: 改行は使わず、カンマは全角に */
+const noteText = (s: string) => s.replace(/[\r\n\t]+/g, "　").replace(/,/g, "，").trim();
+
+export function notesCsv(i: {
+  companyName: string;
+  period: { start: string; end: string };
+  notes: NoteSection[];
+}): { fileName: string; rows: string[][] } {
+  const rows: Row[] = [];
+  const text = (name: string, content: string, level: number, code: string) =>
+    rows.push([zen(name, 60), noteText(content), "2", String(level), code]);
+  for (const sec of i.notes) {
+    if (sec.key === "policies") {
+      text(sec.heading, "", 2, "NT0201");
+      const dep = sec.items.find((x) => x.key === "depreciation");
+      if (dep) text(dep.title, dep.text, 3, "NT0205");
+      // 消費税等の会計処理は「その他計算書類の作成のための基本となる重要な事項」の「その他」（項目名・内容）に書く
+      const others = sec.items.filter((x) => x.key !== "depreciation");
+      if (others.length) {
+        text("その他計算書類の作成のための基本となる重要な事項", "", 3, "NT0208");
+        for (const o of others) {
+          rows.push([zen("その他", 60), "", "T", "4", "NT0210"]);
+          text("項目名", o.title, 5, "NT0211");
+          text("内容", o.text, 5, "NT0212");
+        }
+      }
+    } else if (sec.key === "equity_changes") {
+      text(sec.heading, "", 2, "NT0501");
+      const ts = sec.items.find((x) => x.key === "treasury_stock");
+      text("自己株式の種類及び株式数に関する事項", ts ? ts.text : sec.none ?? "", 3, "NT0522");
+    } else if (sec.items.length) {
+      for (const o of sec.items) {
+        rows.push([zen(sec.heading, 60), "", "T", "2", "NT1201"]);
+        text("項目名", o.title, 3, "NT1202");
+        text("内容", o.text, 3, "NT1203");
+      }
+    }
+  }
+  return { fileName: "HOT010_3.0_NT.csv", rows: [...headerOf("NT", i.companyName, i.period, "個別注記表"), ...rows] };
 }

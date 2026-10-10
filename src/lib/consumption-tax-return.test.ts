@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
+  transitionStackedTax,
   aggregateReturnInput,
   computeConsumptionTaxReturn,
   special20Eligible,
@@ -116,6 +117,17 @@ describe("仕入税額（本則課税）", () => {
     expect(cell(r, "fuhyo2-3", "⑫")).toMatchObject({ a: 898_560 });
   });
 
+  it("積上げ計算では、経過措置の分も取引ごとに 支払対価×7.8/110×80% を切り捨てて合計する", () => {
+    // 1,100円の仕入れ3件: 1件ごと 1,100×7.8/110×80% = 62.4 → 62円 ×3 = 186円（まとめて計算すると 187円）
+    expect(transitionStackedTax(1_100, "B", 0.8)).toBe(62);
+    expect(transitionStackedTax(1_080, "A", 0.8)).toBe(49); // 1,080×6.24/108×80% = 49.92
+    const t = { col: "B" as const, rate: 0.8, gross: 3_300, tax: 300, stackedTax: 186 };
+    const stacked = computeConsumptionTaxReturn(input({ sales: { A: 0, B: 1_100_000 }, transition: [t] }), settings({ purchaseTaxCalc: "stacked" }));
+    expect(cell(stacked, "fuhyo2-3", "⑫")).toMatchObject({ b: 186 });
+    const prop = computeConsumptionTaxReturn(input({ sales: { A: 0, B: 1_100_000 }, transition: [t] }), settings({ purchaseTaxCalc: "proportional" }));
+    expect(cell(prop, "fuhyo2-3", "⑫")).toMatchObject({ b: 187 });
+  });
+
   it("課税売上割合が95%未満なら一括比例配分方式", () => {
     // 課税売上（税抜）9,000,000、非課税売上 1,000,000 → 90%
     const r = computeConsumptionTaxReturn(
@@ -201,7 +213,7 @@ describe("仕訳の行の集計", () => {
     expect(r).toMatchObject({ exempt: 50_000, taxFree: 30_000, uncategorized: 1 });
     expect(r.purchaseGross).toEqual({ A: 0, B: 33_000 });
     expect(r.purchaseTax).toEqual({ A: 0, B: 3_000 });
-    expect(r.transition).toEqual([{ col: "B", rate: 0.8, gross: 11_000, tax: 1_000 }]);
+    expect(r.transition).toEqual([{ col: "B", rate: 0.8, gross: 11_000, tax: 1_000, stackedTax: 624 }]);
     expect(r.badDebt).toEqual({ A: 0, B: 22_000 });
   });
 });

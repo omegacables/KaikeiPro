@@ -3,6 +3,7 @@
 import { useState, useEffect, use } from "react";
 import { Loader2, Printer, ArrowLeft, Download } from "lucide-react";
 import { getEtaxFinancialCsv } from "@/actions/etax-financial";
+import type { EtaxFinancialKind } from "@/lib/etax-financial-csv";
 import { useRouter } from "next/navigation";
 import {
   getSettlementReport,
@@ -310,23 +311,13 @@ function ProfitLossTable({ pl }: { pl: SettlementReport["pl"] }) {
 // 株主資本等変動計算書（横形式）
 // ---------------------------------------------------------------------------
 
-function EquityChangesTable({
-  ce,
-  netIncome,
-}: {
-  ce: SettlementReport["changesInEquity"];
-  netIncome: number;
-}) {
-  const cols = ce.rows;
-  const retainedIdx = cols.findIndex((c) => c.label.includes("利益剰余金"));
+function EquityChangesTable({ ce }: { ce: SettlementReport["changesInEquity"] }) {
+  const cols = ce.columns;
   const th = "border border-black px-2 py-1.5 font-normal";
   const td = "border border-black px-2 py-1.5 text-right tabular-nums";
-  const tdL = "border border-black px-2 py-1.5 text-left";
-  // その他の変動額（利益剰余金列は当期純利益を除いた分）
-  const otherChange = cols.map((c, i) =>
-    i === retainedIdx ? c.change - netIncome : c.change
-  );
-  const hasOther = otherChange.some((v) => v !== 0);
+  const tdL = "border border-black px-2 py-1.5 text-left whitespace-nowrap";
+  const indent = { paddingLeft: "1.5rem" };
+  const cell = (v: number, show = true) => (show && v !== 0 ? fmtAmt(v) : "");
   return (
     <table className="w-full text-[13px] border-collapse border-2 border-black">
       <thead>
@@ -358,27 +349,27 @@ function EquityChangesTable({
           <td className={td} />
         </tr>
         <tr>
-          <td className={tdL} style={{ paddingLeft: "1.5rem" }}>
-            当期純利益
+          <td className={tdL} style={indent}>
+            {ce.total.netIncome < 0 ? "当期純損失" : "当期純利益"}
           </td>
-          {cols.map((_, i) => (
+          {cols.map((c, i) => (
             <td key={i} className={td}>
-              {i === retainedIdx ? fmtAmt(netIncome) : ""}
+              {cell(c.netIncome, c.kind === "retained")}
             </td>
           ))}
-          <td className={td}>{fmtAmt(netIncome)}</td>
+          <td className={td}>{fmtAmt(ce.total.netIncome)}</td>
         </tr>
-        {hasOther && (
+        {cols.some((c) => c.other !== 0) && (
           <tr>
-            <td className={tdL} style={{ paddingLeft: "1.5rem" }}>
+            <td className={tdL} style={indent}>
               その他の変動額
             </td>
-            {otherChange.map((v, i) => (
+            {cols.map((c, i) => (
               <td key={i} className={td}>
-                {v !== 0 ? fmtAmt(v) : ""}
+                {cell(c.other)}
               </td>
             ))}
-            <td className={td}>{fmtAmt(ce.total.change - netIncome)}</td>
+            <td className={td}>{fmtAmt(ce.total.other)}</td>
           </tr>
         )}
         <tr>
@@ -408,12 +399,19 @@ function EquityChangesTable({
 // e-Tax 用 CSV（貸借対照表・損益計算書）
 // ---------------------------------------------------------------------------
 
-function EtaxFinancialButtons({ clientId, year }: { clientId: string; year: number }) {
-  const [busy, setBusy] = useState<"BS" | "PL" | null>(null);
-  const download = async (kind: "BS" | "PL") => {
+const ETAX_KINDS: { kind: EtaxFinancialKind; label: string }[] = [
+  { kind: "BS", label: "貸借対照表" },
+  { kind: "PL", label: "損益計算書" },
+  { kind: "SS", label: "株主資本等変動計算書" },
+  { kind: "NT", label: "個別注記表" },
+];
+
+function EtaxFinancialButtons({ clientId, periodKey }: { clientId: string; periodKey: string }) {
+  const [busy, setBusy] = useState<EtaxFinancialKind | null>(null);
+  const download = async (kind: EtaxFinancialKind) => {
     setBusy(kind);
     try {
-      const r = await getEtaxFinancialCsv(clientId, year, kind);
+      const r = await getEtaxFinancialCsv(clientId, periodKey, kind);
       const bin = atob(r.base64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -434,10 +432,10 @@ function EtaxFinancialButtons({ clientId, year }: { clientId: string; year: numb
   return (
     <>
       <span className="text-xs text-muted-foreground hidden md:inline">e-Tax用CSV:</span>
-      {(["BS", "PL"] as const).map((k) => (
-        <button key={k} className={cls} disabled={busy !== null} onClick={() => download(k)} title="e-Taxソフトの「財務諸表等の組み込み」で取り込めます（HOT010 Ver.3.0）">
-          {busy === k ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-          {k === "BS" ? "貸借対照表" : "損益計算書"}
+      {ETAX_KINDS.map(({ kind, label }) => (
+        <button key={kind} className={cls} disabled={busy !== null} onClick={() => download(kind)} title="e-Taxソフトの「財務諸表等の組み込み」で取り込めます（HOT010 Ver.3.0）">
+          {busy === kind ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+          {label}
         </button>
       ))}
     </>
@@ -460,7 +458,7 @@ export default function SettlementReportPage({
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    getSettlementReport(id, Number(year))
+    getSettlementReport(id, decodeURIComponent(year))
       .then(setData)
       .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"))
       .finally(() => setLoading(false));
@@ -500,7 +498,7 @@ export default function SettlementReportPage({
           試算表・財務諸表に戻る
         </button>
         <div className="flex items-center gap-2">
-          <EtaxFinancialButtons clientId={id} year={Number(year)} />
+          <EtaxFinancialButtons clientId={id} periodKey={decodeURIComponent(year)} />
           <button
             onClick={() => window.print()}
             className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
@@ -576,7 +574,7 @@ export default function SettlementReportPage({
             subtitle={periodLabel}
             companyName={data.company.name}
           />
-          <EquityChangesTable ce={data.changesInEquity} netIncome={data.bs.netIncome} />
+          <EquityChangesTable ce={data.changesInEquity} />
         </Sheet>
 
         {/* ===== 5. 個別注記表 ===== */}
@@ -589,9 +587,19 @@ export default function SettlementReportPage({
                 <p className="font-bold mb-1.5">
                   {i + 1}．{n.heading}
                 </p>
-                <p className="whitespace-pre-wrap text-[13px] leading-relaxed pl-4">
-                  {n.body}
-                </p>
+                {n.items.length === 0 ? (
+                  <p className="text-[13px] leading-relaxed pl-4">{n.none}</p>
+                ) : (
+                  n.items.map((it, j) => (
+                    <div key={j} className="text-[13px] leading-relaxed pl-4">
+                      <p>
+                        {n.items.length > 1 ? `(${j + 1}) ` : ""}
+                        {it.title}
+                      </p>
+                      <p className="pl-4">{it.text}</p>
+                    </div>
+                  ))
+                )}
               </div>
             ))}
           </div>

@@ -41,7 +41,8 @@ import {
   deleteInventoryCount,
 } from "@/actions/inventory";
 import { getClient } from "@/actions/clients";
-import { getFiscalPeriod } from "@/lib/fiscal";
+import { fiscalPeriodContaining, type FiscalPeriodRow } from "@/lib/fiscal";
+import { getFiscalPeriodRows } from "@/actions/fiscal-month";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { DateInput } from "@/components/ui/date-input";
 import { formatYen } from "@/lib/wareki";
@@ -992,7 +993,6 @@ function SettlementReport({
 }) {
   const hasData = data.length > 0;
   const reportRouter = useRouter();
-  const reportYear = Number(fiscalYearStart.slice(0, 4));
 
   function handleCsv() {
     const rows: (string | number)[][] = [];
@@ -1045,7 +1045,7 @@ function SettlementReport({
           size="sm"
           onClick={() =>
             clientId &&
-            reportRouter.push(`/clients/${clientId}/statements/report/${reportYear}`)
+            reportRouter.push(`/clients/${clientId}/statements/report/${fiscalYearStart}`)
           }
           disabled={!clientId}
         >
@@ -1084,10 +1084,10 @@ const toYmd = (d: Date) => `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(
 const monthStart = (d: Date) => toYmd(new Date(d.getFullYear(), d.getMonth(), 1));
 const monthEnd = (d: Date) => toYmd(new Date(d.getFullYear(), d.getMonth() + 1, 0));
 const slash = (ymd: string) => ymd.replaceAll("-", "/");
-/** 日付（YYYY-MM-DD）が属する会計年度 */
-function fiscalPeriodOf(startMonth: number, ymd: string) {
-  const [y, m] = ymd.split("-").map(Number);
-  return getFiscalPeriod(startMonth, y, m);
+/** 日付（YYYY-MM-DD）が属する会計年度（決算月を変えた年の変則期間は記録どおり） */
+type FiscalBasis = { startMonth: number; rows: FiscalPeriodRow[] };
+function fiscalPeriodOf(basis: FiscalBasis, ymd: string) {
+  return fiscalPeriodContaining(basis.rows, basis.startMonth, ymd);
 }
 
 export default function StatementsPage() {
@@ -1121,15 +1121,16 @@ export default function StatementsPage() {
   // クライアントの決算月（期首月）・名称を取得。
   // null = 未ロード。ロード前に既定4月で計算すると、4月以外が決算期首の顧問先で
   // 対象期間が誤表示・誤集計されるため、ロード完了まで計算・取得を保留する。
-  const [fiscalStartMonth, setFiscalStartMonth] = useState<number | null>(null);
+  // 記録された事業年度（変則期間）も一緒に読み込む
+  const [fiscalBasis, setFiscalBasis] = useState<FiscalBasis | null>(null);
   const [clientName, setClientName] = useState("");
   useEffect(() => {
-    getClient(id)
-      .then((c) => {
-        setFiscalStartMonth((c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4);
+    Promise.all([getClient(id), getFiscalPeriodRows(id).catch(() => [] as FiscalPeriodRow[])])
+      .then(([c, rows]) => {
+        setFiscalBasis({ startMonth: (c as { fiscal_year_start_month?: number }).fiscal_year_start_month ?? 4, rows });
         setClientName((c as { name?: string }).name ?? "");
       })
-      .catch(() => setFiscalStartMonth(4));
+      .catch(() => setFiscalBasis({ startMonth: 4, rows: [] }));
   }, [id]);
 
   // 決算書データ（会計年度の全期間で集計）
@@ -1138,10 +1139,10 @@ export default function StatementsPage() {
 
   // 決算月が分かったら、開始日の既定を「終了日が属する会計年度の期首」にする
   useEffect(() => {
-    if (fiscalStartMonth === null || rangeStart) return;
-    setRangeStart(fiscalPeriodOf(fiscalStartMonth, rangeEnd).startDate);
+    if (fiscalBasis === null || rangeStart) return;
+    setRangeStart(fiscalPeriodOf(fiscalBasis, rangeEnd).startDate);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fiscalStartMonth]);
+  }, [fiscalBasis]);
 
   // ホイールで日付を回している間に毎回集計し直さないよう、止まってから反映する
   const [appliedRange, setAppliedRange] = useState({ start: "", end: "" });
@@ -1152,9 +1153,9 @@ export default function StatementsPage() {
 
   // 終了日が属する会計年度（決算書・月次推移・棚卸の期首に使う）。決算月ロード前は null で保留。
   const fiscalOfEnd = useMemo(() => {
-    if (fiscalStartMonth === null || !appliedRange.end) return null;
-    return fiscalPeriodOf(fiscalStartMonth, appliedRange.end);
-  }, [fiscalStartMonth, appliedRange.end]);
+    if (fiscalBasis === null || !appliedRange.end) return null;
+    return fiscalPeriodOf(fiscalBasis, appliedRange.end);
+  }, [fiscalBasis, appliedRange.end]);
   const fiscalYearStart = fiscalOfEnd?.startDate ?? "";
   const fiscalYearEnd = fiscalOfEnd?.endDate ?? "";
 
@@ -1174,20 +1175,20 @@ export default function StatementsPage() {
   const endDate = rangeError || !fiscalOfEnd ? "" : appliedRange.end;
 
   const applyPreset = (preset: "ytd" | "month" | "prev") => {
-    if (fiscalStartMonth === null) return;
+    if (fiscalBasis === null) return;
     const today = new Date();
     if (preset === "ytd") {
       const end = monthEnd(today);
-      setRangeStart(fiscalPeriodOf(fiscalStartMonth, end).startDate);
+      setRangeStart(fiscalPeriodOf(fiscalBasis, end).startDate);
       setRangeEnd(end);
     } else if (preset === "month") {
       setRangeStart(monthStart(today));
       setRangeEnd(monthEnd(today));
     } else {
-      const cur = fiscalPeriodOf(fiscalStartMonth, monthEnd(today));
+      const cur = fiscalPeriodOf(fiscalBasis, monthEnd(today));
       const [y, m, d] = cur.startDate.split("-").map(Number);
       const prevEnd = toYmd(new Date(y, m - 1, d - 1));
-      setRangeStart(fiscalPeriodOf(fiscalStartMonth, prevEnd).startDate);
+      setRangeStart(fiscalPeriodOf(fiscalBasis, prevEnd).startDate);
       setRangeEnd(prevEnd);
     }
   };

@@ -56,7 +56,7 @@ export type ReturnInput = {
   purchaseGross: Pair;
   purchaseTax: Pair;
   /** 適格請求書発行事業者以外からの仕入れ（経過措置）。控除できる割合ごと */
-  transition: { col: Col; rate: number; gross: number; tax: number }[];
+  transition: Transition[];
   /** 貸倒れ（税込） */
   badDebt: Pair;
   /** 税区分が付いていない収益・費用の行の数 */
@@ -70,7 +70,20 @@ export type ReturnInput = {
 };
 
 export type PurchaseUse = "taxable" | "non_taxable" | "common";
-type UseGroup = { gross: Pair; tax: Pair; transition: { col: Col; rate: number; gross: number; tax: number }[] };
+/**
+ * 経過措置の仕入れ。stackedTax は積上げ計算のときに使う額: 取引ごとに
+ * 支払対価 × 7.8/110（軽減は 6.24/108）× 控除できる割合 を出して1円未満を切り捨て、合計したもの（国税庁 インボイスQ&A）。
+ * 無ければ合計額から計算する
+ */
+export type Transition = { col: Col; rate: number; gross: number; tax: number; stackedTax?: number };
+type UseGroup = { gross: Pair; tax: Pair; transition: Transition[] };
+
+/** 経過措置の仕入れ1件の、積上げ計算でみなされる国税の消費税額（1円未満切捨て） */
+export function transitionStackedTax(gross: number, col: Col, rate: number): number {
+  const pct = Math.round(rate * 100);
+  const v = col === "B" ? (gross * 78 * pct) / 110_000 : (gross * 624 * pct) / 1_080_000;
+  return Math.trunc(v);
+}
 const useGroup = (): UseGroup => ({ gross: pair(), tax: pair(), transition: [] });
 export const PURCHASE_USE_LABELS: Record<PurchaseUse, string> = {
   taxable: "課税売上げにのみ要するもの",
@@ -122,11 +135,13 @@ export function aggregateReturnInput(lines: TaxBookLine[]): ReturnInput {
     if (!col) continue; // 非課税・不課税の仕入れは控除の対象外
     if (!l.purchaseUse) r.unclassifiedPurchases!++;
     const g = r.purchaseByUse![l.purchaseUse ?? "common"];
+    const stacked = info.transitionRate ? transitionStackedTax(a.gross, col, info.transitionRate) : 0;
     if (info.transitionRate) {
       let gt = g.transition.find((x) => x.col === col && x.rate === info.transitionRate);
-      if (!gt) g.transition.push((gt = { col, rate: info.transitionRate, gross: 0, tax: 0 }));
+      if (!gt) g.transition.push((gt = { col, rate: info.transitionRate, gross: 0, tax: 0, stackedTax: 0 }));
       gt.gross += a.gross;
       gt.tax += a.tax;
+      gt.stackedTax = (gt.stackedTax ?? 0) + stacked;
     } else {
       g.gross[col] += a.gross;
       g.tax[col] += a.tax;
@@ -134,11 +149,12 @@ export function aggregateReturnInput(lines: TaxBookLine[]): ReturnInput {
     if (info.transitionRate) {
       let t = r.transition.find((x) => x.col === col && x.rate === info.transitionRate);
       if (!t) {
-        t = { col, rate: info.transitionRate, gross: 0, tax: 0 };
+        t = { col, rate: info.transitionRate, gross: 0, tax: 0, stackedTax: 0 };
         r.transition.push(t);
       }
       t.gross += a.gross;
       t.tax += a.tax;
+      t.stackedTax = (t.stackedTax ?? 0) + stacked;
     } else {
       r.purchaseGross[col] += a.gross;
       r.purchaseTax[col] += a.tax;
@@ -273,7 +289,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
           (x, t) =>
             x +
             (s.purchaseTaxCalc === "stacked"
-              ? Math.floor(mulDiv(t.tax, 78, 100) * t.rate)
+              ? (t.stackedTax ?? Math.floor(mulDiv(t.tax, 78, 100) * t.rate))
               : Math.floor(nationalInGross(t.gross, c) * t.rate)),
           0
         )
@@ -290,7 +306,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
               (x, t) =>
                 x +
                 (s.purchaseTaxCalc === "stacked"
-                  ? Math.floor(mulDiv(t.tax, 78, 100) * t.rate)
+                  ? (t.stackedTax ?? Math.floor(mulDiv(t.tax, 78, 100) * t.rate))
                   : Math.floor(nationalInGross(t.gross, c) * t.rate)),
               0
             )

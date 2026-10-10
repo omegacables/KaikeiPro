@@ -2,7 +2,7 @@
 
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess } from "@/lib/authz";
-import { transitionalPeriodEnd } from "@/lib/fiscal";
+import { transitionalPeriodEnd, type FiscalPeriodRow } from "@/lib/fiscal";
 
 // 決算月（期首月）の変更。
 // 税理士（事務所メンバー）だけでなく顧問先ユーザーも、自社の決算月を変えられる。
@@ -202,4 +202,13 @@ export async function changeFiscalStartMonth(input: {
   }
 
   return { newPeriodEnd, historySaved: !historyError };
+}
+
+/** 記録された事業年度（決算月を変えた年の変則期間を含む）。帳票の期間を決めるのに使う */
+export async function getFiscalPeriodRows(clientId: string): Promise<FiscalPeriodRow[]> {
+  await assertClientAccess(clientId);
+  const db = await createServerSupabaseClient();
+  const { data, error } = await db.from("fiscal_years").select("start_date, end_date").eq("client_id", clientId);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as FiscalPeriodRow[];
 }

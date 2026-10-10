@@ -309,14 +309,18 @@ export async function getMonthlyTrend(
   await assertClientAccess(clientId);
   const supabase = createAdminSupabaseClient();
 
-  // 当期と前期の月キー（前期は1年前の同月）
-  const current = buildMonths(fiscalYearStart, 12);
+  // 当期と前期の月キー（前期は1年前の同月）。
+  // 月数は期間どおり（決算月を変えた年の変則期間は12ヶ月より短い）
+  const [sy, sm] = fiscalYearStart.split("-").map(Number);
+  const [ey, em] = fiscalYearEnd.split("-").map(Number);
+  const n = Math.min(12, Math.max(1, (ey - sy) * 12 + (em - sm) + 1));
+  const current = buildMonths(fiscalYearStart, n);
   const priorStartDate = (() => {
     const d = new Date(fiscalYearStart);
     d.setFullYear(d.getFullYear() - 1);
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
   })();
-  const prior = buildMonths(priorStartDate, 12);
+  const prior = buildMonths(priorStartDate, n);
   const monthLabels = current.labels;
 
   const curIdx = (k: string) => current.keys.indexOf(k);
@@ -370,7 +374,7 @@ export async function getMonthlyTrend(
   const openCur = new Map<string, number>();
   const openPrev = new Map<string, number>();
   const ensure = (m: Map<string, number[]>, id: string) => {
-    if (!m.has(id)) m.set(id, new Array(12).fill(0));
+    if (!m.has(id)) m.set(id, new Array(n).fill(0));
     return m.get(id)!;
   };
 
@@ -429,8 +433,8 @@ export async function getMonthlyTrend(
     if (!info) continue;
     const category = TREND_CATEGORY_MAP[info.type] ?? "expense";
 
-    let months = curArr.get(id) ?? new Array(12).fill(0);
-    let prevMonths = prevArr.get(id) ?? new Array(12).fill(0);
+    let months = curArr.get(id) ?? new Array(n).fill(0);
+    let prevMonths = prevArr.get(id) ?? new Array(n).fill(0);
 
     if (!isPl) {
       // BS: フローを期首繰越から累積して各月末残高に変換し、科目の性質に応じた正の値へ
@@ -438,7 +442,7 @@ export async function getMonthlyTrend(
       const accumulate = (flows: number[], opening: number) => {
         const out: number[] = [];
         let run = opening;
-        for (let i = 0; i < 12; i++) {
+        for (let i = 0; i < n; i++) {
           run += flows[i];
           out.push(run * sign);
         }
@@ -448,7 +452,7 @@ export async function getMonthlyTrend(
       prevMonths = accumulate(prevMonths, openPrev.get(id) ?? 0);
     }
 
-    const total = isPl ? months.reduce((s, v) => s + v, 0) : months[11];
+    const total = isPl ? months.reduce((s, v) => s + v, 0) : months[n - 1];
     rows.push({ code: info.code, name: info.name, months, prevMonths, total, category });
   }
 

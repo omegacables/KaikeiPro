@@ -208,3 +208,44 @@ export function fiscalPeriodsUpTo(
   }
   return out.reverse();
 }
+
+/**
+ * 日付が属する事業年度。決算月を変えた年の変則期間（fiscal_years にだけ残る）を考えに入れる。
+ *   - 記録された期に入っていればその期
+ *   - それより前の日付は、後ろの記録から前期をたどる（adjacentFiscalPeriodKeys と同じたどり方）
+ *   - それより後の日付は、前の記録の翌日から翌期をたどる
+ *   - 記録が無ければ期首月から計算
+ */
+export function fiscalPeriodContaining(
+  rows: FiscalPeriodRow[],
+  startMonth: number | null | undefined,
+  ymd: string,
+  maxPeriods = 80
+): { startDate: string; endDate: string } {
+  const hit = rows.find((r) => r.start_date <= ymd && ymd <= r.end_date);
+  if (hit) return { startDate: hit.start_date, endDate: hit.end_date };
+
+  const later = rows.filter((r) => r.start_date > ymd).sort((a, b) => a.start_date.localeCompare(b.start_date))[0];
+  if (later) {
+    let p = { startDate: later.start_date, endDate: later.end_date };
+    for (let i = 0; i < maxPeriods && p.startDate > ymd; i++) {
+      const prev = resolveFiscalPeriodByKey(rows, startMonth, adjacentFiscalPeriodKeys(rows, p).prevKey);
+      p = { startDate: prev.startDate, endDate: addDays(p.startDate, -1) };
+    }
+    return p;
+  }
+
+  const earlier = rows.filter((r) => r.end_date < ymd).sort((a, b) => b.end_date.localeCompare(a.end_date))[0];
+  if (earlier) {
+    let p = { startDate: earlier.start_date, endDate: earlier.end_date };
+    for (let i = 0; i < maxPeriods && p.endDate < ymd; i++) {
+      const next = resolveFiscalPeriodByKey(rows, startMonth, addDays(p.endDate, 1));
+      p = { startDate: next.startDate, endDate: next.endDate };
+    }
+    return p;
+  }
+
+  const [y, m] = ymd.split("-").map(Number);
+  const r = getFiscalPeriod(startMonth, y, m);
+  return { startDate: r.startDate, endDate: r.endDate };
+}

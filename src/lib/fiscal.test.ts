@@ -11,6 +11,7 @@ import {
   toJstDate,
   transitionalPeriodEnd,
   fiscalPeriodsUpTo,
+  fiscalPeriodContaining,
 } from "./fiscal";
 
 describe("fiscalRangeFromStartYear", () => {
@@ -242,5 +243,24 @@ describe("fiscalPeriodsUpTo（使い始めた期から指定の期まで）", ()
 
   it("指定の期より後に始まるなら空", () => {
     expect(fiscalPeriodsUpTo([], 4, { startDate: "2024-04-01", endDate: "2025-03-31" }, "2025-04-01")).toEqual([]);
+  });
+});
+
+describe("fiscalPeriodContaining（日付が属する事業年度・変則期間を考える）", () => {
+  // 3月決算から8月決算に変えた会社（2025/4〜8月が変則期間）。記録はその1行だけ
+  const rows = [{ start_date: "2025-04-01", end_date: "2025-08-31" }];
+  it("記録された変則期間に入る日付はその期", () => {
+    expect(fiscalPeriodContaining(rows, 9, "2025-06-30")).toEqual({ startDate: "2025-04-01", endDate: "2025-08-31" });
+  });
+  it("変則期間より前は、前期を12ヶ月でたどる（今の期首月で計算すると誤る）", () => {
+    expect(fiscalPeriodContaining(rows, 9, "2025-01-31")).toEqual({ startDate: "2024-04-01", endDate: "2025-03-31" });
+    expect(fiscalPeriodContaining(rows, 9, "2023-05-31")).toEqual({ startDate: "2023-04-01", endDate: "2024-03-31" });
+  });
+  it("変則期間より後は、翌日から翌期をたどる", () => {
+    expect(fiscalPeriodContaining(rows, 9, "2026-03-31")).toEqual({ startDate: "2025-09-01", endDate: "2026-08-31" });
+    expect(fiscalPeriodContaining(rows, 9, "2026-09-30")).toEqual({ startDate: "2026-09-01", endDate: "2027-08-31" });
+  });
+  it("記録が無ければ期首月から計算", () => {
+    expect(fiscalPeriodContaining([], 4, "2026-03-31")).toEqual({ startDate: "2025-04-01", endDate: "2026-03-31" });
   });
 });
