@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AmountInput } from "@/components/ui/amount-input";
 import { cn } from "@/lib/utils";
+import { SettlementCard } from "@/components/tax/settlement-card";
 import { useClientRole } from "@/lib/use-client-role";
 import { printPage } from "@/lib/export";
 import { BUSINESS_TYPES, CALC_METHOD_LABELS, type CalcMethod, type FormTable } from "@/lib/consumption-tax-return";
@@ -131,6 +132,16 @@ export default function TaxReturnPage() {
           </Card>
 
           <TaxCategoryCheck clientId={id} period={view.period} canWrite={canWrite} onFixed={() => setReloadKey((k) => k + 1)} />
+
+          <SettlementCard
+            clientId={id}
+            kind="consumption"
+            periodKey={view.period.key}
+            endDate={view.period.endDate}
+            canWrite={canWrite}
+            refreshKey={reloadKey}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
 
           {view.result.tables.map((t) => (
             <FormTableView key={t.key} table={t} />

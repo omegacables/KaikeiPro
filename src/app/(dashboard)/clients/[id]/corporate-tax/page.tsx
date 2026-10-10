@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { AmountInput } from "@/components/ui/amount-input";
 import { DateInput } from "@/components/ui/date-input";
 import { cn } from "@/lib/utils";
+import { SettlementCard } from "@/components/tax/settlement-card";
 import { useClientRole } from "@/lib/use-client-role";
 import { printPage } from "@/lib/export";
 import type { TaxTable, Adjustment } from "@/lib/corporate-tax-return";
@@ -144,6 +145,16 @@ export default function CorporateTaxPage() {
           </Card>
 
           <InputsCard view={view} clientId={id} canWrite={canWrite} onSaved={() => setReloadKey((k) => k + 1)} />
+
+          <SettlementCard
+            clientId={id}
+            kind="corporate"
+            periodKey={view.period.key}
+            endDate={view.period.endDate}
+            canWrite={canWrite}
+            refreshKey={reloadKey}
+            onChanged={() => setReloadKey((k) => k + 1)}
+          />
 
           {r.tables.map((t) => (
             <TableView key={t.key} table={t} />

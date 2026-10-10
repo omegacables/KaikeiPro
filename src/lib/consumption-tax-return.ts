@@ -145,6 +145,8 @@ export type ConsumptionTaxReturn = {
   taxableSalesRatio: number | null;
   /** 控除の方法（本則課税）: 全額控除 / 一括比例配分方式 */
   deductionMethod: "full" | "proportional" | null;
+  /** 年間の消費税額（国＋地方、中間納付を差し引く前。負は還付） */
+  annualTax: number;
   /** 国の消費税・地方消費税・合計。正なら納付、負なら還付 */
   national: number;
   local: number;
@@ -422,6 +424,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
     tables,
     taxableSalesRatio: ratio,
     deductionMethod,
+    annualTax: z.netTax - z.shortfall + z.localTax - z.localRefund,
     national: z.national,
     local: z.local,
     total,

@@ -1288,6 +1288,8 @@ export interface Database {
           tax_category: string | null;
           tax_rate: number | null;
           sort_order: number;
+          purchase_use: "taxable" | "non_taxable" | "common" | null;
+          business_type: number | null;
         };
         Insert: {
           id?: string;
@@ -1300,6 +1302,8 @@ export interface Database {
           tax_category?: string | null;
           tax_rate?: number | null;
           sort_order?: number;
+          purchase_use?: "taxable" | "non_taxable" | "common" | null;
+          business_type?: number | null;
         };
         Update: {
           id?: string;
@@ -1312,6 +1316,8 @@ export interface Database {
           tax_category?: string | null;
           tax_rate?: number | null;
           sort_order?: number;
+          purchase_use?: "taxable" | "non_taxable" | "common" | null;
+          business_type?: number | null;
         };
         Relationships: [
           {
@@ -1567,7 +1573,7 @@ export interface Database {
           acquisition_date: string;
           acquisition_cost: number;
           useful_life: number;
-          depreciation_method: "straight_line" | "declining_balance";
+          depreciation_method: "straight_line" | "declining_balance" | "lump_sum" | "small_immediate";
           salvage_value: number;
           disposed_at: string | null;
           created_at: string;
@@ -1585,7 +1591,7 @@ export interface Database {
           acquisition_date: string;
           acquisition_cost?: number;
           useful_life: number;
-          depreciation_method: "straight_line" | "declining_balance";
+          depreciation_method: "straight_line" | "declining_balance" | "lump_sum" | "small_immediate";
           salvage_value?: number;
           disposed_at?: string | null;
           created_at?: string;
@@ -1603,7 +1609,7 @@ export interface Database {
           acquisition_date?: string;
           acquisition_cost?: number;
           useful_life?: number;
-          depreciation_method?: "straight_line" | "declining_balance";
+          depreciation_method?: "straight_line" | "declining_balance" | "lump_sum" | "small_immediate";
           salvage_value?: number;
           disposed_at?: string | null;
           account_id?: string | null;
@@ -1630,6 +1636,8 @@ export interface Database {
           withholding_income_tax: number;
           prior_enterprise_tax_paid: number;
           entertainment_dining: number | null;
+          offices: unknown;
+          carryback: unknown;
           loss_carryforwards: unknown;
           opening_retained: unknown;
           adjustments: unknown;
@@ -1653,6 +1661,8 @@ export interface Database {
           withholding_income_tax?: number;
           prior_enterprise_tax_paid?: number;
           entertainment_dining?: number | null;
+          offices?: unknown;
+          carryback?: unknown;
           loss_carryforwards?: unknown;
           opening_retained?: unknown;
           adjustments?: unknown;
@@ -1672,6 +1682,8 @@ export interface Database {
           withholding_income_tax?: number;
           prior_enterprise_tax_paid?: number;
           entertainment_dining?: number | null;
+          offices?: unknown;
+          carryback?: unknown;
           loss_carryforwards?: unknown;
           opening_retained?: unknown;
           adjustments?: unknown;

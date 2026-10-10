@@ -163,6 +163,10 @@ export async function updateJournalEntryWithLines(
     sub_account_id?: string | null;
     tax_category?: string | null;
     department_id?: string | null;
+    /** 仕入の用途区分（個別対応方式）。省略したら今の行の値を引き継ぐ */
+    purchase_use?: "taxable" | "non_taxable" | "common" | null;
+    /** 売上の事業区分（簡易課税、1〜6）。省略したら今の行の値を引き継ぐ */
+    business_type?: number | null;
   }[]
 ): Promise<void> {
   const clientId = await resolveClientIdForRecord("journal_entries", id);
@@ -197,9 +201,22 @@ export async function updateJournalEntryWithLines(
     ])
   );
 
+  // 明細は削除→再作成なので、画面から渡されない欄（用途区分・事業区分）は今の行から引き継ぐ。
+  // 同じ位置で同じ科目の行、無ければ同じ科目の最初の行の値を使う
+  const { data: oldLines } = await admin
+    .from("journal_entry_lines")
+    .select("account_id, purchase_use, business_type, sort_order")
+    .eq("journal_entry_id", id)
+    .order("sort_order");
+  type Old = { account_id: string; purchase_use: "taxable" | "non_taxable" | "common" | null; business_type: number | null };
+  const olds = (oldLines ?? []) as Old[];
+  const inherit = (l: (typeof lines)[number], i: number): Old | undefined =>
+    (olds[i]?.account_id === l.account_id ? olds[i] : undefined) ?? olds.find((o) => o.account_id === l.account_id);
+
   const cleaned = lines
-    .map((l) => {
+    .map((l, i) => {
       const type = typeOf.get(l.account_id);
+      const prev = inherit(l, i);
       const code = type === "revenue" || type === "expenses" ? sanitizeTaxCategory(l.tax_category) : null;
       return {
         account_id: l.account_id,
@@ -209,6 +226,9 @@ export async function updateJournalEntryWithLines(
         department_id: l.department_id || null,
         tax_category: code,
         tax_rate: code ? taxCategoryInfo(code)?.rate ?? null : null,
+        purchase_use: type === "expenses" ? (l.purchase_use !== undefined ? l.purchase_use : prev?.purchase_use ?? null) : null,
+        business_type:
+          type === "revenue" ? (l.business_type !== undefined ? l.business_type : prev?.business_type ?? null) : null,
       };
     })
     .filter((l) => l.account_id && (l.debit_amount > 0 || l.credit_amount > 0));
