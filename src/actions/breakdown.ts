@@ -707,3 +707,58 @@ export async function draftReceivablesFromInvoices(
       sortOrder: idx,
     }));
 }
+
+/**
+ * ①預貯金等の下書き: 登録済みの銀行口座ごとに1行。
+ * 口座に紐づく勘定科目をその口座だけが使っていれば、科目の期末残高を期末現在高にする
+ * （1つの科目を複数の口座で使っていると口座ごとの残高が分からないので 0 にして、入力してもらう）。
+ */
+export async function draftDepositsFromBankAccounts(clientId: string, periodKey: string): Promise<BreakdownItem[]> {
+  await assertClientAccess(clientId);
+  const period = await loadPeriod(clientId, periodKey);
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("bank_accounts")
+    .select("bank_name, branch_name, account_type, account_number, account_holder, account_id")
+    .eq("client_id", clientId)
+    .eq("is_active", true)
+    .order("bank_name");
+  if (error) throw new Error(error.message);
+  type B = { bank_name: string | null; branch_name: string | null; account_type: string | null; account_number: string | null; account_holder: string | null; account_id: string | null };
+  const accounts = (data ?? []) as B[];
+  const balances = await loadBalances(clientId, period);
+  const uses = new Map<string, number>();
+  for (const a of accounts) if (a.account_id) uses.set(a.account_id, (uses.get(a.account_id) ?? 0) + 1);
+  const kindOf = (t: string | null) => {
+    const v = t ?? "";
+    if (/当座/.test(v)) return "当座預金";
+    if (/定期積/.test(v)) return "定期積金";
+    if (/定期/.test(v)) return "定期預金";
+    if (/貯蓄/.test(v)) return "貯蓄預金";
+    if (/普通|ordinary/i.test(v) || !v) return "普通預金";
+    return "その他";
+  };
+  return accounts.map((a, idx) => {
+    const bal = a.account_id ? balances.find((b) => b.id === a.account_id) : undefined;
+    const single = a.account_id ? uses.get(a.account_id) === 1 : false;
+    return {
+      id: crypto.randomUUID(),
+      section: "main",
+      accountId: a.account_id,
+      partnerId: null,
+      name: "",
+      address: "",
+      registrationNumber: "",
+      relationship: "",
+      amount: bal && single ? Math.round(bal.currentBalance) : 0,
+      note: "",
+      details: {
+        bank: a.bank_name ?? "",
+        branch: a.branch_name ?? "",
+        kind: kindOf(a.account_type),
+        account_no: a.account_number ?? "",
+      },
+      sortOrder: idx,
+    };
+  });
+}

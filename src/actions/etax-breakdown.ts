@@ -10,6 +10,11 @@ import { getBreakdownForm, type BreakdownFormData } from "@/actions/breakdown";
 import { buildSheetSection, findItemFormSpec } from "@/lib/breakdown-items";
 import {
   notesReceivable,
+  bankDeposits,
+  inventories,
+  landAndBuildings,
+  landSales,
+  salesByOffice,
   receivables,
   advancesAndLoans,
   securities,
@@ -94,6 +99,16 @@ async function form(clientId: string, periodKey: string, key: string): Promise<B
 async function build(clientId: string, periodKey: string, id: string): Promise<EtaxFile> {
   const f = (key: string) => form(clientId, periodKey, key);
   switch (id) {
+    case "HOI010_4.0":
+      return bankDeposits(itemRows(await f("1")));
+    case "HOI050_4.0":
+      return inventories(itemRows(await f("5")));
+    case "HOI070_5.0":
+      return landAndBuildings(itemRows(await f("7")));
+    case "HOI120_5.0":
+      return landSales(itemRows(await f("12")));
+    case "HOI130_5.0":
+      return salesByOffice(itemRows(await f("13")));
     case "HOI020_4.0":
       return notesReceivable(itemRows(await f("2")));
     case "HOI030_4.0":
@@ -110,18 +125,22 @@ async function build(clientId: string, periodKey: string, id: string): Promise<E
       const p = await f("9");
       return payables(itemRows(p, "main"), itemRows(p, "dividend"), itemRows(p, "officer_bonus"));
     }
-    case "HOI100_6.0":
-      return deposits(itemRows(await f("10-1")));
+    case "HOI100_6.0": {
+      const [d, w] = await Promise.all([f("10-1"), f("10-2")]);
+      return deposits(itemRows(d), itemRows(w));
+    }
     case "HOI110_3.0": {
       const l = await f("11");
       return borrowings(loanRows(l));
     }
     case "HOI141_5.0": {
-      const p = await f("14-3");
+      const [o, p] = await Promise.all([f("14-1"), f("14-3")]);
       const b = p && p.kind === "personnel" ? p.breakdown : null;
-      const f14 = personnel({ officer: b?.officer.total ?? 0, salary: b?.salary.total ?? 0, wage: b?.wage.total ?? 0 });
-      // 人件費が無ければ記入する内容が無い（提出不要）
-      return b && b.total !== 0 ? f14 : { ...f14, rows: [] };
+      // 人件費が無ければ人件費の行は書かない
+      return personnel(
+        b && b.total !== 0 ? { officer: b.officer.total, salary: b.salary.total, wage: b.wage.total } : null,
+        itemRows(o)
+      );
     }
     case "HOI150_4.0": {
       const [r, k] = await Promise.all([f("15-1"), f("15-2")]);

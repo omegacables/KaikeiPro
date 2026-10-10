@@ -170,7 +170,199 @@ const billFields = (partnerLabel: string, withDiscount: boolean): ItemField[] =>
 
 const notTax = (a: BalanceAccount) => !/税/.test(a.name);
 
+/** ⑭ 役職名コード（e-Tax・OCR様式の2桁コード） */
+export const OFFICER_TITLE_OPTIONS = [
+  "01 代表取締役", "02 常務取締役", "03 専務取締役", "04 取締役", "05 監査役",
+  "11 有限責任社員", "12 無限責任社員", "21 代表社員", "22 社員",
+  "31 理事長", "32 副理事長", "33 常務理事", "34 専務理事", "35 常任理事", "36 理事",
+  "41 顧問", "42 監事", "99 その他役員",
+];
+/** ⑭ 代表者との関係コード */
+export const RELATION_OPTIONS = [
+  "01 本人", "02 配偶者", "03 父", "04 母", "07 長男", "08 次男", "09 三男", "10 長女", "11 次女", "12 三女",
+  "13 子", "14 孫", "15 祖父", "16 祖母", "17 兄弟", "18 姉妹", "19 子の配偶者", "22 伯父（叔父）", "23 伯母（叔母）",
+  "24 従兄弟", "25 従姉妹", "26 甥", "27 姪", "90 その他",
+];
+/** ⑩-2 所得の種類 */
+export const INCOME_KIND_OPTIONS = ["1 給与所得", "2 退職所得", "3 報酬・料金等", "4 利子所得", "5 配当所得", "6 非居住者等所得", "9 その他"];
+const ALL_100: ListingRule = { amountThreshold: 0, maxRows: 100 };
+
 export const ITEM_FORM_SPECS: ItemFormSpec[] = [
+  {
+    key: "1",
+    targetLabel: "預貯金",
+    isTargetAccount: (a) => a.category === "asset" && /預金|貯金|積金/.test(a.name),
+    reconcileNote: "金融機関ごと・預貯金の種類ごとに、すべての口座を記入します（金額の基準はありません）。",
+    sections: [
+      {
+        key: "main",
+        fields: [
+          // 様式に科目の欄は無い。試算表との照合のためだけに入力してもらう
+          { ...F.account(), printHidden: true },
+          { key: "d.bank", label: "金融機関名", type: "text" },
+          { key: "d.branch", label: "支店名", type: "text" },
+          { key: "d.kind", label: "種類", type: "select", options: ["普通預金", "当座預金", "定期預金", "定期積金", "通知預金", "別段預金", "貯蓄預金", "その他"] },
+          { key: "d.account_no", label: "口座番号", type: "text" },
+          F.amount(),
+          F.note("摘要", "名義人が法人と違うときは「名義人○○」"),
+        ],
+        rule: ALL_100,
+        thresholdBy: "row",
+        reconciled: true,
+      },
+    ],
+  },
+  {
+    key: "5",
+    targetLabel: "棚卸資産",
+    isTargetAccount: (a) => a.category === "asset" && /商品|製品|仕掛品|原材料|貯蔵品|棚卸|半成工事/.test(a.name),
+    sections: [
+      {
+        key: "main",
+        fields: [
+          F.account(),
+          { key: "d.item", label: "品目", type: "text", placeholder: "紳士用革靴 など" },
+          { key: "d.quantity", label: "数量", type: "number" },
+          { key: "d.unit_price", label: "単価", type: "number" },
+          F.amount(),
+          F.note("摘要", "評価換えをしたときは「評価損○○円」"),
+        ],
+        rule: ALL_100,
+        thresholdBy: "row",
+        reconciled: true,
+      },
+    ],
+  },
+  {
+    key: "7",
+    targetLabel: "土地・建物",
+    isTargetAccount: (a) => a.category === "asset" && /土地|借地権|^建物$/.test(a.name),
+    reconcileNote: "期中に売却・購入・評価換えをしたものは、期末に残っていなくても記入します。",
+    sections: [
+      {
+        key: "main",
+        fields: [
+          { key: "d.kind", label: "種類・構造", type: "text", placeholder: "土地、鉄筋コンクリート造建物 など" },
+          { key: "d.usage", label: "用途", type: "text" },
+          { key: "d.area", label: "面積（㎡）", type: "number" },
+          { key: "d.location", label: "物件の所在地", type: "text" },
+          F.amount(),
+          { key: "d.move_date", label: "異動年月日", type: "date", group: "期中取得（処分）の明細" },
+          { key: "d.move_reason", label: "異動事由", type: "text", group: "期中取得（処分）の明細" },
+          { key: "d.move_price", label: "取得（処分）価額", type: "amount", group: "期中取得（処分）の明細" },
+          { key: "d.book_before", label: "異動直前の帳簿価額", type: "amount", group: "期中取得（処分）の明細" },
+          F.partner("売却（購入）先の名称（氏名）", "期中取得（処分）の明細"),
+          F.address("売却（購入）先の所在地（住所）", "期中取得（処分）の明細"),
+          F.regNo(),
+          { key: "d.acquired_month", label: "売却物件の取得年月", type: "date", group: "期中取得（処分）の明細" },
+        ],
+        rule: ALL_100,
+        thresholdBy: "row",
+        reconciled: true,
+      },
+    ],
+  },
+  {
+    key: "10-2",
+    targetLabel: "源泉所得税預り金",
+    isTargetAccount: (a) => a.category === "liability" && /源泉/.test(a.name),
+    sections: [
+      {
+        key: "main",
+        fields: [
+          { key: "d.paid_month", label: "支払年月（月分）", type: "date" },
+          { key: "d.income_kind", label: "所得の種類", type: "select", options: INCOME_KIND_OPTIONS },
+          F.amount(),
+        ],
+        rule: ALL_100,
+        thresholdBy: "row",
+        reconciled: true,
+      },
+    ],
+  },
+  {
+    key: "12",
+    targetLabel: "土地の売上高",
+    isTargetAccount: null,
+    reconcileNote: "棚卸資産として持つ土地を売却したとき・土地を仲介したときに記入します（固定資産の土地の売却は⑦）。多額のものから20口まで。",
+    sections: [
+      {
+        key: "main",
+        fields: [
+          { key: "d.class", label: "区分", type: "select", options: ["売上", "仲介手数料"] },
+          { key: "d.location", label: "商品の所在地", type: "text" },
+          { key: "d.land_type", label: "地目", type: "text", placeholder: "宅地・田・畑 など" },
+          { key: "d.total_area", label: "総面積（㎡）", type: "number" },
+          { key: "d.sold_month", label: "売上（仲介）年月", type: "date" },
+          F.partner("売上（仲介）先の名称（氏名）", "売上（仲介）先"),
+          F.address("所在地（住所）", "売上（仲介）先"),
+          F.regNo(),
+          { key: "d.sold_area", label: "売上（仲介）面積（㎡）", type: "number" },
+          { key: "d.total_price", label: "土地建物を区分していない総額", type: "amount" },
+          F.amount("売上金額（仲介手数料）"),
+          { key: "d.acquired_year", label: "売上商品の取得年（西暦）", type: "number" },
+        ],
+        rule: { amountThreshold: 0, maxRows: 20 },
+        thresholdBy: "row",
+        reconciled: false,
+      },
+    ],
+  },
+  {
+    key: "13",
+    targetLabel: "売上高",
+    isTargetAccount: (a) => a.category === "revenue" && /売上高|売上$/.test(a.name),
+    reconcileNote: "売上高の合計は、損益計算書の売上高と一致させます。",
+    sections: [
+      {
+        key: "main",
+        fields: [
+          { key: "name", label: "事業所の名称", type: "text" },
+          { key: "address", label: "所在地", type: "text" },
+          { key: "d.manager", label: "責任者氏名", type: "text" },
+          { key: "relationship", label: "代表者との関係", type: "text" },
+          { key: "d.business", label: "事業等の内容", type: "text" },
+          F.amount("売上高"),
+          { key: "d.inventory", label: "期末棚卸高", type: "amount" },
+          { key: "d.staff", label: "期末従事員数", type: "number" },
+          { key: "d.tax_office", label: "源泉所得税納付署", type: "text", placeholder: "麹町" },
+          F.note("摘要", "期中に開設・廃止した事業所はその旨と年月日"),
+        ],
+        rule: ALL_100,
+        thresholdBy: "row",
+        reconciled: true,
+      },
+    ],
+  },
+  {
+    key: "14-1",
+    targetLabel: "役員給与",
+    isTargetAccount: (a) => a.category === "expense" && /役員報酬|役員給与|役員賞与/.test(a.name),
+    reconcileNote: "役員給与計は、賞与を含み退職給与を除いた額です。代表者は最初の行に記入します。",
+    sections: [
+      {
+        key: "main",
+        fields: [
+          { key: "d.title", label: "役職名", type: "select", options: OFFICER_TITLE_OPTIONS },
+          { key: "d.duty", label: "担当業務", type: "text" },
+          { key: "name", label: "氏名", type: "text" },
+          { key: "d.relation", label: "代表者との関係", type: "select", options: RELATION_OPTIONS },
+          { key: "address", label: "住所", type: "text" },
+          { key: "d.fulltime", label: "常勤・非常勤", type: "select", options: ["1 常勤", "2 非常勤"] },
+          F.amount("役員給与計"),
+          { key: "d.employee_part", label: "使用人職務分", type: "amount", group: "内訳" },
+          { key: "d.fixed", label: "定期同額給与", type: "amount", group: "内訳" },
+          { key: "d.advance", label: "事前確定届出給与", type: "amount", group: "内訳" },
+          { key: "d.performance", label: "業績連動給与", type: "amount", group: "内訳" },
+          { key: "d.other", label: "その他", type: "amount", group: "内訳" },
+          { key: "d.retirement", label: "退職給与", type: "amount" },
+        ],
+        rule: ALL_100,
+        thresholdBy: "row",
+        reconciled: true,
+      },
+    ],
+  },
   {
     key: "2",
     targetLabel: "受取手形",
@@ -464,9 +656,13 @@ export function buildSheetSection(
   items: BreakdownItem[],
   accountName: (id: string | null) => string
 ): SheetSection {
-  // 入力途中の空の行（名称も金額も無いもの）は用紙に出さない
+  // 入力途中の空の行（名称も金額も、ほかの欄の入力も無いもの）は用紙に出さない。
+  // 期中に売却して期末残高が0の土地（⑦）のように、金額0でも内容のある行は出す
   const isBlank = (i: BreakdownItem) =>
-    i.amount === 0 && !i.name.trim() && !i.registrationNumber.trim();
+    i.amount === 0 &&
+    !i.name.trim() &&
+    !i.registrationNumber.trim() &&
+    !Object.values(i.details).some((v) => v !== null && v !== "" && v !== false && v !== 0);
   const mine = items
     .filter((i) => i.section === spec.key && !isBlank(i))
     .sort((a, b) => a.sortOrder - b.sortOrder);

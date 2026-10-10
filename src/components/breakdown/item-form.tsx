@@ -40,6 +40,7 @@ import { formatYen, toWareki } from "@/lib/wareki";
 import {
   saveBreakdownItems,
   draftReceivablesFromInvoices,
+  draftDepositsFromBankAccounts,
   type BreakdownFormData,
   type ItemFormData,
   type PartnerOption,
@@ -196,16 +197,38 @@ export function ItemForm({
     }
   };
 
+  const draftFromBanks = async () => {
+    setDrafting(true);
+    try {
+      const drafts = await draftDepositsFromBankAccounts(clientId, periodKey);
+      const key = (i: { details: Record<string, unknown> }) => `${i.details.bank ?? ""}|${i.details.branch ?? ""}|${i.details.account_no ?? ""}`;
+      const known = new Set(items.map(key));
+      const fresh = drafts.filter((d) => !known.has(key(d)));
+      if (fresh.length === 0) {
+        setMessage({
+          tone: "info",
+          text: drafts.length === 0 ? "登録されている銀行口座がありません。" : "銀行口座は、すべて入力済みです（入力済みの行は変えていません）。",
+        });
+        return;
+      }
+      update((prev) => [...prev, ...fresh.map((d, n) => ({ ...d, sortOrder: prev.length + n }))]);
+      setMessage({
+        tone: "info",
+        text: `銀行口座から${fresh.length}件を追加しました。期末現在高が0の行は、1つの科目を複数の口座で使っているため口座ごとの残高が分かりません。残高証明などで入力してから保存してください。`,
+      });
+    } catch (e) {
+      setMessage({ tone: "warning", text: e instanceof Error ? e.message : "下書きの作成に失敗しました" });
+    } finally {
+      setDrafting(false);
+    }
+  };
+
   const checks = reconcileItems(spec, items, data.balances);
   const sheets = spec.sections.map((s) => buildSheetSection(s, items, accountName));
-  // 金額を入れたのに名称が無い行（未払配当金・未払役員賞与の表には名称欄が無い）
+  // 金額を入れたのに名称が無い行（名称の欄がある表だけ。未払配当金・棚卸資産などには名称欄が無い）
+  const namedSections = new Set(spec.sections.filter((s) => s.fields.some((f) => f.key === "name")).map((s) => s.key));
   const unnamed = items.filter(
-    (i) =>
-      i.amount !== 0 &&
-      i.section !== "dividend" &&
-      i.section !== "officer_bonus" &&
-      !i.name.trim() &&
-      !i.registrationNumber.trim()
+    (i) => i.amount !== 0 && namedSections.has(i.section) && !i.name.trim() && !i.registrationNumber.trim()
   ).length;
 
   return (
@@ -233,6 +256,12 @@ export function ItemForm({
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-[17px] font-bold">明細の入力</h2>
           <div className="flex flex-wrap items-center gap-2">
+            {spec.key === "1" && (
+              <Button variant="outline" onClick={draftFromBanks} disabled={drafting}>
+                {drafting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+                銀行口座から取り込む
+              </Button>
+            )}
             {spec.key === "3" && (
               <Button variant="outline" onClick={draftFromInvoices} disabled={drafting}>
                 {drafting ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}

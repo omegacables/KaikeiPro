@@ -16,6 +16,12 @@ import {
   personnel,
   rents,
   miscGainsLosses,
+  bankDeposits,
+  inventories,
+  landAndBuildings,
+  landSales,
+  salesByOffice,
+  eraAll,
   toCsvText,
   type EtaxItem,
 } from "./etax-breakdown-csv";
@@ -91,3 +97,53 @@ describe("様式ごとの項目数（記載要領どおり）", () => {
     expect(personnel({ officer: 100, salary: 200, wage: 300 }).rows[0]).toEqual(["14-3", "0", "100", "", "200", "", "300", "", "600", ""]);
   });
 });
+
+describe("残りの様式（①⑤⑦⑩-2⑫⑬⑭）", () => {
+  const counts = (rows: string[][]) => rows.map((r) => r.length);
+  it("項目数は記載要領どおり", () => {
+    expect(counts(bankDeposits([item({ d: { bank: "みらい信用金庫", branch: "本店", kind: "普通預金", account_no: "1234567" } })]).rows)).toEqual([8]);
+    expect(counts(inventories([item({ account: "商品", d: { item: "紳士用革靴", quantity: 120, unit_price: 8500 } })]).rows)).toEqual([8]);
+    expect(counts(landAndBuildings([item()]).rows)).toEqual([21]);
+    expect(counts(landSales([item()]).rows)).toEqual([18]);
+    expect(counts(salesByOffice([item()]).rows)).toEqual([12]);
+    expect(counts(deposits([], [item({ d: { paid_month: "2026-03-01", income_kind: "1 給与所得" } })]).rows)).toEqual([7]);
+    expect(counts(personnel(null, [item({ d: { title: "01 代表取締役" } }), item()]).rows)).toEqual([15, 15]);
+  });
+
+  it("①預貯金・⑤棚卸資産の行", () => {
+    expect(bankDeposits([item({ amount: 5_000_000, note: "", d: { bank: "みらい信用金庫", branch: "本店", kind: "普通預金", account_no: "123-4567" } })]).rows[0]).toEqual([
+      "1", "0", "みらい信用金庫", "本店", "普通預金", "123-4567", "5000000", "",
+    ]);
+    expect(inventories([item({ account: "商品", amount: 1_020_000, d: { item: "紳士用革靴", quantity: 120, unit_price: 8500 } })]).rows[0]).toEqual([
+      "5", "0", "商品", "紳士用革靴", "120", "8500", "1020000", "",
+    ]);
+  });
+
+  it("⑩-2 は支払年月と所得の種類コード", () => {
+    expect(deposits([], [item({ amount: 45_000, d: { paid_month: "2026-03-01", income_kind: "3 報酬・料金等" } })]).rows[0]).toEqual([
+      "10-2", "0", "5", "8", "3", "3", "45000",
+    ]);
+  });
+
+  it("⑭ は代表者を先頭の 14-1 に、ほかを 14-2 に。役職名・関係・常勤はコード", () => {
+    const rows = personnel(null, [
+      item({ name: "鈴木 一郎", d: { title: "04 取締役", relation: "90 その他", fulltime: "1 常勤" } }),
+      item({ name: "山田 太郎", amount: 6_000_000, d: { title: "01 代表取締役", relation: "01 本人", fulltime: "1 常勤", fixed: 6_000_000 } }),
+    ]).rows;
+    expect(rows.map((r) => [r[0], r[2], r[4], r[5], r[7]])).toEqual([
+      ["14-1", "01", "山田　太郎", "01", "1"],
+      ["14-2", "04", "鈴木　一郎", "90", "1"],
+    ]);
+    expect(rows[0][8]).toBe("6000000");
+    expect(rows[0][10]).toBe("6000000");
+  });
+
+  it("取得年月は明治〜令和の元号コード", () => {
+    expect(eraAll("1985-04-01")).toEqual(["3", "60", "4"]);
+    expect(eraAll("1989-01-08")).toEqual(["4", "1", "1"]);
+    expect(eraAll("2019-05-01")).toEqual(["5", "1", "5"]);
+    const r = landSales([item({ d: { acquired_year: 1989 } })]).rows[0];
+    expect(r.slice(-2)).toEqual(["4", "1"]);
+  });
+});
+
