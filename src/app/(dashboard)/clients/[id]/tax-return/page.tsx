@@ -22,6 +22,7 @@ import {
   type ConsumptionTaxReturnView,
 } from "@/actions/consumption-tax-return";
 import { TaxCategoryCheck } from "./tax-category-check";
+import { ClassificationCard } from "./classification-card";
 
 const fieldCls = "w-full px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm";
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "読み込みに失敗しました");
@@ -133,6 +134,13 @@ export default function TaxReturnPage() {
 
           <TaxCategoryCheck clientId={id} period={view.period} canWrite={canWrite} onFixed={() => setReloadKey((k) => k + 1)} />
 
+          {view.settings.method === "standard" && view.settings.deductionMethod === "individual" && (
+            <ClassificationCard clientId={id} period={view.period} kind="purchase" canWrite={canWrite} onChanged={() => setReloadKey((k) => k + 1)} />
+          )}
+          {view.settings.method === "simplified" && (
+            <ClassificationCard clientId={id} period={view.period} kind="sales" canWrite={canWrite} onChanged={() => setReloadKey((k) => k + 1)} />
+          )}
+
           <SettlementCard
             clientId={id}
             kind="consumption"
@@ -199,6 +207,7 @@ function SettingsCard({
   const [f, setF] = useState({
     method: s.method,
     purchaseTaxCalc: s.purchaseTaxCalc,
+    deductionMethod: s.deductionMethod,
     businessType: s.businessType,
     interimNational: String(s.interimNational || ""),
     interimLocal: String(s.interimLocal || ""),
@@ -210,11 +219,12 @@ function SettingsCard({
     setF({
       method: s.method,
       purchaseTaxCalc: s.purchaseTaxCalc,
+      deductionMethod: s.deductionMethod,
       businessType: s.businessType,
       interimNational: String(s.interimNational || ""),
       interimLocal: String(s.interimLocal || ""),
     });
-  }, [s.method, s.purchaseTaxCalc, s.businessType, s.interimNational, s.interimLocal, view.period.key]);
+  }, [s.method, s.purchaseTaxCalc, s.deductionMethod, s.businessType, s.interimNational, s.interimLocal, view.period.key]);
 
   const save = async () => {
     setSaving(true);
@@ -223,6 +233,7 @@ function SettingsCard({
       await saveConsumptionTaxReturnSettings(clientId, view.period, {
         method: f.method,
         purchaseTaxCalc: f.purchaseTaxCalc,
+        deductionMethod: f.deductionMethod,
         businessType: f.businessType,
         interimNational: Number(f.interimNational) || 0,
         interimLocal: Number(f.interimLocal) || 0,
@@ -261,6 +272,20 @@ function SettingsCard({
             >
               <option value="stacked">積上げ計算（請求書などの税額を足す）</option>
               <option value="proportional">割戻し計算（税込の合計から計算）</option>
+            </select>
+          </label>
+        )}
+        {f.method === "standard" && (
+          <label>
+            {label("控除の方法（課税売上割合95%未満など）")}
+            <select
+              value={f.deductionMethod}
+              disabled={disabled}
+              onChange={(e) => setF({ ...f, deductionMethod: e.target.value as "proportional" | "individual" })}
+              className={fieldCls}
+            >
+              <option value="proportional">一括比例配分方式</option>
+              <option value="individual">個別対応方式（仕入れの用途区分を使う）</option>
             </select>
           </label>
         )}

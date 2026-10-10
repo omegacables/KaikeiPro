@@ -90,6 +90,8 @@ export async function loadTaxBookLines(
     credit_amount: number;
     tax_category: string | null;
     tax_rate: number | null;
+    purchase_use: "taxable" | "non_taxable" | "common" | null;
+    business_type: number | null;
     accounts: { account_categories: { type: string } | null } | null;
     journal_entries: { client_id: string; entry_date: string; needs_review: boolean | null };
   };
@@ -103,6 +105,8 @@ export async function loadTaxBookLines(
       credit_amount,
       tax_category,
       tax_rate,
+      purchase_use,
+      business_type,
       accounts!inner ( account_categories!inner ( type ) ),
       journal_entries!inner ( client_id, entry_date, needs_review )
     `)
@@ -123,6 +127,8 @@ export async function loadTaxBookLines(
       credit: Number(l.credit_amount) || 0,
       // 要確認の仕訳は決算書と同じく集計に入れない
       needsReview: Boolean(l.journal_entries.needs_review),
+      purchaseUse: l.purchase_use,
+      businessType: l.business_type,
     })),
     exclusive
   );

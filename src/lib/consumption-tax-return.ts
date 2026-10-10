@@ -61,6 +61,21 @@ export type ReturnInput = {
   badDebt: Pair;
   /** 税区分が付いていない収益・費用の行の数 */
   uncategorized: number;
+  /** 個別対応方式: 用途区分ごとの課税仕入れ（区分の無い行は「共通」） */
+  purchaseByUse?: Record<PurchaseUse, UseGroup>;
+  /** 用途区分が付いていない課税仕入れの行の数 */
+  unclassifiedPurchases?: number;
+  /** 簡易課税: 事業区分ごとの課税売上（税込）。0 は区分の無い行 */
+  salesByType?: Record<number, Pair>;
+};
+
+export type PurchaseUse = "taxable" | "non_taxable" | "common";
+type UseGroup = { gross: Pair; tax: Pair; transition: { col: Col; rate: number; gross: number; tax: number }[] };
+const useGroup = (): UseGroup => ({ gross: pair(), tax: pair(), transition: [] });
+export const PURCHASE_USE_LABELS: Record<PurchaseUse, string> = {
+  taxable: "課税売上げにのみ要するもの",
+  non_taxable: "非課税売上げにのみ要するもの",
+  common: "共通して要するもの",
 };
 
 /** 仕訳の行から、申告書の計算に使う集計を作る（要確認の仕訳は除く） */
@@ -74,6 +89,9 @@ export function aggregateReturnInput(lines: TaxBookLine[]): ReturnInput {
     transition: [],
     badDebt: pair(),
     uncategorized: 0,
+    purchaseByUse: { taxable: useGroup(), non_taxable: useGroup(), common: useGroup() },
+    unclassifiedPurchases: 0,
+    salesByType: {},
   };
   for (const l of lines) {
     if (l.needsReview) continue;
@@ -91,12 +109,28 @@ export function aggregateReturnInput(lines: TaxBookLine[]): ReturnInput {
       continue;
     }
     if (info.side === "sales") {
-      if (col) r.sales[col] += a.gross;
+      if (col) {
+        r.sales[col] += a.gross;
+        const t = l.businessType ?? 0;
+        const p = (r.salesByType![t] ??= pair());
+        p[col] += a.gross;
+      }
       else if (code === "sales_tax_free") r.taxFree += a.net;
       else if (code === "sales_exempt") r.exempt += a.net;
       continue;
     }
     if (!col) continue; // 非課税・不課税の仕入れは控除の対象外
+    if (!l.purchaseUse) r.unclassifiedPurchases!++;
+    const g = r.purchaseByUse![l.purchaseUse ?? "common"];
+    if (info.transitionRate) {
+      let gt = g.transition.find((x) => x.col === col && x.rate === info.transitionRate);
+      if (!gt) g.transition.push((gt = { col, rate: info.transitionRate, gross: 0, tax: 0 }));
+      gt.gross += a.gross;
+      gt.tax += a.tax;
+    } else {
+      g.gross[col] += a.gross;
+      g.tax[col] += a.tax;
+    }
     if (info.transitionRate) {
       let t = r.transition.find((x) => x.col === col && x.rate === info.transitionRate);
       if (!t) {
@@ -122,6 +156,8 @@ export type ReturnSettings = {
   interimLocal: number;
   /** 課税期間の月数（課税売上高5億円の判定を年換算するため） */
   periodMonths: number;
+  /** 課税売上割合が95%未満などのときの控除の方法（既定は一括比例配分方式） */
+  deductionMethod?: "proportional" | "individual";
 };
 
 /** 表の1行。a/b は列 A・B、c は合計（列の無い欄は c だけ） */
@@ -143,8 +179,8 @@ export type ConsumptionTaxReturn = {
   tables: FormTable[];
   /** 課税売上割合（④/⑦）。本則課税のみ */
   taxableSalesRatio: number | null;
-  /** 控除の方法（本則課税）: 全額控除 / 一括比例配分方式 */
-  deductionMethod: "full" | "proportional" | null;
+  /** 控除の方法（本則課税）: 全額控除 / 一括比例配分方式 / 個別対応方式 */
+  deductionMethod: "full" | "proportional" | "individual" | null;
   /** 年間の消費税額（国＋地方、中間納付を差し引く前。負は還付） */
   annualTax: number;
   /** 国の消費税・地方消費税・合計。正なら納付、負なら還付 */
@@ -243,16 +279,43 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
         )
     ); // ⑫
     const total = mapPair((c) => purchaseTax[c] + transTax[c]); // ⑰
+    /** 課税仕入れ等の税額（⑩＋⑫の計算を、用途区分ごとの仕入れに当てたもの） */
+    const taxOfGroup = (g: UseGroup) =>
+      mapPair(
+        (c) =>
+          (s.purchaseTaxCalc === "stacked" ? mulDiv(g.tax[c], 78, 100) : nationalInGross(g.gross[c], c)) +
+          g.transition
+            .filter((t) => t.col === c)
+            .reduce(
+              (x, t) =>
+                x +
+                (s.purchaseTaxCalc === "stacked"
+                  ? Math.floor(mulDiv(t.tax, 78, 100) * t.rate)
+                  : Math.floor(nationalInGross(t.gross, c) * t.rate)),
+              0
+            )
+      );
     const annualSales = s.periodMonths > 0 && s.periodMonths < 12 ? Math.floor((r4 * 12) / s.periodMonths) : r4;
     const full = annualSales <= 500_000_000 && (r7 === 0 || r4 * 100 >= r7 * 95);
-    deductionMethod = full ? "full" : "proportional";
+    const individual = !full && s.deductionMethod === "individual" && Boolean(input.purchaseByUse);
+    deductionMethod = full ? "full" : individual ? "individual" : "proportional";
     const proportional = mapPair((c) => (r7 > 0 ? Math.floor((total[c] * r4) / r7) : 0)); // ㉒
-    deduction = full ? total : proportional; // ㉖
+    // 個別対応方式: ⑲ 課税売上げにのみ要するもの ＋ ⑳ 共通して要するもの × 課税売上割合
+    const use19 = input.purchaseByUse ? taxOfGroup(input.purchaseByUse.taxable) : pair();
+    const use20 = input.purchaseByUse ? taxOfGroup(input.purchaseByUse.common) : pair();
+    const individualDeduction = mapPair((c) => use19[c] + (r7 > 0 ? Math.floor((use20[c] * r4) / r7) : 0)); // ㉑
+    deduction = full ? total : individual ? individualDeduction : proportional; // ㉖
     if (!full) {
-      warnings.push(
+      const why =
         annualSales > 500_000_000
-          ? "課税売上高が5億円（年換算）を超えるため、仕入税額の全額は控除できません。一括比例配分方式で計算しています（個別対応方式は未対応）。"
-          : "課税売上割合が95%未満のため、仕入税額の全額は控除できません。一括比例配分方式で計算しています（個別対応方式は未対応。2年間は継続適用が必要です）。"
+          ? "課税売上高が5億円（年換算）を超えるため、仕入税額の全額は控除できません。"
+          : "課税売上割合が95%未満のため、仕入税額の全額は控除できません。";
+      warnings.push(
+        individual
+          ? `${why}個別対応方式で計算しています。${
+              input.unclassifiedPurchases ? `用途区分が付いていない課税仕入れ ${input.unclassifiedPurchases} 行は「共通して要するもの」として扱っています。` : ""
+            }`
+          : `${why}一括比例配分方式で計算しています（一度選ぶと2年間は続けて使う必要があります）。個別対応方式にするときは、設定で選び、仕入れの用途区分を付けてください。`
       );
     }
     if (r7 === 0) warnings.push("この期は売上がありません。課税売上割合は計算できないため、全額控除として計算しています。");
@@ -286,7 +349,14 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
         row("⑯", "納税義務の免除を受けない（受ける）こととなった場合における消費税額の調整（加算又は減算）額", pair()),
         row("⑰", "課税仕入れ等の税額の合計額（⑩＋⑫＋⑭＋⑮±⑯）", total),
         row("⑱", "課税売上高が5億円以下、かつ、課税売上割合が95%以上の場合（⑰の金額）", full ? total : pair()),
-        row("㉒", "一括比例配分方式により控除する課税仕入れ等の税額（⑰×④／⑦）", full ? pair() : proportional),
+        ...(individual
+          ? [
+              row("⑲", "個別対応方式: ⑰のうち課税売上げにのみ要するもの", use19),
+              row("⑳", "個別対応方式: ⑰のうち課税売上げと非課税売上げに共通して要するもの", use20),
+              row("㉑", "個別対応方式により控除する課税仕入れ等の税額（⑲＋⑳×④／⑦）", individualDeduction),
+            ]
+          : []),
+        row("㉒", "一括比例配分方式により控除する課税仕入れ等の税額（⑰×④／⑦）", full || individual ? pair() : proportional),
         row("㉖", "差引 控除対象仕入税額", deduction, "付表1-3④へ"),
         row("㉗", "差引 控除過大調整税額", pair()),
         row("㉘", "貸倒回収に係る消費税額", pair()),
@@ -297,11 +367,20 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
       single("⑯", "課税売上割合: 資産の譲渡等の対価の額", r7),
     ];
   } else if (s.method === "simplified") {
-    const bt = BUSINESS_TYPES.find((b) => b.type === s.businessType);
-    if (!bt) warnings.push("簡易課税の事業区分が選ばれていません。");
-    const deemed = bt?.rate ?? 0;
+    // 事業区分ごとの課税売上（区分の無い行は設定の事業区分）
+    const byType = new Map<number, Pair>();
+    for (const [k, p] of Object.entries(input.salesByType ?? {})) {
+      const t = Number(k) || s.businessType || 0;
+      const cur = byType.get(t) ?? pair();
+      byType.set(t, { A: cur.A + p.A, B: cur.B + p.B });
+    }
+    if (byType.size === 0 && s.businessType) byType.set(s.businessType, { ...input.sales });
+    if (byType.has(0)) warnings.push("事業区分が付いていない売上があり、設定の事業区分も選ばれていません。事業区分を選んでください。");
     const base4 = mapPair((c) => st.tax[c] + overAdjust[c]); // 付表5-3 ④ ＝ ①＋②－③
-    deduction = mapPair((c) => Math.floor((base4[c] * deemed) / 100)); // ⑤
+    const sd = simplifiedDeduction(byType, base4);
+    deduction = sd.deduction;
+    const types = [...byType.keys()].filter((t) => t > 0).sort();
+    const typeLabel = (t: number) => BUSINESS_TYPES.find((b) => b.type === t)?.label ?? "区分なし";
     tables.push({
       key: "fuhyo5-3",
       title: "付表5-3 控除対象仕入税額等の計算表（簡易課税）",
@@ -311,11 +390,19 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
         row("②", "貸倒回収に係る消費税額", overAdjust),
         row("③", "売上対価の返還等に係る消費税額", pair()),
         row("④", "控除対象仕入税額の計算の基礎となる消費税額（①＋②－③）", base4),
-        row("⑤", `④ × みなし仕入率（${bt ? `${bt.label} ${deemed}%` : "未選択"}）`, deduction, "付表4-3④へ"),
+        ...(types.length > 1
+          ? [
+              single("⑥", "事業区分別の課税売上高（税抜き）の合計額", sd.totalSales),
+              ...types.map((t) => single("⑦〜⑫", `${typeLabel(t)}の課税売上高（税抜き）`, sd.salesOf(t), `売上割合 ${sd.sharePct(t)}%`)),
+              row("⑬", "事業区分別の課税売上高に係る消費税額の合計額", sd.totalTax),
+              ...types.map((t) => row("⑭〜⑲", `${typeLabel(t)}の消費税額`, sd.taxOf(t))),
+            ]
+          : []),
+        row(types.length > 1 ? "㊲" : "⑤", `控除対象仕入税額（${sd.label}）`, deduction, "付表4-3④へ"),
       ],
     });
     firstRefRows = [single("⑮", "この課税期間の課税売上高", sumPair(st.net) + input.taxFree)];
-    warnings.push("事業区分が2つ以上ある場合（みなし仕入率の加重平均・75%特例）は未対応です。1つの事業区分として計算しています。");
+    if (types.length > 1) warnings.push(`事業区分が${types.length}つあります。いちばん有利な計算（${sd.label}）で控除対象仕入税額を出しています。`);
   } else {
     // ---- 2割特例（付表6）----
     const base6 = mapPair((c) => st.tax[c] + overAdjust[c]); // ⑥ ＝ ③＋④－⑤
@@ -430,6 +517,67 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
     total,
     warnings,
   };
+}
+
+/**
+ * 簡易課税の控除対象仕入税額（付表5-3）。事業区分が2つ以上なら、次のうち最も有利なものを選ぶ
+ * （税率ごとに違う計算方法は選べないので、A・B列に同じ方法を使う）。
+ *   原則: ④ ×（区分ごとの消費税額 × みなし仕入率 の合計）÷ 消費税額の合計
+ *   特例（1種類で75%以上）: ④ × その区分のみなし仕入率
+ *   特例（2種類で75%以上）: ④ ×〔率の高い区分の消費税額 × その率 ＋（合計 − その消費税額）× 低い方の率〕÷ 合計
+ */
+export function simplifiedDeduction(byType: Map<number, Pair>, base4: Pair) {
+  const types = [...byType.keys()].filter((t) => t > 0);
+  const rateOf = (t: number) => BUSINESS_TYPES.find((b) => b.type === t)?.rate ?? 0;
+  const salesOf = (t: number) => {
+    const g = byType.get(t) ?? pair();
+    return toNet(g.A, "A") + toNet(g.B, "B");
+  };
+  const taxOf = (t: number) => mapPair((c) => nationalInGross((byType.get(t) ?? pair())[c], c));
+  const totalSales = types.reduce((s, t) => s + salesOf(t), 0);
+  const totalTax = mapPair((c) => types.reduce((s, t) => s + taxOf(t)[c], 0));
+  const sharePct = (t: number) => (totalSales > 0 ? Math.floor((salesOf(t) * 1000) / totalSales) / 10 : 0);
+
+  type Cand = { label: string; deduction: Pair };
+  const cands: Cand[] = [];
+  if (types.length <= 1) {
+    const t = types[0];
+    const rate = t ? rateOf(t) : 0;
+    cands.push({
+      label: t ? `${BUSINESS_TYPES.find((b) => b.type === t)!.label} みなし仕入率${rate}%` : "事業区分が未選択",
+      deduction: mapPair((c) => Math.floor((base4[c] * rate) / 100)),
+    });
+  } else {
+    // 原則計算
+    cands.push({
+      label: "原則計算（加重平均）",
+      deduction: mapPair((c) =>
+        totalTax[c] > 0 ? Math.floor((base4[c] * types.reduce((s, t) => s + taxOf(t)[c] * rateOf(t), 0)) / (totalTax[c] * 100)) : 0
+      ),
+    });
+    // 1種類で75%以上
+    for (const t of types) {
+      if (totalSales > 0 && salesOf(t) * 100 >= totalSales * 75)
+        cands.push({ label: `特例計算（第${t}種で75%以上）`, deduction: mapPair((c) => Math.floor((base4[c] * rateOf(t)) / 100)) });
+    }
+    // 2種類で75%以上
+    for (const hi of types) {
+      for (const lo of types) {
+        if (rateOf(hi) <= rateOf(lo)) continue;
+        if (!(totalSales > 0 && (salesOf(hi) + salesOf(lo)) * 100 >= totalSales * 75)) continue;
+        cands.push({
+          label: `特例計算（第${hi}種・第${lo}種で75%以上）`,
+          deduction: mapPair((c) =>
+            totalTax[c] > 0
+              ? Math.floor((base4[c] * (taxOf(hi)[c] * rateOf(hi) + (totalTax[c] - taxOf(hi)[c]) * rateOf(lo))) / (totalTax[c] * 100))
+              : 0
+          ),
+        });
+      }
+    }
+  }
+  const best = cands.reduce((a, b) => (sumPair(b.deduction) > sumPair(a.deduction) ? b : a));
+  return { ...best, totalSales, totalTax, salesOf, taxOf, sharePct, candidates: cands };
 }
 
 /** 2割特例を使える課税期間か（令和5年10月1日〜令和8年9月30日の日を含む課税期間） */

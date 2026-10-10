@@ -30,6 +30,7 @@ type Db = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 export type ReturnSettingsView = {
   method: CalcMethod;
   purchaseTaxCalc: PurchaseTaxCalc;
+  deductionMethod: "proportional" | "individual";
   businessType: number | null;
   interimNational: number;
   interimLocal: number;
@@ -88,7 +89,7 @@ export async function getConsumptionTaxReturn(clientId: string, periodKey?: stri
   const [{ data: saved }, input, baseInput, { count: baseEntries }] = await Promise.all([
     db
       .from("consumption_tax_returns")
-      .select("calc_method, purchase_tax_calc, simplified_business_type, interim_national, interim_local, note")
+      .select("calc_method, purchase_tax_calc, deduction_method, simplified_business_type, interim_national, interim_local, note")
       .eq("client_id", clientId)
       .eq("period_start", p.startDate)
       .maybeSingle(),
@@ -105,6 +106,7 @@ export async function getConsumptionTaxReturn(clientId: string, periodKey?: stri
   const settings: ReturnSettingsView = {
     method: (saved?.calc_method as CalcMethod | null) ?? ((client.tax_method as CalcMethod | null) === "simplified" ? "simplified" : "standard"),
     purchaseTaxCalc: (saved?.purchase_tax_calc as PurchaseTaxCalc | undefined) ?? "stacked",
+    deductionMethod: (saved?.deduction_method as "proportional" | "individual" | undefined) ?? "proportional",
     businessType: (saved?.simplified_business_type as number | null) ?? (client.simplified_business_type as number | null) ?? null,
     interimNational: Number(saved?.interim_national ?? 0),
     interimLocal: Number(saved?.interim_local ?? 0),
@@ -145,6 +147,7 @@ export async function getConsumptionTaxReturn(clientId: string, periodKey?: stri
 export type ReturnSettingsInput = {
   method: CalcMethod;
   purchaseTaxCalc: PurchaseTaxCalc;
+  deductionMethod?: "proportional" | "individual";
   businessType: number | null;
   interimNational: number;
   interimLocal: number;
@@ -171,6 +174,7 @@ export async function saveConsumptionTaxReturnSettings(
       period_end: period.endDate,
       calc_method: input.method,
       purchase_tax_calc: input.purchaseTaxCalc,
+      deduction_method: input.deductionMethod === "individual" ? "individual" : "proportional",
       simplified_business_type: input.businessType,
       interim_national: Math.round(input.interimNational),
       interim_local: Math.round(input.interimLocal),

@@ -41,6 +41,10 @@ export type TaxBookLine = {
    * 税抜金額×税率で計算し直した額より正確（端数の扱いが発行者ごとに違うため）
    */
   recordedTax?: number;
+  /** 仕入の用途区分（個別対応方式）: 課税売上対応 / 非課税売上対応 / 共通 */
+  purchaseUse?: "taxable" | "non_taxable" | "common" | null;
+  /** 売上の事業区分（簡易課税、1〜6） */
+  businessType?: number | null;
 };
 
 export type TaxAmounts = { net: number; tax: number; gross: number };

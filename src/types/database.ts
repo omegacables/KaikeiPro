@@ -1701,6 +1701,7 @@ export interface Database {
           period_end: string;
           calc_method: "standard" | "simplified" | "special_20" | null;
           purchase_tax_calc: "stacked" | "proportional";
+          deduction_method: "proportional" | "individual";
           simplified_business_type: number | null;
           interim_national: number;
           interim_local: number;
@@ -1715,6 +1716,7 @@ export interface Database {
           period_end: string;
           calc_method?: "standard" | "simplified" | "special_20" | null;
           purchase_tax_calc?: "stacked" | "proportional";
+          deduction_method?: "proportional" | "individual";
           simplified_business_type?: number | null;
           interim_national?: number;
           interim_local?: number;
@@ -1725,6 +1727,7 @@ export interface Database {
           period_end?: string;
           calc_method?: "standard" | "simplified" | "special_20" | null;
           purchase_tax_calc?: "stacked" | "proportional";
+          deduction_method?: "proportional" | "individual";
           simplified_business_type?: number | null;
           interim_national?: number;
           interim_local?: number;

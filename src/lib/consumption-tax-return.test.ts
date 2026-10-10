@@ -205,3 +205,64 @@ describe("仕訳の行の集計", () => {
     expect(r.badDebt).toEqual({ A: 0, B: 22_000 });
   });
 });
+
+describe("個別対応方式", () => {
+  const g = (gross: number) => ({ gross: { A: 0, B: gross }, tax: { A: 0, B: Math.floor((gross * 10) / 110) }, transition: [] });
+  it("課税売上げにのみ要するものは全額、共通は課税売上割合、非課税売上げにのみ要するものは控除しない", () => {
+    const r = computeConsumptionTaxReturn(
+      input({
+        sales: { A: 0, B: 9_900_000 },
+        exempt: 1_000_000,
+        purchaseGross: { A: 0, B: 3_300_000 },
+        purchaseTax: { A: 0, B: 300_000 },
+        purchaseByUse: { taxable: g(1_100_000), common: g(1_100_000), non_taxable: g(1_100_000) },
+        unclassifiedPurchases: 0,
+      }),
+      settings({ deductionMethod: "individual" })
+    );
+    expect(r.deductionMethod).toBe("individual");
+    // 78,000 + 78,000 × 90% = 148,200
+    expect(cell(r, "fuhyo2-3", "⑲")).toMatchObject({ b: 78_000 });
+    expect(cell(r, "fuhyo2-3", "⑳")).toMatchObject({ b: 78_000 });
+    expect(cell(r, "fuhyo2-3", "㉖")).toMatchObject({ b: 148_200 });
+  });
+
+  it("95%以上なら個別対応方式を選んでいても全額控除", () => {
+    const r = computeConsumptionTaxReturn(
+      input({ sales: { A: 0, B: 11_000_000 }, purchaseGross: { A: 0, B: 1_100_000 }, purchaseByUse: { taxable: g(0), common: g(1_100_000), non_taxable: g(0) } }),
+      settings({ deductionMethod: "individual" })
+    );
+    expect(r.deductionMethod).toBe("full");
+  });
+});
+
+describe("簡易課税（事業区分が2つ以上）", () => {
+  it("1種類の事業で売上の75%以上なら、その区分のみなし仕入率を全体に使う（有利なら）", () => {
+    const r = computeConsumptionTaxReturn(
+      input({ sales: { A: 0, B: 11_000_000 }, salesByType: { 1: { A: 0, B: 8_800_000 }, 5: { A: 0, B: 2_200_000 } } }),
+      settings({ method: "simplified", businessType: 5 })
+    );
+    // 消費税額 780,000。原則計算は (624,000×90% + 156,000×50%) = 639,600、特例（第1種80%）は 780,000×90% = 702,000
+    expect(cell(r, "fuhyo5-3", "㊲")).toMatchObject({ b: 702_000 });
+    expect(cell(r, "fuhyo5-3", "㊲").label).toContain("第1種で75%以上");
+  });
+
+  it("75%に届かなければ原則計算（加重平均）", () => {
+    const r = computeConsumptionTaxReturn(
+      input({ sales: { A: 0, B: 11_000_000 }, salesByType: { 1: { A: 0, B: 5_500_000 }, 5: { A: 0, B: 3_300_000 }, 6: { A: 0, B: 2_200_000 } } }),
+      settings({ method: "simplified", businessType: 5 })
+    );
+    // 第1種 390,000×90 + 第5種 234,000×50 + 第6種 156,000×40 = 351,000+117,000+62,400 = 530,400
+    // 2種類で75%以上（第1種＋第5種＝80%）: 390,000×90% + (780,000−390,000)×50% = 351,000+195,000 = 546,000 → 有利
+    expect(cell(r, "fuhyo5-3", "㊲")).toMatchObject({ b: 546_000 });
+  });
+
+  it("区分の無い売上は設定の事業区分として扱う", () => {
+    const r = computeConsumptionTaxReturn(
+      input({ sales: { A: 0, B: 11_000_000 }, salesByType: { 0: { A: 0, B: 11_000_000 } } }),
+      settings({ method: "simplified", businessType: 2 })
+    );
+    expect(cell(r, "fuhyo5-3", "⑤")).toMatchObject({ b: 624_000 });
+  });
+});
+
