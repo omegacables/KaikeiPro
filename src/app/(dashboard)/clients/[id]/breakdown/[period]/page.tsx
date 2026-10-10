@@ -15,6 +15,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { getBreakdownOverview, type BreakdownOverviewItem, type BreakdownPeriod } from "@/actions/breakdown";
+import { EtaxCsvCard } from "./etax-csv-card";
 import { formatYen } from "@/lib/wareki";
 import { isAvailableForm } from "@/lib/breakdown";
 
@@ -186,6 +187,7 @@ export default function BreakdownOverviewPage({
           </table>
         </div>
       )}
+      {period && <EtaxCsvCard clientId={id} periodKey={period.startDate} />}
     </div>
   );
 }
