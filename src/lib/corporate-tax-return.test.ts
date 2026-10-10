@@ -141,11 +141,11 @@ describe("別表四・別表七(一)・別表十五", () => {
 describe("地方税（標準税率）", () => {
   it("法人住民税: 法人税割は法人税額 × 1.0%・6.0%、均等割は資本金・従業者数で決まる", () => {
     const r = computeCorporateTaxReturn(input({ netIncome: 10_000_000 }));
-    // 法人税額計 1,664,000 → 道府県 16,640 → 16,600、市町村 99,840 → 99,800
-    expect(val(r, "local-resident", "⑬・⑫", 0)).toBe(16_600);
-    expect(val(r, "local-resident", "⑬・⑫", 1)).toBe(99_800);
-    expect(val(r, "local-resident", "⑱・⑰", 0)).toBe(20_000);
-    expect(val(r, "local-resident", "⑱・⑰", 1)).toBe(50_000);
+    // 法人税額計 1,664,000 → 道府県 16,640 → 16,600 ＋ 均等割 20,000、市町村 99,840 → 99,800 ＋ 均等割 50,000
+    expect(val(r, "local-resident", "道府県", 1)).toBe(16_600);
+    expect(val(r, "local-resident", "市町村", 1)).toBe(99_800);
+    expect(r.taxes.prefectural).toBe(36_600);
+    expect(r.taxes.municipal).toBe(149_800);
   });
 
   it("均等割の年額表", () => {
@@ -163,14 +163,15 @@ describe("地方税（標準税率）", () => {
   it("法人事業税は 3.5%・5.3%・7.0%、特別法人事業税は所得割 × 37%", () => {
     const r = computeCorporateTaxReturn(input({ netIncome: 10_000_000 }));
     // 400万×3.5% 140,000 + 400万×5.3% 212,000 + 200万×7.0% 140,000 = 492,000
-    expect(val(r, "local-enterprise", "㊹", 2)).toBe(492_000);
+    expect(val(r, "local-enterprise", "㊹・⑤⑧", 3)).toBe(492_000);
     // 492,000 × 37% = 182,040 → 182,000
     expect(r.taxes.specialEnterprise).toBe(182_000);
+    expect(r.taxes.enterprise).toBe(674_000);
   });
 
   it("軽減税率不適用法人は全額7.0%", () => {
     const r = computeCorporateTaxReturn(input({ netIncome: 10_000_000, localRates: { ...STANDARD_LOCAL_RATES, reducedRateExcluded: true } }));
-    expect(val(r, "local-enterprise", "㊹", 2)).toBe(700_000);
+    expect(val(r, "local-enterprise", "㊹・⑤⑧", 3)).toBe(700_000);
   });
 });
 
@@ -214,3 +215,58 @@ describe("別表五(一) 利益積立金の検算", () => {
     expect(r.warnings.filter((w) => w.includes("検算"))).toEqual([]);
   });
 });
+
+describe("事務所が2つ以上の自治体にあるとき", () => {
+  const offices = [
+    { name: "本店", prefecture: "東京都", municipality: "港区", employees: 6, months: 12 },
+    { name: "支店", prefecture: "大阪府", municipality: "大阪市", employees: 4, months: 12 },
+  ];
+  it("法人税割と事業税は従業者数で按分し、均等割は事務所ごと", () => {
+    const r = computeCorporateTaxReturn(input({ netIncome: 10_000_000, offices }));
+    // 法人税額計 1,664,000 → 東京 998,400 → 998,000、大阪 665,600 → 665,000
+    expect(val(r, "local-resident", "道府県", 0)).toBe(998_000);
+    // 道府県 均等割 2万円 × 2、市町村 均等割 5万円 × 2
+    expect(r.taxes.prefectural).toBe(9_900 + 6_600 + 40_000);
+    expect(r.taxes.municipal).toBe(59_800 + 39_900 + 100_000);
+    // 事業税: 各区分を 6:4 に按分（400万→240万/160万、400万→240万/160万、200万→120万/80万）
+    // 東京 84,000+127,200+84,000=295,200、大阪 56,000+84,800+56,000=196,800
+    expect(r.taxes.enterprise - r.taxes.specialEnterprise).toBe(295_200 + 196_800);
+  });
+
+  it("3つ以上の都道府県に事務所があり資本金1,000万円以上なら軽減税率不適用", () => {
+    const r = computeCorporateTaxReturn(
+      input({
+        netIncome: 10_000_000,
+        capital: 10_000_000,
+        offices: [...offices, { name: "営業所", prefecture: "愛知県", municipality: "名古屋市", employees: 2, months: 12 }],
+      })
+    );
+    expect(r.warnings.some((w) => w.includes("軽減税率不適用"))).toBe(true);
+  });
+});
+
+describe("欠損金の繰戻し還付", () => {
+  it("還付所得事業年度の法人税額 × 繰り戻す欠損金額 ÷ その期の所得金額", () => {
+    const r = computeCorporateTaxReturn(
+      input({
+        netIncome: -2_000_000,
+        carryback: { priorIncome: 5_000_000, priorCorporateTax: 750_000, priorLocalCorporateTax: 77_200, amount: 2_000_000 },
+      })
+    );
+    // 750,000 × 2,000,000 / 5,000,000 = 300,000、地方法人税 77,200 × 0.4 = 30,880
+    expect(val(r, "beppyo1", "23")).toBe(300_000);
+    expect(r.taxes.corporate).toBe(-300_000);
+    expect(r.taxes.localCorporate).toBe(-30_880);
+    // 繰り戻した分は翌期へ繰り越さない
+    expect(r.nextLosses).toEqual([]);
+  });
+
+  it("繰り戻せるのは当期の欠損金額と前期の所得金額まで", () => {
+    const r = computeCorporateTaxReturn(
+      input({ netIncome: -1_000_000, carryback: { priorIncome: 5_000_000, priorCorporateTax: 750_000, priorLocalCorporateTax: 0, amount: 3_000_000 } })
+    );
+    expect(val(r, "beppyo1", "23")).toBe(150_000);
+    expect(r.warnings.some((w) => w.includes("超えない額"))).toBe(true);
+  });
+});
+

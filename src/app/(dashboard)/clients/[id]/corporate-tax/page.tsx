@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 import { SettlementCard } from "@/components/tax/settlement-card";
 import { useClientRole } from "@/lib/use-client-role";
 import { printPage } from "@/lib/export";
-import type { TaxTable, Adjustment } from "@/lib/corporate-tax-return";
+import type { TaxTable, Adjustment, Office } from "@/lib/corporate-tax-return";
 import {
   getCorporateTaxReturn,
   saveCorporateTaxReturnInputs,
@@ -424,6 +424,77 @@ function InputsCard({ view, clientId, canWrite, onSaved }: { view: CorporateRetu
               </>
             )}
           />
+
+          <ListEditor
+            title="事務所（2つ以上の都道府県・市区町村に事務所があるとき。住民税・事業税を従業者数で按分し、均等割は事務所ごとに計算します。1か所なら空のままで構いません）"
+            disabled={disabled}
+            rows={f.offices}
+            onChange={(offices) => setF({ ...f, offices })}
+            empty={{ name: "", prefecture: "", municipality: "", employees: 0, months: 12 } as Office}
+            render={(row, set) => (
+              <>
+                <input value={row.name} onChange={(e) => set({ ...row, name: e.target.value })} placeholder="名前（本店など）" className={cn(fieldCls, "w-28")} disabled={disabled} />
+                <input value={row.prefecture} onChange={(e) => set({ ...row, prefecture: e.target.value })} placeholder="都道府県" className={cn(fieldCls, "w-28")} disabled={disabled} />
+                <input value={row.municipality} onChange={(e) => set({ ...row, municipality: e.target.value })} placeholder="市区町村" className={cn(fieldCls, "w-28")} disabled={disabled} />
+                <label className="text-xs flex items-center gap-1">
+                  従業者
+                  <input type="number" min={0} value={row.employees} onChange={(e) => set({ ...row, employees: Number(e.target.value) })} className={cn(fieldCls, "w-20")} disabled={disabled} />人
+                </label>
+                <label className="text-xs flex items-center gap-1">
+                  <input type="number" min={1} max={12} value={row.months} onChange={(e) => set({ ...row, months: Number(e.target.value) })} className={cn(fieldCls, "w-16")} disabled={disabled} />か月
+                </label>
+                <label className="text-xs flex items-center gap-1">
+                  法人税割 道府県
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={row.prefecturalRate == null ? "" : pctStr(row.prefecturalRate)}
+                    placeholder="標準"
+                    onChange={(e) => set({ ...row, prefecturalRate: e.target.value === "" ? null : Number(e.target.value) / 100 })}
+                    className={cn(fieldCls, "w-16")}
+                    disabled={disabled}
+                  />
+                  % 市町村
+                  <input
+                    type="number"
+                    step="0.1"
+                    value={row.municipalRate == null ? "" : pctStr(row.municipalRate)}
+                    placeholder="標準"
+                    onChange={(e) => set({ ...row, municipalRate: e.target.value === "" ? null : Number(e.target.value) / 100 })}
+                    className={cn(fieldCls, "w-16")}
+                    disabled={disabled}
+                  />
+                  %
+                </label>
+              </>
+            )}
+          />
+
+          <div className="mt-3">
+            <p className="text-xs font-bold text-muted-foreground mb-1">
+              欠損金の繰戻し還付（中小法人。当期が赤字のとき、前1年以内に始まった事業年度に納めた法人税の還付を受けるとき）
+            </p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {(
+                [
+                  ["amount", "繰り戻す欠損金額"],
+                  ["priorIncome", "前期の所得金額"],
+                  ["priorCorporateTax", "前期の法人税額"],
+                  ["priorLocalCorporateTax", "前期の地方法人税額"],
+                ] as const
+              ).map(([k, t]) => (
+                <label key={k}>
+                  {label(t)}
+                  {money(f.carryback?.[k] ?? null, (n) =>
+                    setF({
+                      ...f,
+                      carryback: { amount: 0, priorIncome: 0, priorCorporateTax: 0, priorLocalCorporateTax: 0, ...(f.carryback ?? {}), [k]: n },
+                    })
+                  )}
+                </label>
+              ))}
+            </div>
+          </div>
 
           <div>
             <p className="text-xs font-bold text-muted-foreground mb-1">地方税の税率（標準税率と違う自治体のとき変えてください）</p>

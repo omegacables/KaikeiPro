@@ -20,6 +20,29 @@ export const SME_CAPITAL_LIMIT = 100_000_000;
 export type LossCarryforward = { periodEnd: string; amount: number };
 export type Adjustment = { kind: "add" | "deduct"; name: string; amount: number; treatment: "retained" | "outflow" };
 export type RetainedItem = { name: string; amount: number };
+/** 事務所（地方税の按分に使う）。税率は自治体の超過税率があるときだけ */
+export type Office = {
+  name: string;
+  prefecture: string;
+  municipality: string;
+  /** 期末の従業者数 */
+  employees: number;
+  /** 事務所があった月数（均等割） */
+  months: number;
+  prefecturalRate?: number | null;
+  municipalRate?: number | null;
+};
+/** 欠損金の繰戻し還付（中小法人）: 前1年以内に開始した事業年度（還付所得事業年度）の数字 */
+export type Carryback = {
+  /** 還付所得事業年度の所得金額 */
+  priorIncome: number;
+  /** 還付所得事業年度の法人税額（所得税額控除などの前） */
+  priorCorporateTax: number;
+  /** 還付所得事業年度の地方法人税額 */
+  priorLocalCorporateTax: number;
+  /** 繰り戻す欠損金額 */
+  amount: number;
+};
 
 export type LocalTaxRates = {
   /** 法人税割（道府県・市町村） */
@@ -68,6 +91,9 @@ export type CorporateInput = {
   /** 前期分の事業税・特別法人事業税で、当期に納税充当金から納付した額（別表四「13」で減算） */
   priorEnterpriseTaxPaid: number;
   localRates: LocalTaxRates;
+  /** 事務所が2つ以上の自治体にあるとき（無ければ1か所として計算） */
+  offices?: Office[];
+  carryback?: Carryback | null;
 };
 
 /** 表の1行。values は列ごとの値（列の無い欄は null） */
@@ -216,7 +242,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
   if (lossRows.some((r) => r.expired)) warnings.push("繰越期限（10年・2018年3月以前に開始した事業年度は9年）を過ぎた欠損金があります。控除していません。");
   const lossUsed = lossRows.reduce((s, r) => s + r.used, 0);
   const income = line43 - lossUsed; // 「52」
-  const nextLosses: LossCarryforward[] = [
+  let nextLosses: LossCarryforward[] = [
     ...lossRows.filter((r) => r.carry > 0).map((r) => ({ periodEnd: r.periodEnd, amount: r.carry })),
     ...(income < 0 ? [{ periodEnd: i.period.end, amount: -income }] : []),
   ];
@@ -252,41 +278,109 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
 
   // ===================== 地方税（第2段階） =====================
   const r = i.localRates;
+  // 事務所の一覧（入力が無ければ1か所）
+  const offices: Office[] =
+    i.offices && i.offices.length > 0
+      ? i.offices
+      : [{ name: "本店", prefecture: "", municipality: "", employees: i.employees ?? 0, months: m }];
+  const multi = offices.length > 1;
+  const totalEmployees = offices.reduce((t, o) => t + Math.max(0, o.employees), 0);
+  /** 従業者数で按分（従業者が0人なら事務所の数で均等に） */
+  const share = (amount: number, emp: number) =>
+    totalEmployees > 0 ? Math.floor((amount * emp) / totalEmployees) : Math.floor(amount / offices.length);
+  const prefectures = [...new Set(offices.map((o) => o.prefecture))];
+  const reducedRateExcluded = r.reducedRateExcluded || (prefectures.length >= 3 && (i.capital ?? 0) >= 10_000_000);
+  if (reducedRateExcluded && !r.reducedRateExcluded)
+    warnings.push("3つ以上の都道府県に事務所があり資本金1,000万円以上のため、事業税は軽減税率不適用法人（全額7.0%）として計算しています。");
+  if (multi && totalEmployees === 0) warnings.push("事務所ごとの従業者数が入っていないため、事務所の数で均等に按分しています。");
+
   // 法人税割: 課税標準＝法人税額計（所得税額控除の前）。防衛特別法人税は含めない
   const residentBase = floor1000(line9);
-  const prefecturalLevy = floor100(mulRate(residentBase, r.prefectural));
-  const municipalLevy = floor100(mulRate(residentBase, r.municipal));
   const capitalForPerCapita = i.capital ?? 0;
-  const pc = perCapitaTax(capitalForPerCapita, i.employees ?? 0);
-  const prefPerCapitaAnnual = r.prefecturalPerCapita ?? pc.prefectural;
-  const muniPerCapitaAnnual = r.municipalPerCapita ?? pc.municipal;
-  const prefPerCapita = floor100(Math.floor((prefPerCapitaAnnual * m) / 12));
-  const muniPerCapita = floor100(Math.floor((muniPerCapitaAnnual * m) / 12));
+  type PrefUnit = { prefecture: string; base: number; levy: number; perCapita: number; rate: number; months: number };
+  type MuniUnit = { label: string; base: number; levy: number; perCapita: number; rate: number; employees: number; months: number };
+  const prefUnits: PrefUnit[] = prefectures.map((pref) => {
+    const os = offices.filter((o) => o.prefecture === pref);
+    const emp = os.reduce((t, o) => t + Math.max(0, o.employees), 0);
+    const base = multi ? floor1000(share(residentBase, totalEmployees > 0 ? emp : os.length)) : residentBase;
+    const rate = os.find((o) => o.prefecturalRate != null)?.prefecturalRate ?? r.prefectural;
+    const months = Math.max(...os.map((o) => o.months));
+    const annual = r.prefecturalPerCapita ?? perCapitaTax(capitalForPerCapita, 0).prefectural;
+    return { prefecture: pref, base, levy: floor100(mulRate(base, rate)), perCapita: floor100(Math.floor((annual * months) / 12)), rate, months };
+  });
+  const muniUnits: MuniUnit[] = offices.map((o) => {
+    const base = multi ? floor1000(share(residentBase, totalEmployees > 0 ? o.employees : 1)) : residentBase;
+    const rate = o.municipalRate ?? r.municipal;
+    const annual = r.municipalPerCapita ?? perCapitaTax(capitalForPerCapita, o.employees).municipal;
+    return {
+      label: [o.prefecture, o.municipality].filter(Boolean).join(" ") || o.name,
+      base,
+      levy: floor100(mulRate(base, rate)),
+      perCapita: floor100(Math.floor((annual * o.months) / 12)),
+      rate,
+      employees: o.employees,
+      months: o.months,
+    };
+  });
+  const prefecturalLevy = prefUnits.reduce((t, u) => t + u.levy, 0);
+  const municipalLevy = muniUnits.reduce((t, u) => t + u.levy, 0);
+  const prefPerCapita = prefUnits.reduce((t, u) => t + u.perCapita, 0);
+  const muniPerCapita = muniUnits.reduce((t, u) => t + u.perCapita, 0);
   const prefectural = prefecturalLevy + prefPerCapita;
   const municipal = municipalLevy + muniPerCapita;
 
-  // 事業税（所得割）: 所得を年400万円・800万円（月割り）で区分し、各区分は1,000円未満切り捨て
+  // 事業税（所得割）: 所得を年400万円・800万円（月割り）で区分し、各区分は1,000円未満切り捨て。
+  // 2以上の都道府県に事務所があれば、各区分を従業者数で都道府県ごとに分ける
   const eIncome = taxable;
   const b1 = Math.floor((4_000_000 * m) / 12);
   const b2 = Math.floor((8_000_000 * m) / 12);
-  const seg1 = r.reducedRateExcluded ? 0 : floor1000(Math.min(eIncome, b1));
-  const seg2 = r.reducedRateExcluded ? 0 : floor1000(pos(Math.min(eIncome, b2) - b1));
-  const seg3 = r.reducedRateExcluded ? floor1000(eIncome) : floor1000(pos(eIncome - b2));
-  const enterpriseTaxOf = (rates: [number, number, number]) =>
-    r.reducedRateExcluded
-      ? floor100(mulRate(seg3, rates[2]))
-      : floor100(mulRate(seg1, rates[0])) + floor100(mulRate(seg2, rates[1])) + floor100(mulRate(seg3, rates[2]));
-  const enterprise = floor100(enterpriseTaxOf(r.enterprise));
-  // 特別法人事業税: 標準税率で計算した所得割額 × 37%
-  const standardEnterprise = floor100(enterpriseTaxOf(STANDARD_LOCAL_RATES.enterprise));
-  const specialEnterprise = floor100(mulRate(standardEnterprise, 0.37));
+  const seg1 = reducedRateExcluded ? 0 : floor1000(Math.min(eIncome, b1));
+  const seg2 = reducedRateExcluded ? 0 : floor1000(pos(Math.min(eIncome, b2) - b1));
+  const seg3 = reducedRateExcluded ? floor1000(eIncome) : floor1000(pos(eIncome - b2));
+  type EntUnit = { prefecture: string; segs: [number, number, number]; tax: number; standardTax: number; special: number };
+  const entUnits: EntUnit[] = prefectures.map((pref) => {
+    const emp = offices.filter((o) => o.prefecture === pref).reduce((t, o) => t + Math.max(0, o.employees), 0);
+    const part = (x: number) => (prefectures.length > 1 ? floor1000(share(x, totalEmployees > 0 ? emp : 1)) : x);
+    const segs: [number, number, number] = [part(seg1), part(seg2), part(seg3)];
+    const taxOf = (rates: [number, number, number]) =>
+      floor100(floor100(mulRate(segs[0], rates[0])) + floor100(mulRate(segs[1], rates[1])) + floor100(mulRate(segs[2], rates[2])));
+    const tax = taxOf(r.enterprise);
+    // 特別法人事業税: 標準税率で計算した所得割額 × 37%
+    const standardTax = taxOf(STANDARD_LOCAL_RATES.enterprise);
+    return { prefecture: pref, segs, tax, standardTax, special: floor100(mulRate(standardTax, 0.37)) };
+  });
+  const enterprise = entUnits.reduce((t, u) => t + u.tax, 0);
+  const standardEnterprise = entUnits.reduce((t, u) => t + u.standardTax, 0);
+  const specialEnterprise = entUnits.reduce((t, u) => t + u.special, 0);
+
+  // ===================== 欠損金の繰戻し還付（中小法人） =====================
+  let carrybackRefund = 0;
+  let carrybackLocalRefund = 0;
+  let carrybackUsed = 0;
+  const cb = i.carryback;
+  if (cb && cb.amount > 0) {
+    if (!isSme) warnings.push("欠損金の繰戻し還付は、中小法人等（資本金1億円以下など）だけが使えます。");
+    const currentLoss = income < 0 ? -income : 0;
+    carrybackUsed = Math.min(cb.amount, currentLoss, Math.max(0, cb.priorIncome));
+    if (carrybackUsed < cb.amount) warnings.push("繰り戻す欠損金額が、当期の欠損金額または前期の所得金額を超えるため、超えない額にしています。");
+    if (isSme && cb.priorIncome > 0 && carrybackUsed > 0) {
+      carrybackRefund = Math.floor((cb.priorCorporateTax * carrybackUsed) / cb.priorIncome);
+      carrybackLocalRefund = Math.floor((cb.priorLocalCorporateTax * carrybackUsed) / cb.priorIncome);
+    }
+  }
+
+  // 繰り戻した欠損金は、翌期へ繰り越さない
+  if (carrybackUsed > 0)
+    nextLosses = nextLosses
+      .map((l) => (l.periodEnd === i.period.end ? { ...l, amount: l.amount - carrybackUsed } : l))
+      .filter((l) => l.amount > 0);
 
   // ===================== 合計 =====================
   const finalCorporate = line13 + line38 + (defense?.final ?? 0);
   const totalTaxForPeriod = finalCorporate + prefectural + municipal + enterprise + specialEnterprise;
   const taxes = {
-    corporate: line15,
-    localCorporate: line40,
+    corporate: line15 - carrybackRefund,
+    localCorporate: line40 - carrybackLocalRefund,
     defense: defense ? defense.final : null,
     prefectural: prefectural - i.interim.prefectural,
     municipal: municipal - i.interim.municipal,
@@ -365,6 +459,11 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
       c1("15", "差引確定法人税額", pos(line15)),
       c1("21", "所得税額等の還付金額", line21),
       c1("22", "中間納付額（還付）", pos(-line15)),
+      ...(carrybackUsed > 0
+        ? [
+            c1("23", "欠損金の繰戻しによる還付請求税額", carrybackRefund, `繰り戻す欠損金額 ${carrybackUsed.toLocaleString()}円（還付所得事業年度の法人税額 × 欠損金額 ÷ 所得金額）`),
+          ]
+        : []),
       c1("26", "欠損金等の当期控除額", lossUsed, "別表七(一)"),
       c1("27", "翌期へ繰り越す欠損金額", nextLosses.reduce((s, l) => s + l.amount, 0)),
       c1("28", "所得の金額に対する法人税額（地方法人税の基準）", line2),
@@ -374,6 +473,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
       c1("39", "中間申告分の地方法人税額", i.interim.localCorporate),
       c1("40", "差引確定地方法人税額", pos(line40)),
       c1("42", "中間納付額（還付）", pos(-line40)),
+      ...(carrybackUsed > 0 ? [c1("", "欠損金の繰戻しによる地方法人税の還付請求額", carrybackLocalRefund)] : []),
     ],
   });
   if (defense) {
@@ -427,7 +527,9 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
         label: `${l.periodEnd} 終了事業年度の青色欠損金${l.expired ? "（期限切れ）" : ""}`,
         values: [l.amount, l.used, l.carry],
       })),
-      ...(income < 0 ? [{ no: "当期分", label: "当期の欠損金額", values: [null, null, -income] }] : []),
+      ...(income < 0
+        ? [{ no: "当期分", label: carrybackUsed > 0 ? `当期の欠損金額（うち繰戻し ${carrybackUsed.toLocaleString()}円）` : "当期の欠損金額", values: [null, carrybackUsed || null, -income - carrybackUsed] }]
+        : []),
       { no: "計", label: "合計", values: [lossRows.reduce((s, l) => s + l.amount, 0), lossUsed, nextLosses.reduce((s, l) => s + l.amount, 0)] },
     ],
   });
@@ -484,35 +586,44 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
   tables.push({
     key: "local-resident",
     title: "法人住民税（第六号様式・第二十号様式）",
-    columns: ["道府県民税", "市町村民税"],
+    columns: ["課税標準", "法人税割", "均等割", "合計"],
     rows: [
-      { no: "①", label: "法人税法の規定によって計算した法人税額（別表一「9」）", values: [line9, line9] },
-      { no: "⑤", label: "課税標準となる法人税額", values: [residentBase, residentBase], note: "1,000円未満切り捨て" },
-      { no: "", label: "法人税割の税率", values: [null, null], note: `道府県 ${(r.prefectural * 100).toFixed(1)}%・市町村 ${(r.municipal * 100).toFixed(1)}%` },
-      { no: "⑬・⑫", label: "差引法人税割額", values: [prefecturalLevy, municipalLevy], note: "100円未満切り捨て" },
-      { no: "⑱・⑰", label: `均等割額（年額 × ${m}/12）`, values: [prefPerCapita, muniPerCapita], note: `年額 道府県 ${prefPerCapitaAnnual.toLocaleString()}円・市町村 ${muniPerCapitaAnnual.toLocaleString()}円` },
-      { no: "", label: "当期の住民税額", values: [prefectural, municipal] },
-      { no: "", label: "中間申告で納付の確定した額", values: [i.interim.prefectural, i.interim.municipal] },
-      { no: "㉑・⑳", label: "この申告により納付すべき住民税額（マイナスは還付）", values: [taxes.prefectural, taxes.municipal] },
+      { no: "①", label: "法人税法の規定によって計算した法人税額（別表一「9」）", values: [line9, null, null, null] },
+      { no: "⑤", label: `課税標準となる法人税額${multi ? "（従業者数で按分する前）" : ""}`, values: [residentBase, null, null, null], note: "1,000円未満切り捨て" },
+      ...prefUnits.map((u) => ({
+        no: "道府県",
+        label: `${u.prefecture || "道府県民税"}（法人税割 ${(u.rate * 100).toFixed(1)}%・均等割 ${u.months}か月）`,
+        values: [u.base, u.levy, u.perCapita, u.levy + u.perCapita],
+      })),
+      ...muniUnits.map((u) => ({
+        no: "市町村",
+        label: `${u.label || "市町村民税"}（法人税割 ${(u.rate * 100).toFixed(1)}%・従業者 ${u.employees}人・均等割 ${u.months}か月）`,
+        values: [u.base, u.levy, u.perCapita, u.levy + u.perCapita],
+      })),
+      { no: "", label: "道府県民税の合計 ／ 中間納付 ／ この申告で納付（マイナスは還付）", values: [null, prefectural, i.interim.prefectural, taxes.prefectural] },
+      { no: "", label: "市町村民税の合計 ／ 中間納付 ／ この申告で納付（マイナスは還付）", values: [null, municipal, i.interim.municipal, taxes.municipal] },
     ],
   });
   tables.push({
     key: "local-enterprise",
     title: "法人事業税・特別法人事業税（第六号様式）",
-    columns: ["所得金額", "税率", "税額"],
+    columns: ["年400万円以下", "400万〜800万円", "800万円超", "事業税額", "特別法人事業税"],
     rows: [
-      { no: "㉘", label: "所得金額総額", values: [eIncome, null, null] },
-      ...(r.reducedRateExcluded
-        ? [{ no: "㉝", label: "軽減税率不適用法人の金額", values: [seg3, r.enterprise[2] * 100, floor100(mulRate(seg3, r.enterprise[2]))] }]
-        : [
-            { no: "㉙", label: `年400万円以下の金額（${m}/12）`, values: [seg1, r.enterprise[0] * 100, floor100(mulRate(seg1, r.enterprise[0]))] },
-            { no: "㉚", label: "年400万円を超え年800万円以下の金額", values: [seg2, r.enterprise[1] * 100, floor100(mulRate(seg2, r.enterprise[1]))] },
-            { no: "㉛", label: "年800万円を超える金額", values: [seg3, r.enterprise[2] * 100, floor100(mulRate(seg3, r.enterprise[2]))] },
-          ]),
-      { no: "㊹", label: "差引事業税額", values: [null, null, enterprise], note: "100円未満切り捨て" },
-      { no: "⑤④", label: "特別法人事業税（標準税率の所得割額 × 37%）", values: [standardEnterprise, 37, specialEnterprise] },
-      { no: "", label: "中間申告で納付の確定した額（事業税＋特別法人事業税）", values: [null, null, i.interim.enterprise] },
-      { no: "㊼・⑥①", label: "この申告により納付すべき額（マイナスは還付）", values: [null, null, taxes.enterprise] },
+      { no: "㉘", label: "所得金額総額", values: [eIncome, null, null, null, null] },
+      {
+        no: "㉙〜㉛",
+        label: `課税標準（${reducedRateExcluded ? "軽減税率不適用法人: 全額を800万円超の欄で7.0%" : `${m}/12で月割り`}）`,
+        values: [seg1, seg2, seg3, null, null],
+      },
+      ...entUnits.map((u) => ({
+        no: "",
+        label: `${u.prefecture || "都道府県"}${prefectures.length > 1 ? "（従業者数で按分）" : ""}`,
+        values: [u.segs[0], u.segs[1], u.segs[2], u.tax, u.special],
+        note: `税率 ${r.enterprise.map((x) => (x * 100).toFixed(2)).join("・")}%`,
+      })),
+      { no: "㊹・⑤⑧", label: "合計（100円未満切り捨て）", values: [null, null, null, enterprise, specialEnterprise], note: `特別法人事業税＝標準税率の所得割額 ${standardEnterprise.toLocaleString()}円 × 37%` },
+      { no: "", label: "中間申告で納付の確定した額（事業税＋特別法人事業税）", values: [null, null, null, i.interim.enterprise, null] },
+      { no: "㊼・⑥①", label: "この申告により納付すべき額（マイナスは還付）", values: [null, null, null, taxes.enterprise, null] },
     ],
   });
 

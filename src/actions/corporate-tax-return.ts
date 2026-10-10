@@ -23,6 +23,8 @@ import {
   type LossCarryforward,
   type RetainedItem,
   type LocalTaxRates,
+  type Office,
+  type Carryback,
 } from "@/lib/corporate-tax-return";
 import { getTrialBalance } from "@/actions/statements";
 import { getDepreciationBook } from "@/actions/assets";
@@ -41,6 +43,10 @@ export type CorporateReturnInputs = {
   localRates: LocalTaxRates;
   priorEnterpriseTaxPaid: number;
   entertainmentDining: number | null;
+  /** 事務所が2つ以上の自治体にあるとき */
+  offices: Office[];
+  /** 欠損金の繰戻し還付 */
+  carryback: Carryback | null;
   note: string | null;
 };
 
@@ -81,6 +87,8 @@ type SavedRow = {
   local_tax_rates: unknown;
   prior_enterprise_tax_paid: number;
   entertainment_dining: number | null;
+  offices: unknown;
+  carryback: unknown;
   note: string | null;
 };
 
@@ -103,6 +111,24 @@ function inputsFromRow(row: SavedRow, clientCapital: number | null): CorporateRe
     localRates: { ...STANDARD_LOCAL_RATES, ...rates },
     priorEnterpriseTaxPaid: num(row.prior_enterprise_tax_paid),
     entertainmentDining: row.entertainment_dining === null ? null : num(row.entertainment_dining),
+    offices: arr<Office>(row.offices).map((o) => ({
+      ...o,
+      employees: num(o.employees),
+      months: num(o.months) || 12,
+      prefecturalRate: o.prefecturalRate == null ? null : num(o.prefecturalRate),
+      municipalRate: o.municipalRate == null ? null : num(o.municipalRate),
+    })),
+    carryback: row.carryback
+      ? (() => {
+          const c = row.carryback as Carryback;
+          return {
+            priorIncome: num(c.priorIncome),
+            priorCorporateTax: num(c.priorCorporateTax),
+            priorLocalCorporateTax: num(c.priorLocalCorporateTax),
+            amount: num(c.amount),
+          };
+        })()
+      : null,
     note: row.note,
   };
 }
@@ -118,6 +144,8 @@ const emptyInputs = (clientCapital: number | null): CorporateReturnInputs => ({
   localRates: STANDARD_LOCAL_RATES,
   priorEnterpriseTaxPaid: 0,
   entertainmentDining: null,
+  offices: [],
+  carryback: null,
   note: null,
 });
 
@@ -169,6 +197,8 @@ async function compute(clientId: string, p: { startDate: string; endDate: string
     retainedEarnings: books.retainedEarnings,
     priorEnterpriseTaxPaid: inputs.priorEnterpriseTaxPaid,
     localRates: inputs.localRates,
+    offices: inputs.offices,
+    carryback: inputs.carryback,
   });
   return { books, result, months };
 }
@@ -177,7 +207,7 @@ async function loadSaved(db: Db, clientId: string, periodStart: string) {
   const { data } = await db
     .from("corporate_tax_returns")
     .select(
-      "capital_amount, employees, interim_corporate_tax, interim_local_corporate_tax, interim_prefectural, interim_municipal, interim_enterprise, withholding_income_tax, loss_carryforwards, opening_retained, adjustments, local_tax_rates, prior_enterprise_tax_paid, entertainment_dining, note"
+      "capital_amount, employees, interim_corporate_tax, interim_local_corporate_tax, interim_prefectural, interim_municipal, interim_enterprise, withholding_income_tax, loss_carryforwards, opening_retained, adjustments, local_tax_rates, prior_enterprise_tax_paid, entertainment_dining, offices, carryback, note"
     )
     .eq("client_id", clientId)
     .eq("period_start", periodStart)
@@ -216,6 +246,7 @@ export async function getCorporateTaxReturn(clientId: string, periodKey?: string
         ...inputs,
         employees: prevInputs.employees,
         localRates: prevInputs.localRates,
+        offices: prevInputs.offices,
         losses: prevCalc.result.nextLosses,
         openingRetained: prevCalc.result.closingRetained.filter((r) => r.amount !== 0 && r.name !== "減価償却超過額" && r.name !== "繰越損益金"),
         priorEnterpriseTaxPaid: Math.max(0, prevCalc.result.taxes.enterprise),
@@ -265,6 +296,15 @@ function validate(i: CorporateReturnInputs) {
   }
   const r = i.localRates;
   for (const v of [r.prefectural, r.municipal, ...r.enterprise]) if (!(v >= 0 && v < 1)) throw new Error("地方税の税率を正しく入力してください");
+  for (const o of i.offices) {
+    if (!o.prefecture.trim() || !o.municipality.trim()) throw new Error("事務所の都道府県・市区町村を入力してください");
+    if (!(Number.isInteger(o.employees) && o.employees >= 0)) throw new Error("事務所の従業者数を正しく入力してください");
+    if (!(Number.isInteger(o.months) && o.months >= 1 && o.months <= 12)) throw new Error("事務所があった月数は1〜12で入力してください");
+    for (const v of [o.prefecturalRate, o.municipalRate]) if (v != null && !(v >= 0 && v < 1)) throw new Error("事務所の税率を正しく入力してください");
+  }
+  if (i.carryback) {
+    for (const v of Object.values(i.carryback)) nonNeg(v, "欠損金の繰戻しの金額");
+  }
 }
 
 /** 期ごとの入力を保存する（資本金は顧問先の設定にも残す） */
@@ -295,6 +335,8 @@ export async function saveCorporateTaxReturnInputs(
       local_tax_rates: inputs.localRates,
       prior_enterprise_tax_paid: inputs.priorEnterpriseTaxPaid,
       entertainment_dining: inputs.entertainmentDining,
+      offices: inputs.offices.map((o) => ({ ...o, name: o.name.trim(), prefecture: o.prefecture.trim(), municipality: o.municipality.trim() })),
+      carryback: inputs.carryback && inputs.carryback.amount > 0 ? inputs.carryback : null,
       note: inputs.note?.trim() || null,
       updated_at: new Date().toISOString(),
     },
