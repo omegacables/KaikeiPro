@@ -73,3 +73,57 @@ export function toTaxBookLines(raw: RawTaxLine[], ex: ExclusiveEntries): TaxBook
     return { ...l, exclusive, ...(exclusive && single ? { recordedTax: recorded } : {}) };
   });
 }
+
+/**
+ * 期間内の収益・費用の行を、消費税の集計に渡す形（TaxBookLine）で読み込む。
+ * 1000行の取得上限で黙って打ち切られないよう全ページ取得する。要確認の仕訳は needsReview で印を付ける。
+ */
+export async function loadTaxBookLines(
+  db: SupabaseClient,
+  clientId: string,
+  dateFrom: string,
+  dateTo: string
+): Promise<TaxBookLine[]> {
+  type TaxLine = {
+    journal_entry_id: string;
+    debit_amount: number;
+    credit_amount: number;
+    tax_category: string | null;
+    tax_rate: number | null;
+    accounts: { account_categories: { type: string } | null } | null;
+    journal_entries: { client_id: string; entry_date: string; needs_review: boolean | null };
+  };
+  const [data, exclusive] = await Promise.all([
+    fetchAllRows<TaxLine>((from, to) =>
+      db
+        .from("journal_entry_lines")
+        .select(`
+      journal_entry_id,
+      debit_amount,
+      credit_amount,
+      tax_category,
+      tax_rate,
+      accounts!inner ( account_categories!inner ( type ) ),
+      journal_entries!inner ( client_id, entry_date, needs_review )
+    `)
+        .eq("journal_entries.client_id", clientId)
+        .gte("journal_entries.entry_date", dateFrom)
+        .lte("journal_entries.entry_date", dateTo)
+        .range(from, to) as unknown as PromiseLike<{ data: TaxLine[] | null; error: { message: string } | null }>
+    ),
+    loadExclusiveEntries(db, clientId, dateFrom, dateTo),
+  ]);
+  return toTaxBookLines(
+    data.map((l) => ({
+      entryId: l.journal_entry_id,
+      accountType: l.accounts?.account_categories?.type ?? "",
+      taxCategory: l.tax_category,
+      taxRate: l.tax_rate,
+      debit: Number(l.debit_amount) || 0,
+      credit: Number(l.credit_amount) || 0,
+      // 要確認の仕訳は決算書と同じく集計に入れない
+      needsReview: Boolean(l.journal_entries.needs_review),
+    })),
+    exclusive
+  );
+}

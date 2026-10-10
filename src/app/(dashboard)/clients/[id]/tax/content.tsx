@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useState, useMemo, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
 import {
@@ -14,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency } from "@/lib/utils";
-import { printPage } from "@/lib/export";
 import { useData } from "@/lib/use-data";
 import { getTaxSummary, type TaxSummary } from "@/actions/tax";
 import { getClient, updateClient } from "@/actions/clients";
@@ -159,10 +159,13 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
             </p>
           </div>
         ) : <div />}
-        <Button variant="outline" onClick={() => printPage()}>
-          <Calculator className="size-4" />
-          申告書出力
-        </Button>
+        {/* 申告書の各欄（第一表・第二表・付表）は専用の画面で計算する */}
+        <Link href={`/clients/${clientId}/tax-return`}>
+          <Button variant="outline">
+            <Calculator className="size-4" />
+            消費税申告書を作る
+          </Button>
+        </Link>
       </div>
 
       {/* Period selector */}

@@ -1611,6 +1611,46 @@ export interface Database {
         };
         Relationships: [];
       };
+      consumption_tax_returns: {
+        Row: {
+          id: string;
+          client_id: string;
+          period_start: string;
+          period_end: string;
+          calc_method: "standard" | "simplified" | "special_20" | null;
+          purchase_tax_calc: "stacked" | "proportional";
+          simplified_business_type: number | null;
+          interim_national: number;
+          interim_local: number;
+          note: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          period_start: string;
+          period_end: string;
+          calc_method?: "standard" | "simplified" | "special_20" | null;
+          purchase_tax_calc?: "stacked" | "proportional";
+          simplified_business_type?: number | null;
+          interim_national?: number;
+          interim_local?: number;
+          note?: string | null;
+          updated_at?: string;
+        };
+        Update: {
+          period_end?: string;
+          calc_method?: "standard" | "simplified" | "special_20" | null;
+          purchase_tax_calc?: "stacked" | "proportional";
+          simplified_business_type?: number | null;
+          interim_national?: number;
+          interim_local?: number;
+          note?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
       fixed_asset_depreciations: {
         Row: {
           id: string;
