@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Calculator, ChevronLeft, ChevronRight, Loader2, Printer, AlertTriangle, Info } from "lucide-react";
+import { Calculator, ChevronLeft, ChevronRight, Loader2, Printer, AlertTriangle, Info, Download } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AmountInput } from "@/components/ui/amount-input";
@@ -19,6 +19,7 @@ import { BUSINESS_TYPES, CALC_METHOD_LABELS, type CalcMethod, type FormTable } f
 import {
   getConsumptionTaxReturn,
   saveConsumptionTaxReturnSettings,
+  getConsumptionTaxXtx,
   type ConsumptionTaxReturnView,
 } from "@/actions/consumption-tax-return";
 import { TaxCategoryCheck } from "./tax-category-check";
@@ -82,6 +83,7 @@ export default function TaxReturnPage() {
               <Printer className="size-4" />
               印刷・PDF
             </Button>
+            {!view.taxExempt && <EtaxXtxButton clientId={id} periodKey={view.period.key} />}
           </div>
         )}
       </div>
@@ -211,6 +213,7 @@ function SettingsCard({
     businessType: s.businessType,
     interimNational: String(s.interimNational || ""),
     interimLocal: String(s.interimLocal || ""),
+    basePeriodSales: s.basePeriodSalesInput === null ? "" : String(s.basePeriodSalesInput),
   });
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -223,8 +226,9 @@ function SettingsCard({
       businessType: s.businessType,
       interimNational: String(s.interimNational || ""),
       interimLocal: String(s.interimLocal || ""),
+      basePeriodSales: s.basePeriodSalesInput === null ? "" : String(s.basePeriodSalesInput),
     });
-  }, [s.method, s.purchaseTaxCalc, s.deductionMethod, s.businessType, s.interimNational, s.interimLocal, view.period.key]);
+  }, [s.method, s.purchaseTaxCalc, s.deductionMethod, s.businessType, s.interimNational, s.interimLocal, s.basePeriodSalesInput, view.period.key]);
 
   const save = async () => {
     setSaving(true);
@@ -237,6 +241,7 @@ function SettingsCard({
         businessType: f.businessType,
         interimNational: Number(f.interimNational) || 0,
         interimLocal: Number(f.interimLocal) || 0,
+        basePeriodSales: f.basePeriodSales === "" ? null : Number(f.basePeriodSales) || 0,
       });
       onSaved();
     } catch (e) {
@@ -315,6 +320,16 @@ function SettingsCard({
           {label("中間納付譲渡割額（地方）")}
           <AmountInput value={f.interimLocal} onChange={(v) => setF({ ...f, interimLocal: v })} className={cn(fieldCls, "text-right")} disabled={disabled} />
         </label>
+        <label>
+          {label("基準期間の課税売上高（帳簿と違うとき）")}
+          <AmountInput
+            value={f.basePeriodSales}
+            onChange={(v) => setF({ ...f, basePeriodSales: v })}
+            className={cn(fieldCls, "text-right")}
+            disabled={disabled}
+            placeholder="空なら帳簿から"
+          />
+        </label>
         {canWrite && (
           <div className="flex items-end">
             <Button size="sm" onClick={save} disabled={saving}>
@@ -365,5 +380,43 @@ function FormTableView({ table }: { table: FormTable }) {
         </table>
       </div>
     </Card>
+  );
+}
+
+/** e-Tax 用ファイル（.xtx）の保存。提出者の情報が足りなければ設定画面へ案内する */
+function EtaxXtxButton({ clientId, periodKey }: { clientId: string; periodKey: string }) {
+  const [busy, setBusy] = useState(false);
+  const download = async () => {
+    setBusy(true);
+    try {
+      const r = await getConsumptionTaxXtx(clientId, periodKey);
+      if ("missing" in r) {
+        if (confirm(`e-Tax の提出情報（${r.missing.join("・")}）が入っていません。設定画面を開きますか？`))
+          window.location.href = `/clients/${clientId}/settings?tab=etax`;
+        return;
+      }
+      const url = URL.createObjectURL(new Blob([r.xml], { type: "application/xml" }));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.fileName;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      alert(e instanceof Error ? e.message : "作れませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={download}
+      disabled={busy}
+      title="e-Taxソフト（WEB版は「作成済みデータの利用」、PC版は「組み込み」）で読み込み、署名して送信します"
+    >
+      {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+      e-Tax用ファイル（.xtx）
+    </Button>
   );
 }

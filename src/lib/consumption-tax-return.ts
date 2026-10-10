@@ -40,8 +40,8 @@ export const CALC_METHOD_LABELS: Record<CalcMethod, string> = {
   special_20: "2割特例",
 };
 
-type Col = "A" | "B";
-type Pair = { A: number; B: number };
+export type Col = "A" | "B";
+export type Pair = { A: number; B: number };
 const pair = (): Pair => ({ A: 0, B: 0 });
 
 /** 申告書の計算に使う、期間の取引の集計 */
@@ -189,8 +189,22 @@ export type FormRow = {
 
 export type FormTable = { key: string; title: string; columns: "ABC" | "C"; rows: FormRow[] };
 
+/** 簡易課税の付表5-3 の明細 */
+export type SimplifiedDetail = {
+  /** ④ 控除対象仕入税額の計算の基礎となる消費税額 */
+  base4: Pair;
+  /** 事業区分ごとの課税売上高（税抜き）・売上割合・消費税額（区分の番号順） */
+  types: { type: number; sales: Pair; sharePct: number; tax: Pair }[];
+  totalTax: Pair;
+  /** 計算した控除対象仕入税額の候補（原則・特例）と、選んだもの */
+  candidates: { kind: "single" | "principle" | "one75" | "two75"; types: number[]; deduction: Pair }[];
+  chosen: number;
+};
+
 export type ConsumptionTaxReturn = {
   method: CalcMethod;
+  /** 簡易課税の明細（付表5-3） */
+  simplified?: SimplifiedDetail;
   /** 第一表・第二表・付表 */
   tables: FormTable[];
   /** 課税売上割合（④/⑦）。本則課税のみ */
@@ -270,6 +284,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
   let deductionMethod: ConsumptionTaxReturn["deductionMethod"] = null;
   /** 第一表⑮⑯（一般）または⑮（簡易） */
   let firstRefRows: FormRow[] = [];
+  let simplified: SimplifiedDetail | undefined;
 
   if (s.method === "standard") {
     // ---- 付表2-3 課税売上割合・控除対象仕入税額等の計算表 ----
@@ -395,6 +410,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
     const base4 = mapPair((c) => st.tax[c] + overAdjust[c]); // 付表5-3 ④ ＝ ①＋②－③
     const sd = simplifiedDeduction(byType, base4);
     deduction = sd.deduction;
+    simplified = sd.detail;
     const types = [...byType.keys()].filter((t) => t > 0).sort();
     const typeLabel = (t: number) => BUSINESS_TYPES.find((b) => b.type === t)?.label ?? "区分なし";
     tables.push({
@@ -524,6 +540,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
 
   return {
     method: s.method,
+    simplified,
     tables,
     taxableSalesRatio: ratio,
     deductionMethod,
@@ -554,7 +571,8 @@ export function simplifiedDeduction(byType: Map<number, Pair>, base4: Pair) {
   const totalTax = mapPair((c) => types.reduce((s, t) => s + taxOf(t)[c], 0));
   const sharePct = (t: number) => (totalSales > 0 ? Math.floor((salesOf(t) * 1000) / totalSales) / 10 : 0);
 
-  type Cand = { label: string; deduction: Pair };
+  /** kind: single=1種類のみ / principle=原則計算 / one75=1種類で75%以上 / two75=2種類で75%以上（types は率の高い順） */
+  type Cand = { label: string; deduction: Pair; kind: "single" | "principle" | "one75" | "two75"; types: number[] };
   const cands: Cand[] = [];
   if (types.length <= 1) {
     const t = types[0];
@@ -562,11 +580,15 @@ export function simplifiedDeduction(byType: Map<number, Pair>, base4: Pair) {
     cands.push({
       label: t ? `${BUSINESS_TYPES.find((b) => b.type === t)!.label} みなし仕入率${rate}%` : "事業区分が未選択",
       deduction: mapPair((c) => Math.floor((base4[c] * rate) / 100)),
+      kind: "single",
+      types: t ? [t] : [],
     });
   } else {
     // 原則計算
     cands.push({
       label: "原則計算（加重平均）",
+      kind: "principle",
+      types,
       deduction: mapPair((c) =>
         totalTax[c] > 0 ? Math.floor((base4[c] * types.reduce((s, t) => s + taxOf(t)[c] * rateOf(t), 0)) / (totalTax[c] * 100)) : 0
       ),
@@ -574,7 +596,12 @@ export function simplifiedDeduction(byType: Map<number, Pair>, base4: Pair) {
     // 1種類で75%以上
     for (const t of types) {
       if (totalSales > 0 && salesOf(t) * 100 >= totalSales * 75)
-        cands.push({ label: `特例計算（第${t}種で75%以上）`, deduction: mapPair((c) => Math.floor((base4[c] * rateOf(t)) / 100)) });
+        cands.push({
+          label: `特例計算（第${t}種で75%以上）`,
+          kind: "one75",
+          types: [t],
+          deduction: mapPair((c) => Math.floor((base4[c] * rateOf(t)) / 100)),
+        });
     }
     // 2種類で75%以上
     for (const hi of types) {
@@ -583,6 +610,8 @@ export function simplifiedDeduction(byType: Map<number, Pair>, base4: Pair) {
         if (!(totalSales > 0 && (salesOf(hi) + salesOf(lo)) * 100 >= totalSales * 75)) continue;
         cands.push({
           label: `特例計算（第${hi}種・第${lo}種で75%以上）`,
+          kind: "two75",
+          types: [hi, lo],
           deduction: mapPair((c) =>
             totalTax[c] > 0
               ? Math.floor((base4[c] * (taxOf(hi)[c] * rateOf(hi) + (totalTax[c] - taxOf(hi)[c]) * rateOf(lo))) / (totalTax[c] * 100))
@@ -593,7 +622,21 @@ export function simplifiedDeduction(byType: Map<number, Pair>, base4: Pair) {
     }
   }
   const best = cands.reduce((a, b) => (sumPair(b.deduction) > sumPair(a.deduction) ? b : a));
-  return { ...best, totalSales, totalTax, salesOf, taxOf, sharePct, candidates: cands };
+  /** 付表5-3 の明細（関数を含まない、画面・e-Tax ファイル用のデータ） */
+  const detail: SimplifiedDetail = {
+    base4,
+    types: types
+      .slice()
+      .sort((a, b) => a - b)
+      .map((t) => {
+        const g = byType.get(t) ?? pair();
+        return { type: t, sales: { A: toNet(g.A, "A"), B: toNet(g.B, "B") }, sharePct: sharePct(t), tax: taxOf(t) };
+      }),
+    totalTax,
+    candidates: cands.map((c) => ({ kind: c.kind, types: c.types, deduction: c.deduction })),
+    chosen: cands.indexOf(best),
+  };
+  return { ...best, totalSales, totalTax, salesOf, taxOf, sharePct, candidates: cands, detail };
 }
 
 /** 2割特例を使える課税期間か（令和5年10月1日〜令和8年9月30日の日を含む課税期間） */

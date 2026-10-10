@@ -140,6 +140,12 @@ export interface Database {
           depreciation_rounding: "floor" | "ceil" | "round";
           depreciation_entry_method: "direct" | "indirect";
           capital_amount: number | null;
+          tax_office_code: string | null;
+          etax_user_id: string | null;
+          corporate_number: string | null;
+          name_kana: string | null;
+          representative_name: string | null;
+          representative_kana: string | null;
           ai_share_company_info: boolean;
           ai_share_personal_info: boolean;
           is_active: boolean;
@@ -165,6 +171,12 @@ export interface Database {
           depreciation_rounding?: "floor" | "ceil" | "round";
           depreciation_entry_method?: "direct" | "indirect";
           capital_amount?: number | null;
+          tax_office_code?: string | null;
+          etax_user_id?: string | null;
+          corporate_number?: string | null;
+          name_kana?: string | null;
+          representative_name?: string | null;
+          representative_kana?: string | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -190,6 +202,12 @@ export interface Database {
           depreciation_rounding?: "floor" | "ceil" | "round";
           depreciation_entry_method?: "direct" | "indirect";
           capital_amount?: number | null;
+          tax_office_code?: string | null;
+          etax_user_id?: string | null;
+          corporate_number?: string | null;
+          name_kana?: string | null;
+          representative_name?: string | null;
+          representative_kana?: string | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -1705,6 +1723,7 @@ export interface Database {
           simplified_business_type: number | null;
           interim_national: number;
           interim_local: number;
+          base_period_sales: number | null;
           note: string | null;
           created_at: string;
           updated_at: string;
@@ -1720,6 +1739,7 @@ export interface Database {
           simplified_business_type?: number | null;
           interim_national?: number;
           interim_local?: number;
+          base_period_sales?: number | null;
           note?: string | null;
           updated_at?: string;
         };
@@ -1731,6 +1751,7 @@ export interface Database {
           simplified_business_type?: number | null;
           interim_national?: number;
           interim_local?: number;
+          base_period_sales?: number | null;
           note?: string | null;
           updated_at?: string;
         };

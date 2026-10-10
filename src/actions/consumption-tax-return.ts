@@ -12,8 +12,12 @@ import {
   resolveFiscalPeriodByKey,
   adjacentFiscalPeriodKeys,
   currentFiscalStartYear,
+  toJstDate,
   type FiscalPeriodRow,
 } from "@/lib/fiscal";
+import { consumptionTaxXml } from "@/lib/etax-shohi-xml";
+import { missingFilerInfo } from "@/lib/etax-xml";
+import { taxOfficeName } from "@/lib/tax-offices";
 import { loadTaxBookLines } from "@/lib/tax-exclusive";
 import {
   aggregateReturnInput,
@@ -35,6 +39,8 @@ export type ReturnSettingsView = {
   interimNational: number;
   interimLocal: number;
   note: string | null;
+  /** 基準期間の課税売上高（入力した値。帳簿から出せない年度のため） */
+  basePeriodSalesInput: number | null;
   /** この期の設定を保存しているか（無ければ顧問先の設定から） */
   saved: boolean;
 };
@@ -89,7 +95,7 @@ export async function getConsumptionTaxReturn(clientId: string, periodKey?: stri
   const [{ data: saved }, input, baseInput, { count: baseEntries }] = await Promise.all([
     db
       .from("consumption_tax_returns")
-      .select("calc_method, purchase_tax_calc, deduction_method, simplified_business_type, interim_national, interim_local, note")
+      .select("calc_method, purchase_tax_calc, deduction_method, simplified_business_type, interim_national, interim_local, note, base_period_sales")
       .eq("client_id", clientId)
       .eq("period_start", p.startDate)
       .maybeSingle(),
@@ -111,13 +117,14 @@ export async function getConsumptionTaxReturn(clientId: string, periodKey?: stri
     interimNational: Number(saved?.interim_national ?? 0),
     interimLocal: Number(saved?.interim_local ?? 0),
     note: (saved?.note as string | null) ?? null,
+    basePeriodSalesInput: saved?.base_period_sales === null || saved?.base_period_sales === undefined ? null : Number(saved.base_period_sales),
     saved: Boolean(saved),
   };
   const months = monthIndex(p.endDate) - monthIndex(p.startDate) + 1;
   const result = computeConsumptionTaxReturn(input, { ...settings, periodMonths: months });
 
-  // 基準期間に仕訳が無ければ「記録なし」（0円と区別する）
-  const basePeriodSales = (baseEntries ?? 0) > 0 ? taxableSalesOf(baseInput) : null;
+  // 入力した値を優先。無ければ帳簿から（基準期間に仕訳が無ければ「記録なし」。0円と区別する）
+  const basePeriodSales = settings.basePeriodSalesInput ?? ((baseEntries ?? 0) > 0 ? taxableSalesOf(baseInput) : null);
 
   const eligibility: string[] = [];
   if (settings.method === "simplified" && basePeriodSales !== null && basePeriodSales > 50_000_000)
@@ -152,6 +159,7 @@ export type ReturnSettingsInput = {
   interimNational: number;
   interimLocal: number;
   note?: string | null;
+  basePeriodSales?: number | null;
 };
 
 /** 期ごとの申告の設定を保存する */
@@ -166,6 +174,7 @@ export async function saveConsumptionTaxReturnSettings(
   if (input.businessType !== null && !(Number.isInteger(input.businessType) && input.businessType >= 1 && input.businessType <= 6))
     throw new Error("簡易課税の事業区分が正しくありません");
   if (!(input.interimNational >= 0) || !(input.interimLocal >= 0)) throw new Error("中間納付額を正しく入力してください");
+  if (input.basePeriodSales != null && !(input.basePeriodSales >= 0)) throw new Error("基準期間の課税売上高を正しく入力してください");
   const db = await createServerSupabaseClient();
   const { error } = await db.from("consumption_tax_returns").upsert(
     {
@@ -179,9 +188,50 @@ export async function saveConsumptionTaxReturnSettings(
       interim_national: Math.round(input.interimNational),
       interim_local: Math.round(input.interimLocal),
       note: input.note?.trim() || null,
+      base_period_sales: input.basePeriodSales == null ? null : Math.round(input.basePeriodSales),
       updated_at: new Date().toISOString(),
     },
     { onConflict: "client_id,period_start" }
   );
   if (error) throw new Error(error.message);
+}
+
+/**
+ * 申告書を e-Tax 用ファイル（.xtx）にする。e-Taxソフト（WEB版は「作成済みデータの利用」、PC版は「組み込み」）で
+ * 読み込んで、署名・送信する。作り方は src/lib/etax-shohi-xml.ts（テストあり）。
+ */
+export async function getConsumptionTaxXtx(
+  clientId: string,
+  periodKey: string
+): Promise<{ fileName: string; xml: string } | { missing: string[] }> {
+  const view = await getConsumptionTaxReturn(clientId, periodKey); // アクセス権もここで確かめる
+  const db = await createServerSupabaseClient();
+  const { data: c, error } = await db
+    .from("clients")
+    .select("name, postal_code, address, telephone, tax_office_code, etax_user_id, corporate_number, name_kana, representative_name, representative_kana")
+    .eq("id", clientId)
+    .single();
+  if (error || !c) throw new Error(error?.message ?? "顧問先が見つかりません");
+  const filer = {
+    taxOfficeCode: (c.tax_office_code as string | null) ?? "",
+    taxOfficeName: taxOfficeName(c.tax_office_code as string | null),
+    etaxUserId: (c.etax_user_id as string | null) ?? "",
+    corporateNumber: (c.corporate_number as string | null) ?? null,
+    name: (c.name as string) ?? "",
+    nameKana: (c.name_kana as string | null) ?? null,
+    postalCode: (c.postal_code as string | null) ?? null,
+    address: (c.address as string | null) ?? "",
+    telephone: (c.telephone as string | null) ?? null,
+    representativeName: (c.representative_name as string | null) ?? null,
+    representativeKana: (c.representative_kana as string | null) ?? null,
+  };
+  const missing = missingFilerInfo(filer);
+  if (missing.length) return { missing };
+  return consumptionTaxXml({
+    ret: view.result,
+    filer,
+    period: { start: view.period.startDate, end: view.period.endDate },
+    basePeriodSales: view.basePeriodSales,
+    today: toJstDate(new Date().toISOString()),
+  });
 }
