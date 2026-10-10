@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase";
 import { lookupLearnedRules, recordLearnedRule } from "./learned-rules";
 import { TAX_CATEGORY_LIST, sanitizeTaxCategory } from "@/lib/tax-category";
+import { classifyEntryLines } from "@/lib/tax-classify-db";
 
 /**
  * AIに渡す税区分の一覧。
@@ -334,6 +335,9 @@ async function autoCreateJournalFromSuggestion(
     return;
   }
 
+  // 科目と摘要から税区分を補う・直す（給与・利息など、はっきりした決まりのあるもの）
+  await classifyEntryLines(admin, [entry.id]).catch((e) => console.error("[ai-journal] 税区分の判別に失敗:", e));
+
   // レシートを仕訳済に更新
   await admin
     .from("receipts")
@@ -427,6 +431,9 @@ export async function approveJournalSuggestion(
     .insert(lines);
 
   if (linesError) throw new Error(`仕訳明細作成エラー: ${linesError.message}`);
+
+  // 科目と摘要から税区分を補う・直す（給与・利息など、はっきりした決まりのあるもの）
+  await classifyEntryLines(supabase, [entry.id]).catch((e) => console.error("[ai-journal] 税区分の判別に失敗:", e));
 
   // 6. レシートを仕訳済に更新
   await supabase
@@ -655,6 +662,9 @@ JSONのみ返してください。`;
 
   if (linesError) throw new Error(`仕訳明細作成エラー: ${linesError.message}`);
 
+  // 科目と摘要から税区分を補う・直す（給与・利息など、はっきりした決まりのあるもの）
+  await classifyEntryLines(admin, [entry.id]).catch((e) => console.error("[ai-journal] 税区分の判別に失敗:", e));
+
   // 7. 銀行取引を照合済みに更新
   await admin
     .from("bank_transactions")
@@ -876,6 +886,9 @@ JSONのみ返してください。`;
     .insert(lines);
 
   if (linesError) throw new Error(`仕訳明細作成エラー: ${linesError.message}`);
+
+  // 科目と摘要から税区分を補う・直す（給与・利息など、はっきりした決まりのあるもの）
+  await classifyEntryLines(admin, [entry.id]).catch((e) => console.error("[ai-journal] 税区分の判別に失敗:", e));
 
   // 8. カード取引を照合済みに更新
   await admin

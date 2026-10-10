@@ -2,6 +2,7 @@
 
 import { getGeminiModel, callGemini } from "@/lib/gemini";
 import { sanitizeTaxCategory } from "@/lib/tax-category";
+import { classifyEntryLines } from "@/lib/tax-classify-db";
 import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
@@ -449,6 +450,8 @@ JSONのみ返してください。`;
         await admin.from("journal_entries").delete().eq("id", entry.id);
         throw new Error(`仕訳明細作成エラー: ${jlErr.message}`);
       }
+      // 科目と摘要から税区分を補う・直す
+      await classifyEntryLines(admin, [entry.id]).catch((e) => console.error("[statement-lines] 税区分の判別に失敗:", e));
 
       // 明細行を仕訳化済みに更新
       await admin

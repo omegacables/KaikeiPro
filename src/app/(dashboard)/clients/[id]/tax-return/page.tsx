@@ -20,6 +20,7 @@ import {
   saveConsumptionTaxReturnSettings,
   type ConsumptionTaxReturnView,
 } from "@/actions/consumption-tax-return";
+import { TaxCategoryCheck } from "./tax-category-check";
 
 const fieldCls = "w-full px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm";
 const errMsg = (e: unknown) => (e instanceof Error ? e.message : "読み込みに失敗しました");
@@ -128,6 +129,8 @@ export default function TaxReturnPage() {
               </span>
             )}
           </Card>
+
+          <TaxCategoryCheck clientId={id} period={view.period} canWrite={canWrite} onFixed={() => setReloadKey((k) => k + 1)} />
 
           {view.result.tables.map((t) => (
             <FormTableView key={t.key} table={t} />
