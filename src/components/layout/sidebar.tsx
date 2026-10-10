@@ -78,6 +78,7 @@ const navGroups: NavGroup[] = [
       { href: "/bad-debts", label: "貸倒れ・貸倒引当金", icon: ShieldAlert },
       { href: "/breakdown", label: "勘定科目内訳明細書", icon: ClipboardList },
       { href: "/tax-return", label: "消費税申告書", icon: Calculator },
+      { href: "/corporate-tax", label: "法人税申告書", icon: Landmark },
     ],
   },
   {
