@@ -87,8 +87,15 @@ describe("消費税申告書の e-Tax ファイル（.xtx）", () => {
     expect(val(r.xml, "ABL00040")).toBe("17000"); // 参考事項の課税売上高は千円単位
   });
 
-  it("2割特例はまだ作れない", () => {
-    expect(() => make(input({ sales: { A: 0, B: 1_100_000 } }), settings({ method: "special_20" }))).toThrow(/2割特例/);
+  it("2割特例は一般用の申告書（控除税額の計算方法 8）＋付表6。付表1-3・2-3 は付けない", () => {
+    const r = make(input({ sales: { A: 0, B: 11_000_000 } }), settings({ method: "special_20" }));
+    expect(r.fileName.startsWith("RSH0020_")).toBe(true);
+    expect(r.xml).toContain("<AAM00020><kubun_CD>8</kubun_CD></AAM00020>");
+    expect(r.xml).toContain('<SHB070 VR="1.0"');
+    expect(r.xml).not.toContain("<SHB017 ");
+    expect(r.xml).not.toContain("<SHB033 ");
+    expect(val(r.xml, "AYC00040")).toBe("624000"); // 特別控除税額 ＝ 780,000 × 80%
+    expect(val(r.xml, "AYC00040")).toBe(val(r.xml, "AAJ00050")); // ＝ 第一表④
   });
 });
 

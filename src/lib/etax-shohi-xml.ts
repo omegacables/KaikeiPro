@@ -1,10 +1,10 @@
 /**
  * 消費税及び地方消費税の申告書（法人）を e-Tax 用ファイル（.xtx）にする。純粋関数。
  *   一般用: 手続 RSH0020（23.2.0）= 申告書 SHA010（第一表・第二表）＋ 付表1-3 SHB017 ＋ 付表2-3 SHB033
+ *   2割特例: 手続 RSH0020 = 申告書 SHA010（控除税額の計算方法「8」）＋ 付表6 SHB070（付表1-3・2-3 の代わり）
  *   簡易課税用: 手続 RSH0040（23.2.0）= 申告書 SHA020 ＋ 付表4-3 SHB047 ＋ 付表5-3 SHB067
  * 金額は申告書の計算（src/lib/consumption-tax-return.ts）の表から、欄番号で取り出す。
  * 要素名と順番は国税庁「XML構造設計書（消費-申告）」とスキーマ（shohi/*.xsd）のとおり。
- * 2割特例（付表6）はまだ作れない。
  */
 
 import type { ConsumptionTaxReturn, FormTable, Pair } from "@/lib/consumption-tax-return";
@@ -45,7 +45,6 @@ function cells(tables: FormTable[]) {
 
 export function consumptionTaxXml(i: ShohiXmlInput): { fileName: string; xml: string } {
   const { ret } = i;
-  if (ret.method === "special_20") throw new Error("2割特例（付表6）の e-Tax 用ファイルはまだ作れません。e-Taxソフトで入力してください。");
   const simplified = ret.method === "simplified";
   const proc = simplified
     ? { code: "RSH0040", name: "消費税及び地方消費税申告(簡易課税・法人)" }
@@ -141,7 +140,9 @@ export function consumptionTaxXml(i: ShohiXmlInput): { fileName: string; xml: st
   const forms: { id: string; xml: string }[] = [];
 
   if (!simplified) {
-    const methodCode = ret.deductionMethod === "individual" ? 1 : ret.deductionMethod === "proportional" ? 2 : 3;
+    const special20 = ret.method === "special_20";
+    // 控除税額の計算方法: 1 個別対応方式 / 2 一括比例配分方式 / 3 全額控除 / 8 2割特例
+    const methodCode = special20 ? 8 : ret.deductionMethod === "individual" ? 1 : ret.deductionMethod === "proportional" ? 2 : 3;
     const page1 = page(
       "SHA010-1",
       header1("AAI"),
@@ -157,73 +158,93 @@ export function consumptionTaxXml(i: ShohiXmlInput): { fileName: string; xml: st
     const page2 = page("SHA010-2", ...second("AAN", "AAP00000", "AAQ00000", "AAS00000", "AAT00000", "AAU00000", "AAW00000"));
     forms.push({ id: "SHA010-1", xml: form("SHA010", "10.0", "SHA010-1", by, [page1, page2].filter(Boolean).join("")) });
 
-    // 付表1-3
-    const k1 = "fuhyo1-3";
-    const fuhyo13 = [
-      fuhyoHeader("DSA"),
-      group("DSB00000", ...abc(["DSB00010", "DSB00020", "DSB00030"], k1, "①")),
-      group("DSC00000", group("DSC00010", ...abc(["DSC00020", "DSC00030", "DSC00040"], k1, "①-1"))),
-      group("DSD00000", ...abc(["DSD00010", "DSD00020", "DSD00030"], k1, "②")),
-      group("DSE00000", ...abc(["DSE00010", "DSE00020", "DSE00030"], k1, "③")),
-      group(
-        "DSF00000",
-        group("DSF00010", ...abc(["DSF00020", "DSF00030", "DSF00040"], k1, "④")),
-        group("DSF00050", ...abc(["DSF00060", "DSF00070", "DSF00080"], k1, "⑤")),
-        group("DSF00170", ...abc(["DSF00180", "DSF00190", "DSF00200"], k1, "⑥")),
-        group("DSF00210", ...abc(["DSF00220", "DSF00230", "DSF00240"], k1, "⑦"))
-      ),
-      amount("DSG00000", c(k1, "⑧")),
-      amount("DSH00000", c(k1, "⑨")),
-      group("DSI00000", amount("DSI00010", c(k1, "⑩")), amount("DSI00020", c(k1, "⑪"))),
-      group("DSJ00000", amount("DSJ00010", c(k1, "⑫")), amount("DSJ00020", c(k1, "⑬"))),
-    ];
-    forms.push({ id: "SHB017-1", xml: form("SHB017", "2.0", "SHB017-1", by, fuhyo13.filter(Boolean).join("")) });
-
-    // 付表2-3
-    const k2 = "fuhyo2-3";
-    const ratio = ret.taxableSalesRatio === null ? null : Math.floor(ret.taxableSalesRatio * 10000) / 100;
-    const fuhyo23 = [
-      fuhyoHeader("DTA"),
-      group(
-        "DTB00000",
-        group("DTB00010", ...abc(["DTB00020", "DTB00030", "DTB00040"], k2, "①")),
-        amount("DTB00050", c(k2, "②")),
-        amount("DTB00060", c(k2, "③")),
-        amount("DTB00070", c(k2, "④"))
-      ),
-      group("DTC00000", amount("DTC00010", c(k2, "⑤")), amount("DTC00020", c(k2, "⑥")), amount("DTC00030", c(k2, "⑦"))),
-      ratio === null ? null : value("DTD00000", ratio),
-      group(
-        "DTE00000",
-        group("DTE00010", ...abc(["DTE00020", "DTE00030", "DTE00040"], k2, "⑨")),
-        group("DTE00050", ...abc(["DTE00060", "DTE00070", "DTE00080"], k2, "⑩")),
-        group("DTE00270", ...abc(["DTE00280", "DTE00290", "DTE00300"], k2, "⑪")),
-        group("DTE00310", ...abc(["DTE00320", "DTE00330", "DTE00340"], k2, "⑫")),
-        group("DTE00090", amount("DTE00100", c(k2, "⑬", "b")), amount("DTE00110", c(k2, "⑬"))),
-        group("DTE00120", amount("DTE00130", c(k2, "⑭", "b")), amount("DTE00140", c(k2, "⑭"))),
-        group("DTE00150", ...abc(["DTE00160", "DTE00170", "DTE00180"], k2, "⑮")),
-        group("DTE00190", ...abc(["DTE00200", "DTE00210", "DTE00220"], k2, "⑯")),
-        group("DTE00230", ...abc(["DTE00240", "DTE00250", "DTE00260"], k2, "⑰"))
-      ),
-      group("DTF00000", ...abc(["DTF00010", "DTF00020", "DTF00030"], k2, "⑱")),
-      group(
-        "DTG00000",
+    if (special20) {
+      // 付表6（税率別消費税額計算表〔小規模事業者に係る税額控除に関する経過措置を適用する課税期間用〕）
+      const k6 = "fuhyo6";
+      const fuhyo6 = [
+        fuhyoHeader("AYA"),
         group(
-          "DTG00010",
-          group("DTG00020", ...abc(["DTG00030", "DTG00040", "DTG00050"], k2, "⑲")),
-          group("DTG00060", ...abc(["DTG00070", "DTG00080", "DTG00090"], k2, "⑳")),
-          group("DTG00100", ...abc(["DTG00110", "DTG00120", "DTG00130"], k2, "㉑"))
+          "AYB00000",
+          group("AYB00010", ...abc(["AYB00020", "AYB00030", "AYB00040"], k6, "①")),
+          group("AYB00050", ...abc(["AYB00060", "AYB00070", "AYB00080"], k6, "②")),
+          group("AYB00090", ...abc(["AYB00100", "AYB00110", "AYB00120"], k6, "③")),
+          group("AYB00130", ...abc(["AYB00140", "AYB00150", "AYB00160"], k6, "④")),
+          group("AYB00170", ...abc(["AYB00180", "AYB00190", "AYB00200"], k6, "⑤")),
+          group("AYB00210", ...abc(["AYB00220", "AYB00230", "AYB00240"], k6, "⑥"))
         ),
-        group("DTG00140", ...abc(["DTG00150", "DTG00160", "DTG00170"], k2, "㉒"))
-      ),
-      group(
-        "DTI00000",
-        group("DTI00010", ...abc(["DTI00020", "DTI00030", "DTI00040"], k2, "㉖")),
-        group("DTI00050", ...abc(["DTI00060", "DTI00070", "DTI00080"], k2, "㉗"))
-      ),
-      group("DTJ00000", ...abc(["DTJ00010", "DTJ00020", "DTJ00030"], k2, "㉘")),
-    ];
-    forms.push({ id: "SHB033-1", xml: form("SHB033", "2.0", "SHB033-1", by, fuhyo23.filter(Boolean).join("")) });
+        group("AYC00000", group("AYC00010", ...abc(["AYC00020", "AYC00030", "AYC00040"], k6, "⑦"))),
+        group("AYD00000", group("AYD00010", ...abc(["AYD00020", "AYD00030", "AYD00040"], k6, "⑧"))),
+      ];
+      forms.push({ id: "SHB070-1", xml: form("SHB070", "1.0", "SHB070-1", by, fuhyo6.filter(Boolean).join("")) });
+    } else {
+      // 付表1-3
+      const k1 = "fuhyo1-3";
+      const fuhyo13 = [
+        fuhyoHeader("DSA"),
+        group("DSB00000", ...abc(["DSB00010", "DSB00020", "DSB00030"], k1, "①")),
+        group("DSC00000", group("DSC00010", ...abc(["DSC00020", "DSC00030", "DSC00040"], k1, "①-1"))),
+        group("DSD00000", ...abc(["DSD00010", "DSD00020", "DSD00030"], k1, "②")),
+        group("DSE00000", ...abc(["DSE00010", "DSE00020", "DSE00030"], k1, "③")),
+        group(
+          "DSF00000",
+          group("DSF00010", ...abc(["DSF00020", "DSF00030", "DSF00040"], k1, "④")),
+          group("DSF00050", ...abc(["DSF00060", "DSF00070", "DSF00080"], k1, "⑤")),
+          group("DSF00170", ...abc(["DSF00180", "DSF00190", "DSF00200"], k1, "⑥")),
+          group("DSF00210", ...abc(["DSF00220", "DSF00230", "DSF00240"], k1, "⑦"))
+        ),
+        amount("DSG00000", c(k1, "⑧")),
+        amount("DSH00000", c(k1, "⑨")),
+        group("DSI00000", amount("DSI00010", c(k1, "⑩")), amount("DSI00020", c(k1, "⑪"))),
+        group("DSJ00000", amount("DSJ00010", c(k1, "⑫")), amount("DSJ00020", c(k1, "⑬"))),
+      ];
+      forms.push({ id: "SHB017-1", xml: form("SHB017", "2.0", "SHB017-1", by, fuhyo13.filter(Boolean).join("")) });
+
+      // 付表2-3
+      const k2 = "fuhyo2-3";
+      const ratio = ret.taxableSalesRatio === null ? null : Math.floor(ret.taxableSalesRatio * 10000) / 100;
+      const fuhyo23 = [
+        fuhyoHeader("DTA"),
+        group(
+          "DTB00000",
+          group("DTB00010", ...abc(["DTB00020", "DTB00030", "DTB00040"], k2, "①")),
+          amount("DTB00050", c(k2, "②")),
+          amount("DTB00060", c(k2, "③")),
+          amount("DTB00070", c(k2, "④"))
+        ),
+        group("DTC00000", amount("DTC00010", c(k2, "⑤")), amount("DTC00020", c(k2, "⑥")), amount("DTC00030", c(k2, "⑦"))),
+        ratio === null ? null : value("DTD00000", ratio),
+        group(
+          "DTE00000",
+          group("DTE00010", ...abc(["DTE00020", "DTE00030", "DTE00040"], k2, "⑨")),
+          group("DTE00050", ...abc(["DTE00060", "DTE00070", "DTE00080"], k2, "⑩")),
+          group("DTE00270", ...abc(["DTE00280", "DTE00290", "DTE00300"], k2, "⑪")),
+          group("DTE00310", ...abc(["DTE00320", "DTE00330", "DTE00340"], k2, "⑫")),
+          group("DTE00090", amount("DTE00100", c(k2, "⑬", "b")), amount("DTE00110", c(k2, "⑬"))),
+          group("DTE00120", amount("DTE00130", c(k2, "⑭", "b")), amount("DTE00140", c(k2, "⑭"))),
+          group("DTE00150", ...abc(["DTE00160", "DTE00170", "DTE00180"], k2, "⑮")),
+          group("DTE00190", ...abc(["DTE00200", "DTE00210", "DTE00220"], k2, "⑯")),
+          group("DTE00230", ...abc(["DTE00240", "DTE00250", "DTE00260"], k2, "⑰"))
+        ),
+        group("DTF00000", ...abc(["DTF00010", "DTF00020", "DTF00030"], k2, "⑱")),
+        group(
+          "DTG00000",
+          group(
+            "DTG00010",
+            group("DTG00020", ...abc(["DTG00030", "DTG00040", "DTG00050"], k2, "⑲")),
+            group("DTG00060", ...abc(["DTG00070", "DTG00080", "DTG00090"], k2, "⑳")),
+            group("DTG00100", ...abc(["DTG00110", "DTG00120", "DTG00130"], k2, "㉑"))
+          ),
+          group("DTG00140", ...abc(["DTG00150", "DTG00160", "DTG00170"], k2, "㉒"))
+        ),
+        group(
+          "DTI00000",
+          group("DTI00010", ...abc(["DTI00020", "DTI00030", "DTI00040"], k2, "㉖")),
+          group("DTI00050", ...abc(["DTI00060", "DTI00070", "DTI00080"], k2, "㉗"))
+        ),
+        group("DTJ00000", ...abc(["DTJ00010", "DTJ00020", "DTJ00030"], k2, "㉘")),
+      ];
+      forms.push({ id: "SHB033-1", xml: form("SHB033", "2.0", "SHB033-1", by, fuhyo23.filter(Boolean).join("")) });
+    }
   } else {
     const sd = ret.simplified;
     // 参考事項の事業区分（課税売上高は千円単位・売上割合は%）
