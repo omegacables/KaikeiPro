@@ -55,6 +55,12 @@ export function amount(tag: string, v: number | null | undefined): string | null
   return `<${tag}>${Math.round(v)}</${tag}>`;
 }
 
+/** 金額（0 も書く）。防衛特別法人税のように「税額が0円でも記載する」欄に使う */
+export function amount0(tag: string, v: number | null | undefined): string | null {
+  if (v === null || v === undefined || !Number.isFinite(v)) return null;
+  return `<${tag}>${Math.round(v)}</${tag}>`;
+}
+
 /** 区分（kubun_CD） */
 export function kubun(tag: string, code: number | string | null | undefined): string | null {
   return code === null || code === undefined ? null : `<${tag}><kubun_CD>${code}</kubun_CD></${tag}>`;
@@ -107,7 +113,17 @@ export function missingFilerInfo(f: Partial<Filer>): string[] {
  */
 export function buildIT(
   f: Filer,
-  p: { procedureCode: string; procedureName: string; periodFrom: string; periodTo: string; periodKind: "kazei" | "jigyo"; shinkokuKbn: number }
+  p: {
+    procedureCode: string;
+    procedureName: string;
+    periodFrom: string;
+    periodTo: string;
+    periodKind: "kazei" | "jigyo";
+    shinkokuKbn: number;
+    /** 法人税: 期末の資本金の額（円）と事業種目（20文字まで） */
+    capital?: number | null;
+    businessDescription?: string | null;
+  }
 ): { xml: string; ids: Set<string> } {
   const ids = new Set<string>();
   const it = (tag: string, inner: string | null, attrs = "") => {
@@ -138,6 +154,8 @@ export function buildIT(
     zip.length === 7 && it("NOZEISHA_ZIP", `<gen:zip1>${zip.slice(0, 3)}</gen:zip1><gen:zip2>${zip.slice(3)}</gen:zip2>`),
     it("NOZEISHA_ADR", esc(etaxText(f.address))),
     tel && it("NOZEISHA_TEL", `<gen:tel1>${tel[0]}</gen:tel1><gen:tel2>${tel[1]}</gen:tel2><gen:tel3>${tel[2]}</gen:tel3>`),
+    p.capital != null && p.capital >= 0 && it("SHIHON_KIN", String(Math.round(p.capital))),
+    etaxText(p.businessDescription) && it("JIGYO_NAIYO", esc([...etaxText(p.businessDescription)].slice(0, 20).join(""))),
     repKana && it("DAIHYO_NM_KN", esc(repKana)),
     repName && it("DAIHYO_NM", esc(repName)),
     it("TETSUZUKI", `<procedure_CD>${p.procedureCode}</procedure_CD><procedure_NM>${esc(p.procedureName)}</procedure_NM>`),

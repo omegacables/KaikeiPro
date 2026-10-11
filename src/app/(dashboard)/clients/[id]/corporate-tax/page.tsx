@@ -16,9 +16,11 @@ import { cn } from "@/lib/utils";
 import { SettlementCard } from "@/components/tax/settlement-card";
 import { useClientRole } from "@/lib/use-client-role";
 import { printPage } from "@/lib/export";
+import { EtaxXtxButton } from "@/components/tax/etax-xtx-button";
 import type { TaxTable, Adjustment, Office } from "@/lib/corporate-tax-return";
 import {
   getCorporateTaxReturn,
+  getCorporateTaxXtx,
   saveCorporateTaxReturnInputs,
   type CorporateReturnView,
   type CorporateReturnInputs,
@@ -90,6 +92,7 @@ export default function CorporateTaxPage() {
               <Printer className="size-4" />
               印刷・PDF
             </Button>
+            <EtaxXtxButton clientId={id} load={() => getCorporateTaxXtx(id, view.period.key)} />
           </div>
         )}
       </div>

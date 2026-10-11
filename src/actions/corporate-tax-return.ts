@@ -12,10 +12,12 @@ import {
   resolveFiscalPeriodByKey,
   adjacentFiscalPeriodKeys,
   currentFiscalStartYear,
+  toJstDate,
   type FiscalPeriodRow,
 } from "@/lib/fiscal";
 import {
   computeCorporateTaxReturn,
+  defenseTaxApplies,
   STANDARD_LOCAL_RATES,
   type CorporateInput,
   type CorporateTaxReturn,
@@ -27,6 +29,10 @@ import {
   type Carryback,
 } from "@/lib/corporate-tax-return";
 import { getTrialBalance } from "@/actions/statements";
+import type { SupabaseClient } from "@supabase/supabase-js";
+import { corporateTaxXml } from "@/lib/etax-hojin-xml";
+import { missingFilerInfo } from "@/lib/etax-xml";
+import { loadFiler } from "@/lib/etax-filer";
 import { getDepreciationBook } from "@/actions/assets";
 
 type Db = Awaited<ReturnType<typeof createServerSupabaseClient>>;
@@ -347,4 +353,31 @@ export async function saveCorporateTaxReturnInputs(
     const { error: cErr } = await db.from("clients").update({ capital_amount: inputs.capital }).eq("id", clientId);
     if (cErr) throw new Error(cErr.message);
   }
+}
+
+/**
+ * 法人税の申告書（別表一・次葉・四・五(一)(二)・七(一)・十五）を e-Tax 用ファイル（.xtx）にする。
+ * e-Taxソフトで読み込んで、別表二など足りない帳票を加え、署名・送信する。作り方は src/lib/etax-hojin-xml.ts。
+ */
+export async function getCorporateTaxXtx(
+  clientId: string,
+  periodKey: string
+): Promise<{ fileName: string; xml: string } | { missing: string[] }> {
+  const view = await getCorporateTaxReturn(clientId, periodKey); // アクセス権もここで確かめる
+  const db = await createServerSupabaseClient();
+  const filer = await loadFiler(db as unknown as SupabaseClient, clientId);
+  const missing = missingFilerInfo(filer);
+  if (missing.length) return { missing };
+  const [y, m, d] = view.period.startDate.split("-").map(Number);
+  const priorEnd = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
+  return corporateTaxXml({
+    ret: view.result,
+    filer,
+    period: { start: view.period.startDate, end: view.period.endDate },
+    priorPeriod: { start: view.period.prevKey, end: priorEnd },
+    capital: view.inputs.capital,
+    businessDescription: filer.businessDescription,
+    defenseApplies: defenseTaxApplies(view.period.startDate),
+    today: toJstDate(new Date().toISOString()),
+  });
 }

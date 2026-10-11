@@ -96,8 +96,22 @@ export type CorporateInput = {
   carryback?: Carryback | null;
 };
 
-/** 表の1行。values は列ごとの値（列の無い欄は null） */
-export type TaxRow = { no: string; label: string; values: (number | null)[]; note?: string };
+/**
+ * 表の1行。values は列ごとの値（列の無い欄は null）。
+ * key・name・detail は e-Tax 用ファイル（src/lib/etax-hojin-xml.ts）が行を見分けるためのもの
+ *   key: 別表四の自由記入行は "free"、別表五(一) は行の種類（"retainedEarnings" など）
+ *   name: 自由記入行の項目名（「加算: 」などを付けない名前）
+ *   detail: 別表五(一) の未納税額の増の内訳（中間・確定）
+ */
+export type TaxRow = {
+  no: string;
+  label: string;
+  values: (number | null)[];
+  note?: string;
+  key?: string;
+  name?: string;
+  detail?: { interim: number; final: number };
+};
 export type TaxTable = { key: string; title: string; columns: string[]; rows: TaxRow[] };
 
 export type CorporateTaxReturn = {
@@ -117,6 +131,9 @@ export type CorporateTaxReturn = {
   /** この申告で納める（マイナスは還付）合計 */
   totalPayable: number;
   isSme: boolean;
+  /** 事業年度の月数と、年800万円以下の部分の税率（15% / 17%）。e-Tax 用ファイルで使う */
+  months: number;
+  lowRate: number;
   nextLosses: LossCarryforward[];
   /** 別表五(一) の期末（翌期首）の利益積立金 */
   closingRetained: RetainedItem[];
@@ -188,32 +205,30 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
 
   // ===================== 別表四 所得の金額の計算 =====================
   // 列: ①総額 ②留保 ③社外流出
-  type L = { no: string; label: string; total: number; retained: number; outflow: number; note?: string };
+  type L = { no: string; label: string; total: number; retained: number; outflow: number; note?: string; free?: boolean };
   const adds: L[] = [];
   const deducts: L[] = [];
-  const add = (arr: L[], no: string, label: string, amount: number, treatment: "retained" | "outflow", note?: string) => {
+  const add = (arr: L[], no: string, label: string, amount: number, treatment: "retained" | "outflow", note?: string, free = false) => {
     if (amount === 0) return;
-    arr.push({ no, label, total: amount, retained: treatment === "retained" ? amount : 0, outflow: treatment === "outflow" ? amount : 0, note });
+    arr.push({ no, label, total: amount, retained: treatment === "retained" ? amount : 0, outflow: treatment === "outflow" ? amount : 0, note, free });
   };
-  // 損金経理をした法人税・住民税（中間分）と、納税充当金の繰入
-  const interimBookedAddBack = Math.min(i.taxExpenseBooked, interimNationalLocal);
+  // 損金経理をした法人税・住民税（中間分）と、納税充当金の繰入。
+  // 法人税等の科目の計上額は、まず中間分の法人税・地方法人税、次に住民税に当て、残りを納税充当金の繰入とみる
+  const interimNational = i.interim.corporate + i.interim.localCorporate;
+  const bookedNational = Math.min(i.taxExpenseBooked, interimNational);
+  const bookedLocal = Math.min(i.taxExpenseBooked - bookedNational, i.interim.prefectural + i.interim.municipal);
   const provisionBooked = pos(i.taxExpenseBooked - interimAll);
-  add(adds, "2・3", "損金経理をした法人税・地方法人税・住民税（中間分）", interimBookedAddBack, "retained");
+  // 前期分のうち期首の納税充当金で足りない分は、当期の経費で納付したものとして加算する
+  const priorNote = "前期分のうち期首の納税充当金で足りない分は、当期の経費で納付したものとして含めています";
+  add(adds, "2", "損金経理をした法人税・地方法人税", bookedNational + priorCorp.expensed, "retained", priorCorp.expensed ? priorNote : undefined);
+  add(adds, "3", "損金経理をした道府県民税・市町村民税", bookedLocal + priorPref.expensed + priorMuni.expensed, "retained", priorPref.expensed + priorMuni.expensed ? priorNote : undefined);
   add(adds, "4", "損金経理をした納税充当金", provisionBooked, "retained", "別表五(二)「31」");
   add(adds, "6", "減価償却の償却超過額", i.depreciation.excess, "retained", "固定資産台帳（別表十六）");
   add(adds, "8", "交際費等の損金不算入額", entDisallowed, "outflow", "別表十五「5」");
-  for (const a of i.adjustments.filter((x) => x.kind === "add")) add(adds, "10", a.name, a.amount, a.treatment);
+  for (const a of i.adjustments.filter((x) => x.kind === "add")) add(adds, "10", a.name, a.amount, a.treatment, undefined, true);
   add(deducts, "12", "減価償却超過額の当期認容額", i.depreciation.allowed, "retained", "固定資産台帳（別表十六）");
-  add(
-    adds,
-    "2・3",
-    "損金経理をした法人税・住民税（前期分）",
-    priorCorp.expensed + priorPref.expensed + priorMuni.expensed,
-    "retained",
-    "期首の納税充当金で足りない分を当期の経費で納付"
-  );
   add(deducts, "13", "納税充当金から支出した事業税等の金額", priorEnt.fromProvision, "retained", "別表五(二)「35」");
-  for (const a of i.adjustments.filter((x) => x.kind === "deduct")) add(deducts, "21", a.name, a.amount, a.treatment);
+  for (const a of i.adjustments.filter((x) => x.kind === "deduct")) add(deducts, "21", a.name, a.amount, a.treatment, undefined, true);
 
   const sum = (arr: L[], k: "total" | "retained" | "outflow") => arr.reduce((s, x) => s + x[k], 0);
   const addTotal = { total: sum(adds, "total"), retained: sum(adds, "retained"), outflow: sum(adds, "outflow") };
@@ -392,7 +407,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
 
   // ===================== 別表五(一) 利益積立金 =====================
   // 列: ①期首 ②減 ③増 ④差引翌期首（＝①−②＋③）
-  type R5 = { name: string; open: number; dec: number; inc: number };
+  type R5 = { name: string; open: number; dec: number; inc: number; key?: string; detail?: { interim: number; final: number } };
   const rows5: R5[] = [];
   for (const o of i.openingRetained.filter((x) => !SPECIAL.has(x.name))) rows5.push({ name: o.name, open: o.amount, dec: 0, inc: 0 });
   // 手入力の加算・減算のうち留保のものは、名前ごとに増減させる
@@ -418,7 +433,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
   rows5.push({ name: NAMES.provision, open: openingProvision, dec: provisionUsed, inc: provisionBooked });
   const unpaidRow = (name: string, interim: number, final: number) => {
     const o = opening(name); // 期首は△（マイナス）で入っている
-    return { name, open: o, dec: o - interim, inc: -(interim + final) };
+    return { name, open: o, dec: o - interim, inc: -(interim + final), detail: { interim, final } };
   };
   rows5.push(unpaidRow(NAMES.unpaidCorporate, i.interim.corporate + i.interim.localCorporate, finalCorporate));
   rows5.push(unpaidRow(NAMES.unpaidPrefectural, i.interim.prefectural, prefectural));
@@ -491,11 +506,12 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
     });
   }
 
-  const r4 = (no: string, label: string, t: number, ret: number, out: number, note?: string): TaxRow => ({
+  const r4 = (no: string, label: string, t: number, ret: number, out: number, note?: string, free?: { name: string }): TaxRow => ({
     no,
     label,
     values: [t, ret, out],
     note,
+    ...(free ? { key: "free", name: free.name } : {}),
   });
   tables.push({
     key: "beppyo4",
@@ -503,9 +519,9 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
     columns: ["総額①", "留保②", "社外流出③"],
     rows: [
       r4("1", "当期利益又は当期欠損の額", i.netIncome, i.netIncome, 0, "損益計算書"),
-      ...adds.map((a) => r4(a.no, `加算: ${a.label}`, a.total, a.retained, a.outflow, a.note)),
+      ...adds.map((a) => r4(a.no, `加算: ${a.label}`, a.total, a.retained, a.outflow, a.note, a.free ? { name: a.label } : undefined)),
       r4("11", "加算 小計", addTotal.total, addTotal.retained, addTotal.outflow),
-      ...deducts.map((a) => r4(a.no, `減算: ${a.label}`, a.total, a.retained, a.outflow, a.note)),
+      ...deducts.map((a) => r4(a.no, `減算: ${a.label}`, a.total, a.retained, a.outflow, a.note, a.free ? { name: a.label } : undefined)),
       r4("22", "減算 小計", dedTotal.total, dedTotal.retained, dedTotal.outflow),
       r4("26", "仮計", line26.total, line26.retained, line26.outflow),
       r4("29", "法人税額から控除される所得税額", withholdingCredit, 0, withholdingCredit),
@@ -526,9 +542,18 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
         no: "3〜5",
         label: `${l.periodEnd} 終了事業年度の青色欠損金${l.expired ? "（期限切れ）" : ""}`,
         values: [l.amount, l.used, l.carry],
+        key: "loss",
+        name: l.periodEnd,
       })),
       ...(income < 0
-        ? [{ no: "当期分", label: carrybackUsed > 0 ? `当期の欠損金額（うち繰戻し ${carrybackUsed.toLocaleString()}円）` : "当期の欠損金額", values: [null, carrybackUsed || null, -income - carrybackUsed] }]
+        ? [
+            {
+              no: "当期分",
+              label: carrybackUsed > 0 ? `当期の欠損金額（うち繰戻し ${carrybackUsed.toLocaleString()}円）` : "当期の欠損金額",
+              values: [-income, carrybackUsed || null, -income - carrybackUsed],
+              key: "current",
+            },
+          ]
         : []),
       { no: "計", label: "合計", values: [lossRows.reduce((s, l) => s + l.amount, 0), lossUsed, nextLosses.reduce((s, l) => s + l.amount, 0)] },
     ],
@@ -552,7 +577,14 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
     title: "別表五(一) 利益積立金額の計算に関する明細書",
     columns: ["期首現在①", "当期の減②", "当期の増③", "差引翌期首現在④"],
     rows: [
-      ...rows5.map((x) => ({ no: "", label: x.name, values: [x.open, x.dec, x.inc, close5(x)] })),
+      ...rows5.map((x) => ({
+        no: "",
+        label: x.name,
+        values: [x.open, x.dec, x.inc, close5(x)],
+        key: (Object.keys(NAMES) as (keyof typeof NAMES)[]).find((k) => NAMES[k] === x.name) ?? "free",
+        name: x.name,
+        ...(x.detail ? { detail: x.detail } : {}),
+      })),
       { no: "31", label: "差引合計額", values: [total5.open, total5.dec, total5.inc, total5.close] },
       { no: "32", label: "資本金又は出資金（Ⅱ 資本金等の額）", values: [i.capital, null, null, i.capital] },
     ],
@@ -636,6 +668,8 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
     totalTaxForPeriod,
     totalPayable,
     isSme,
+    months: m,
+    lowRate,
     nextLosses,
     closingRetained,
     warnings,

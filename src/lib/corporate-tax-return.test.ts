@@ -210,7 +210,7 @@ describe("別表五(一) 利益積立金の検算", () => {
         ],
       })
     );
-    expect(val(r, "beppyo4", "2・3", 1)).toBe(70_000);
+    expect(val(r, "beppyo4", "3", 1)).toBe(70_000); // 住民税は「3」
     expect(r.income).toBe(1_000_000);
     expect(r.warnings.filter((w) => w.includes("検算"))).toEqual([]);
   });

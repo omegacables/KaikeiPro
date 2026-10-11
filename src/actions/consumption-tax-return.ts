@@ -17,7 +17,7 @@ import {
 } from "@/lib/fiscal";
 import { consumptionTaxXml } from "@/lib/etax-shohi-xml";
 import { missingFilerInfo } from "@/lib/etax-xml";
-import { taxOfficeName } from "@/lib/tax-offices";
+import { loadFiler } from "@/lib/etax-filer";
 import { loadTaxBookLines } from "@/lib/tax-exclusive";
 import {
   aggregateReturnInput,
@@ -206,25 +206,7 @@ export async function getConsumptionTaxXtx(
 ): Promise<{ fileName: string; xml: string } | { missing: string[] }> {
   const view = await getConsumptionTaxReturn(clientId, periodKey); // アクセス権もここで確かめる
   const db = await createServerSupabaseClient();
-  const { data: c, error } = await db
-    .from("clients")
-    .select("name, postal_code, address, telephone, tax_office_code, etax_user_id, corporate_number, name_kana, representative_name, representative_kana")
-    .eq("id", clientId)
-    .single();
-  if (error || !c) throw new Error(error?.message ?? "顧問先が見つかりません");
-  const filer = {
-    taxOfficeCode: (c.tax_office_code as string | null) ?? "",
-    taxOfficeName: taxOfficeName(c.tax_office_code as string | null),
-    etaxUserId: (c.etax_user_id as string | null) ?? "",
-    corporateNumber: (c.corporate_number as string | null) ?? null,
-    name: (c.name as string) ?? "",
-    nameKana: (c.name_kana as string | null) ?? null,
-    postalCode: (c.postal_code as string | null) ?? null,
-    address: (c.address as string | null) ?? "",
-    telephone: (c.telephone as string | null) ?? null,
-    representativeName: (c.representative_name as string | null) ?? null,
-    representativeKana: (c.representative_kana as string | null) ?? null,
-  };
+  const filer = await loadFiler(db as unknown as SupabaseClient, clientId);
   const missing = missingFilerInfo(filer);
   if (missing.length) return { missing };
   return consumptionTaxXml({

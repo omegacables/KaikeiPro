@@ -7,7 +7,8 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Calculator, ChevronLeft, ChevronRight, Loader2, Printer, AlertTriangle, Info, Download } from "lucide-react";
+import { Calculator, ChevronLeft, ChevronRight, Loader2, Printer, AlertTriangle, Info } from "lucide-react";
+import { EtaxXtxButton } from "@/components/tax/etax-xtx-button";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AmountInput } from "@/components/ui/amount-input";
@@ -83,7 +84,7 @@ export default function TaxReturnPage() {
               <Printer className="size-4" />
               印刷・PDF
             </Button>
-            {!view.taxExempt && <EtaxXtxButton clientId={id} periodKey={view.period.key} />}
+            {!view.taxExempt && <EtaxXtxButton clientId={id} load={() => getConsumptionTaxXtx(id, view.period.key)} />}
           </div>
         )}
       </div>
@@ -380,43 +381,5 @@ function FormTableView({ table }: { table: FormTable }) {
         </table>
       </div>
     </Card>
-  );
-}
-
-/** e-Tax 用ファイル（.xtx）の保存。提出者の情報が足りなければ設定画面へ案内する */
-function EtaxXtxButton({ clientId, periodKey }: { clientId: string; periodKey: string }) {
-  const [busy, setBusy] = useState(false);
-  const download = async () => {
-    setBusy(true);
-    try {
-      const r = await getConsumptionTaxXtx(clientId, periodKey);
-      if ("missing" in r) {
-        if (confirm(`e-Tax の提出情報（${r.missing.join("・")}）が入っていません。設定画面を開きますか？`))
-          window.location.href = `/clients/${clientId}/settings?tab=etax`;
-        return;
-      }
-      const url = URL.createObjectURL(new Blob([r.xml], { type: "application/xml" }));
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = r.fileName;
-      a.click();
-      URL.revokeObjectURL(url);
-    } catch (e) {
-      alert(e instanceof Error ? e.message : "作れませんでした");
-    } finally {
-      setBusy(false);
-    }
-  };
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={download}
-      disabled={busy}
-      title="e-Taxソフト（WEB版は「作成済みデータの利用」、PC版は「組み込み」）で読み込み、署名して送信します"
-    >
-      {busy ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
-      e-Tax用ファイル（.xtx）
-    </Button>
   );
 }
