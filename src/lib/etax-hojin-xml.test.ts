@@ -113,3 +113,57 @@ describe("法人税申告書の e-Tax ファイル（.xtx）", () => {
     expect(() => make(input({ netIncome: 100_000, adjustments: many }))).toThrow(/4行/);
   });
 });
+
+describe("別表十六・適用額明細書", () => {
+  const row = (o: Partial<import("./depreciation").ScheduleRow>) => ({
+    start: "2025-09-01", end: "2026-08-31", months: 12, openingBook: 0, openingExcess: 0, ordinaryLimit: 0, specialLimit: 0, specialShortfall: 0,
+    limit: 0, booked: 0, excess: 0, allowed: 0, closingExcess: 0, closingBook: 0, revised: false, overridden: false, ...o,
+  });
+  const base = { accountName: "工具器具備品", rate: null, schedule: [] };
+  const assets: import("./etax-hojin-depreciation").DepAsset[] = [
+    ...Array.from({ length: 6 }, (_, k) => ({
+      ...base, name: `PC${k}`, acquisitionDate: "2024-10-01", serviceStartDate: "2024-10-01", acquisitionCost: 600_000, usefulLife: 4, kind: "sl" as const,
+      rate: { rate: 0.25, revised: null, guarantee: null }, current: row({ ordinaryLimit: 150_000, limit: 150_000, booked: 150_000, closingBook: 337_500 }),
+    })),
+    { ...base, name: "複合機", acquisitionDate: "2026-01-10", serviceStartDate: "2026-01-10", acquisitionCost: 250_000, usefulLife: 5, kind: "immediate" as const, current: row({ booked: 250_000 }) },
+    { ...base, name: "古い建物", acquisitionDate: "2005-04-01", serviceStartDate: "2005-04-01", acquisitionCost: 9_000_000, usefulLife: 30, kind: "unsupported" as const, current: row({}) },
+  ];
+  const r = corporateTaxXml({
+    ret: computeCorporateTaxReturn(input({ netIncome: 5_000_000 })),
+    filer,
+    period: { start: "2025-09-01", end: "2026-08-31" },
+    priorPeriod: { start: "2024-09-01", end: "2025-08-31" },
+    capital: 10_000_000,
+    businessDescription: null,
+    defenseApplies: false,
+    assets,
+    today: "2026-10-12",
+  });
+
+  it("定額法は1枚に5資産（6つ目は2枚目）、少額減価償却資産は別表十六(七)", () => {
+    expect(r.xml).toContain('<HOE315 VR="6.0" id="HOE315-1"');
+    expect(r.xml).toContain('<HOE315 VR="6.0" id="HOE315-2"');
+    expect((r.xml.match(/<NZE00000>/g) ?? []).length).toBe(6);
+    expect(val(r.xml, "IHC00000")).toBe("250000");
+    // 順番: 別表十六(一) → 十六(七) → 適用額明細書
+    expect(r.xml.indexOf("<HOE315 ")).toBeLessThan(r.xml.indexOf("<HOE351 "));
+    expect(r.xml.indexOf("<HOE351 ")).toBeLessThan(r.xml.indexOf("<HOE990 "));
+  });
+
+  it("適用額明細書: 軽減税率（00380・別表一次葉二74）と少額減価償却資産（00277）。別表一に提出ありの印", () => {
+    expect(r.xml).toMatch(/<MAB00070>00380<\/MAB00070><MAB00080>5000000<\/MAB00080>/);
+    expect(r.xml).toMatch(/<MAB00070>00277<\/MAB00070><MAB00080>250000<\/MAB00080>/);
+    expect(r.xml).toContain("<BGA00300><kubun_CD>1</kubun_CD></BGA00300>");
+  });
+
+  it("平成19年3月31日以前に取得した資産は載せず、知らせる", () => {
+    expect(r.xml).not.toContain("古い建物");
+    expect(r.warnings.some((w) => w.includes("古い建物"))).toBe(true);
+  });
+
+  it("欠損の期は軽減税率の適用額明細書を付けない", () => {
+    const l = make(input({ netIncome: -100_000 }));
+    expect(l.xml).not.toContain("<HOE990 ");
+    expect(l.xml).toContain("<BGA00300><kubun_CD>2</kubun_CD></BGA00300>");
+  });
+});

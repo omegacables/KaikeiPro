@@ -14,7 +14,7 @@ export function EtaxXtxButton({
   load,
 }: {
   clientId: string;
-  load: () => Promise<{ fileName: string; xml: string } | { missing: string[] }>;
+  load: () => Promise<{ fileName: string; xml: string; warnings?: string[] } | { missing: string[] }>;
 }) {
   const [busy, setBusy] = useState(false);
   const download = async () => {
@@ -32,6 +32,7 @@ export function EtaxXtxButton({
       a.download = r.fileName;
       a.click();
       URL.revokeObjectURL(url);
+      if (r.warnings?.length) alert(`保存しました。次の点を e-Taxソフトで確認してください。\n\n・${r.warnings.join("\n・")}`);
     } catch (e) {
       alert(e instanceof Error ? e.message : "作れませんでした");
     } finally {

@@ -2,7 +2,8 @@
  * 法人税の確定申告書（内国法人・青色）を e-Tax 用ファイル（.xtx）にする。純粋関数。
  *   手続 RHO0012（26.0.0 = 令和8年度版。2026年4月1日以後に終了する事業年度）
  *   別表一 HOA112・次葉一（防衛特別法人税）HOA114・次葉二（税率ごとの法人税額・地方法人税額）HOA116・
- *   別表四（簡易様式）HOA420・五(一) HOA511・五(二) HOA522・七(一) HOB710・十五 HOE200
+ *   別表四（簡易様式）HOA420・五(一) HOA511・五(二) HOA522・七(一) HOB710・十五 HOE200・
+ *   十六(一)(二)(七)(八)（src/lib/etax-hojin-depreciation.ts）・適用額明細書 HOE990
  * 金額は申告書の計算（src/lib/corporate-tax-return.ts）の表から、欄番号・行の種類で取り出す。
  * 要素名と順番は国税庁「XML構造設計書（法人-申告）」とスキーマ（hojin/*.xsd）のとおり。
  *
@@ -12,6 +13,7 @@
  */
 
 import type { CorporateTaxReturn, TaxRow, TaxTable } from "@/lib/corporate-tax-return";
+import { depreciationForms, type DepAsset } from "@/lib/etax-hojin-depreciation";
 import {
   amount,
   amount0,
@@ -43,7 +45,19 @@ export type HojinXmlInput = {
   businessDescription: string | null;
   /** 防衛特別法人税の対象の事業年度か */
   defenseApplies: boolean;
+  /** 固定資産台帳（別表十六に使う） */
+  assets?: DepAsset[];
   today: string;
+};
+
+/**
+ * 適用額明細書の区分番号（令和8年4月1日以後に終了する事業年度。国税庁「適用額明細書の記載の手引」）
+ *   00380 中小企業者等の法人税率の特例（措法42条の3の2第1項 表の第1号）… 適用額＝別表一次葉二「74」
+ *   00277 中小企業者等の少額減価償却資産の取得価額の損金算入の特例（措法67条の5第1項）… 適用額＝別表十六(七)「8」
+ */
+const TEKIYOU = {
+  reducedRate: { jo: "42", eda: "の3の2", ko: "1", go: "1", no: "00380" },
+  smallAssets: { jo: "67", eda: "の5", ko: "1", go: null, no: "00277" },
 };
 
 const FREE_LIMIT = 4;
@@ -64,7 +78,7 @@ const yearBefore = (iso: string) => {
   return new Date(Date.UTC(y - 1, m - 1, d)).toISOString().slice(0, 10);
 };
 
-export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: string } {
+export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: string; warnings: string[] } {
   if (i.period.end < HOJIN_XML_FROM)
     throw new Error("e-Tax 用ファイルは、令和8年4月1日以後に終了する事業年度（令和8年度版の様式）だけ作れます。");
   const { ret } = i;
@@ -87,7 +101,22 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
   const by = { name: i.filer.name, date: i.today };
   const header = (p: string) =>
     group(`${p}00000`, group(`${p}00010`, ref(`${p}00020`, "JIGYO_NENDO_FROM"), ref(`${p}00030`, "JIGYO_NENDO_TO")), ref(`${p}00040`, "NOZEISHA_NM"));
+  /** 別表十六の納税者等部（法人名が入れ子になっている） */
+  const nestedHeader = (p: string, [outer, inner]: [number, number]) => {
+    const c = (n: number) => `${p}${String(n).padStart(5, "0")}`;
+    return group(c(0), group(c(10), ref(c(20), "JIGYO_NENDO_FROM"), ref(c(30), "JIGYO_NENDO_TO")), group(c(outer), ref(c(inner), "NOZEISHA_NM")));
+  };
   const forms: { id: string; xml: string }[] = [];
+  const warnings: string[] = [];
+
+  // 別表十六と適用額明細書は、別表一の「適用額明細書提出の有無」に関わるので先に作る
+  const dep = depreciationForms(i.assets ?? [], { start: i.period.start, end: i.period.end, months: ret.months }, nestedHeader);
+  warnings.push(...dep.warnings);
+  const income1 = v("beppyo1", "1") ?? 0;
+  const line74 = v("beppyo1", "74") ?? 0;
+  const tekiyou: { t: (typeof TEKIYOU)[keyof typeof TEKIYOU]; amount: number }[] = [];
+  if (ret.isSme && income1 > 0 && line74 > 0) tekiyou.push({ t: TEKIYOU.reducedRate, amount: line74 });
+  if (dep.smallAssetsTotal > 0) tekiyou.push({ t: TEKIYOU.smallAssets, amount: dep.smallAssetsTotal });
 
   // ===================== 別表一 =====================
   const b1 = (no: string) => v("beppyo1", no);
@@ -107,6 +136,7 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
       ref("BGA00150", "SHIHON_KIN"),
       // 資本金1億円以下の普通法人のうち中小法人に該当しないもの: 非該当（大法人の子会社などは e-Taxソフトで直す）
       i.capital !== null && i.capital <= 100_000_000 ? kubun("BGA00160", 2) : null,
+      kubun("BGA00300", tekiyou.length ? 1 : 2), // 適用額明細書提出の有無
       group("BGA00330", ref("BGA00340", "JIGYO_NENDO_FROM"), ref("BGA00350", "JIGYO_NENDO_TO")),
       ref("BGA00360", "SHINKOKU_KBN"),
       i.defenseApplies ? kubun("BGA00365", 1) : null // 申告の種類（防衛分）: 確定
@@ -178,7 +208,6 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
   forms.push({ id: "HOA114-1", xml: form("HOA114", "1.0", "HOA114-1", by, hoa114.filter(Boolean).join("")) });
 
   // ===================== 別表一次葉二（法人税額・地方法人税額の計算） =====================
-  const line74 = b1("74") ?? 0;
   const hoa116 = [
     header("QHA"),
     group(
@@ -492,6 +521,44 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
     forms.push({ id: "HOE200-1", xml: form("HOE200", "15.0", "HOE200-1", by, hoe200.filter(Boolean).join("")) });
   }
 
+  // ===================== 別表十六（減価償却） =====================
+  const counts = new Map<string, number>();
+  for (const f of dep.forms) {
+    const n = (counts.get(f.tag) ?? 0) + 1;
+    counts.set(f.tag, n);
+    forms.push({ id: `${f.tag}-${n}`, xml: form(f.tag, f.version, `${f.tag}-${n}`, by, f.body) });
+  }
+
+  // ===================== 適用額明細書 =====================
+  if (tekiyou.length) {
+    const hoe990 = [
+      group(
+        "MAA00000",
+        group("MAA00010", ref("MAA00020", "JIGYO_NENDO_FROM"), ref("MAA00030", "JIGYO_NENDO_TO")),
+        kubun("MAA00040", 1), // 当初提出分
+        ref("MAA00060", "ZEIMUSHO"),
+        ref("MAA00070", "NOZEISHA_ADR"),
+        ref("MAA00080", "NOZEISHA_TEL"),
+        group("MAA00090", ref("MAA00100", "NOZEISHA_NM_KN"), ref("MAA00110", "NOZEISHA_NM")),
+        ref("MAA00115", "NOZEISHA_BANGO"),
+        ref("MAA00120", "SHIHON_KIN"),
+        amount("MAA00130", income1),
+        group("MAA00140", value("MAA00150", 1), value("MAA00160", 1)),
+        ref("MAA00170", "JIGYO_NAIYO")
+      ),
+      ...tekiyou.map(({ t, amount: a }) =>
+        group(
+          "MAB00000",
+          group("MAB00010", value("MAB00020", t.jo), value("MAB00030", t.eda), value("MAB00040", t.ko), value("MAB00050", t.go)),
+          value("MAB00070", t.no),
+          amount("MAB00080", a)
+        )
+      ),
+    ];
+    forms.push({ id: "HOE990-1", xml: form("HOE990", "7.0", "HOE990-1", by, hoe990.filter(Boolean).join("")) });
+    warnings.push("適用額明細書の「業種番号」は入れていません。e-Taxソフトで入力してください。");
+  }
+
   const xml = procedureFile({ namespace: NS, procedureCode: "RHO0012", version: "26.0.0", it, forms });
-  return { fileName: `RHO0012_${i.period.start.replaceAll("-", "")}_${i.period.end.replaceAll("-", "")}.xtx`, xml };
+  return { fileName: `RHO0012_${i.period.start.replaceAll("-", "")}_${i.period.end.replaceAll("-", "")}.xtx`, xml, warnings };
 }

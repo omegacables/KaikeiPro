@@ -358,16 +358,18 @@ export async function saveCorporateTaxReturnInputs(
 /**
  * 法人税の申告書（別表一・次葉・四・五(一)(二)・七(一)・十五）を e-Tax 用ファイル（.xtx）にする。
  * e-Taxソフトで読み込んで、別表二など足りない帳票を加え、署名・送信する。作り方は src/lib/etax-hojin-xml.ts。
+ * 別表十六は固定資産台帳から、適用額明細書は軽減税率・少額減価償却資産の特例を使うときに付ける。
  */
 export async function getCorporateTaxXtx(
   clientId: string,
   periodKey: string
-): Promise<{ fileName: string; xml: string } | { missing: string[] }> {
+): Promise<{ fileName: string; xml: string; warnings: string[] } | { missing: string[] }> {
   const view = await getCorporateTaxReturn(clientId, periodKey); // アクセス権もここで確かめる
   const db = await createServerSupabaseClient();
   const filer = await loadFiler(db as unknown as SupabaseClient, clientId);
   const missing = missingFilerInfo(filer);
   if (missing.length) return { missing };
+  const depBook = await getDepreciationBook(clientId, view.period.startDate); // 別表十六
   const [y, m, d] = view.period.startDate.split("-").map(Number);
   const priorEnd = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
   return corporateTaxXml({
@@ -378,6 +380,7 @@ export async function getCorporateTaxXtx(
     capital: view.inputs.capital,
     businessDescription: filer.businessDescription,
     defenseApplies: defenseTaxApplies(view.period.startDate),
+    assets: depBook.assets,
     today: toJstDate(new Date().toISOString()),
   });
 }
