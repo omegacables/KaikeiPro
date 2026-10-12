@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { computeCorporateTaxReturn, STANDARD_LOCAL_RATES, type CorporateInput } from "./corporate-tax-return";
 import { corporateTaxXml } from "./etax-hojin-xml";
 import type { Filer } from "./etax-xml";
+import { judgeFamilyCompany } from "./family-company";
 
 // 国税庁のスキーマ（hojin/RHO0012-260.xsd）での検証は開発時に xmllint で行った（利益・欠損・防衛特別法人税の3通り）。
 // ここでは、スキーマでは見つからない誤り（参照先の無い IDREF・空の要素・帳票間の数字の食い違い・符号）を確かめる。
@@ -165,5 +166,54 @@ describe("別表十六・適用額明細書", () => {
     const l = make(input({ netIncome: -100_000 }));
     expect(l.xml).not.toContain("<HOE990 ");
     expect(l.xml).toContain("<BGA00300><kubun_CD>2</kubun_CD></BGA00300>");
+  });
+});
+
+describe("別表二（同族会社等の判定）", () => {
+  const sh = (groupNo: number, name: string, shares: number, relationship: string) => ({ groupNo, name, address: null, relationship, isCorporation: false, shares });
+  const result = judgeFamilyCompany({
+    shareholders: [sh(1, "山田太郎", 600, "本人"), sh(1, "山田花子", 200, "妻"), sh(1, "山田一郎", 50, "甥"), sh(2, "鈴木", 100, "本人"), sh(3, "田中", 30, "本人"), sh(4, "佐藤", 20, "本人")],
+    issuedShares: 1100,
+    treasuryShares: 100,
+    capital: 10_000_000,
+  });
+  const r = corporateTaxXml({
+    ret: computeCorporateTaxReturn(input({ netIncome: 1_000_000 })),
+    filer,
+    period: { start: "2025-09-01", end: "2026-08-31" },
+    priorPeriod: { start: "2024-09-01", end: "2025-08-31" },
+    capital: 10_000_000,
+    businessDescription: null,
+    defenseApplies: false,
+    family: { result, issuedShares: 1100, treasuryShares: 100 },
+    today: "2026-10-13",
+  });
+
+  it("別表一の同非区分（同族会社=1）と別表二の判定結果（同族会社=2）を揃える。別表二は次葉二と別表四の間", () => {
+    expect(r.xml).toContain("<BGA00170><kubun_CD>1</kubun_CD></BGA00170>");
+    expect(r.xml).toContain("<VAD00000><kubun_CD>2</kubun_CD></VAD00000>");
+    expect(r.xml.indexOf("<HOA116 ")).toBeLessThan(r.xml.indexOf("<HOA201 "));
+    expect(r.xml.indexOf("<HOA201 ")).toBeLessThan(r.xml.indexOf("<HOA420 "));
+  });
+
+  it("発行済株式（自己株式を内書き）・上位3グループの株式数と割合", () => {
+    expect(val(r.xml, "VAB00005")).toBe("100");
+    expect(val(r.xml, "VAB00010")).toBe("1100");
+    expect(val(r.xml, "VAB00020")).toBe("980");
+    expect(r.xml).toContain("<VAB00030>98.0</VAB00030>");
+  });
+
+  it("1行目は1位の本人（続柄なし）、ほかは続柄のコード（妻=02・それ以外は90と名前）。4位以下は書かない", () => {
+    expect(r.xml).toMatch(/<VAE00010><VAE00020><VAE00030>1<\/VAE00030><\/VAE00020><VAE00050><VAE00070>山田太郎<\/VAE00070>/);
+    expect(r.xml).toMatch(/<VAE00230>山田花子<\/VAE00230><\/VAE00210><VAE00235><kubun_CD>02<\/kubun_CD>/);
+    expect(r.xml).toContain("<kubun_CD>90</kubun_CD><kubun_NM>甥</kubun_NM>");
+    expect(r.xml).toMatch(/<VAE00190>2<\/VAE00190><\/VAE00180><VAE00210><VAE00230>鈴木/);
+    expect(r.xml).not.toContain("佐藤");
+  });
+
+  it("株主名簿が無ければ別表二も同非区分も書かない", () => {
+    const n = make(input({ netIncome: 1_000_000 }));
+    expect(n.xml).not.toContain("<HOA201 ");
+    expect(n.xml).not.toContain("<BGA00170>");
   });
 });

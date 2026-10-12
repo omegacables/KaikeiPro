@@ -17,6 +17,7 @@ import { SettlementCard } from "@/components/tax/settlement-card";
 import { useClientRole } from "@/lib/use-client-role";
 import { printPage } from "@/lib/export";
 import { EtaxXtxButton } from "@/components/tax/etax-xtx-button";
+import { ShareholderRegisterCard } from "@/components/tax/shareholder-register";
 import type { TaxTable, Adjustment, Office } from "@/lib/corporate-tax-return";
 import {
   getCorporateTaxReturn,
@@ -148,6 +149,8 @@ export default function CorporateTaxPage() {
           </Card>
 
           <InputsCard view={view} clientId={id} canWrite={canWrite} onSaved={() => setReloadKey((k) => k + 1)} />
+
+          <ShareholderRegisterCard clientId={id} canWrite={canWrite} onSaved={() => setReloadKey((k) => k + 1)} />
 
           <SettlementCard
             clientId={id}

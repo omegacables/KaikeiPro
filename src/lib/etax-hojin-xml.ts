@@ -1,7 +1,7 @@
 /**
  * 法人税の確定申告書（内国法人・青色）を e-Tax 用ファイル（.xtx）にする。純粋関数。
  *   手続 RHO0012（26.0.0 = 令和8年度版。2026年4月1日以後に終了する事業年度）
- *   別表一 HOA112・次葉一（防衛特別法人税）HOA114・次葉二（税率ごとの法人税額・地方法人税額）HOA116・
+ *   別表一 HOA112・次葉一（防衛特別法人税）HOA114・次葉二（税率ごとの法人税額・地方法人税額）HOA116・別表二 HOA201・
  *   別表四（簡易様式）HOA420・五(一) HOA511・五(二) HOA522・七(一) HOB710・十五 HOE200・
  *   十六(一)(二)(七)(八)（src/lib/etax-hojin-depreciation.ts）・適用額明細書 HOE990
  * 金額は申告書の計算（src/lib/corporate-tax-return.ts）の表から、欄番号・行の種類で取り出す。
@@ -14,6 +14,7 @@
 
 import type { CorporateTaxReturn, TaxRow, TaxTable } from "@/lib/corporate-tax-return";
 import { depreciationForms, type DepAsset } from "@/lib/etax-hojin-depreciation";
+import type { FamilyCompanyResult } from "@/lib/family-company";
 import {
   amount,
   amount0,
@@ -47,6 +48,8 @@ export type HojinXmlInput = {
   defenseApplies: boolean;
   /** 固定資産台帳（別表十六に使う） */
   assets?: DepAsset[];
+  /** 株主名簿からの同族会社の判定（別表二に使う。無ければ別表二を作らない） */
+  family?: { result: FamilyCompanyResult; issuedShares: number | null; treasuryShares: number | null } | null;
   today: string;
 };
 
@@ -55,6 +58,19 @@ export type HojinXmlInput = {
  *   00380 中小企業者等の法人税率の特例（措法42条の3の2第1項 表の第1号）… 適用額＝別表一次葉二「74」
  *   00277 中小企業者等の少額減価償却資産の取得価額の損金算入の特例（措法67条の5第1項）… 適用額＝別表十六(七)「8」
  */
+/** 別表二「判定基準となる株主等との続柄」のコード（それ以外は 90 その他） */
+const RELATION_CODES: [RegExp, string][] = [
+  [/^本人$/, "01"], [/^(妻|夫|配偶者)$/, "02"], [/^父$/, "03"], [/^母$/, "04"], [/^義父$/, "05"], [/^義母$/, "06"],
+  [/^長男$/, "07"], [/^(次男|二男)$/, "08"], [/^三男$/, "09"], [/^長女$/, "10"], [/^(次女|二女)$/, "11"], [/^三女$/, "12"],
+  [/^子$/, "13"], [/^孫$/, "14"], [/^祖父$/, "15"], [/^祖母$/, "16"], [/^(兄|弟|兄弟)$/, "17"], [/^(姉|妹|姉妹)$/, "18"],
+];
+function relationKubun(tag: string, relation: string | null): string {
+  const t = etaxText(relation);
+  const code = RELATION_CODES.find(([re]) => re.test(t))?.[1];
+  if (code) return `<${tag}><kubun_CD>${code}</kubun_CD></${tag}>`;
+  return `<${tag}><kubun_CD>90</kubun_CD>${t ? `<kubun_NM>${[...t].slice(0, 30).join("").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</kubun_NM>` : ""}</${tag}>`;
+}
+
 const TEKIYOU = {
   reducedRate: { jo: "42", eda: "の3の2", ko: "1", go: "1", no: "00380" },
   smallAssets: { jo: "67", eda: "の5", ko: "1", go: null, no: "00277" },
@@ -136,6 +152,8 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
       ref("BGA00150", "SHIHON_KIN"),
       // 資本金1億円以下の普通法人のうち中小法人に該当しないもの: 非該当（大法人の子会社などは e-Taxソフトで直す）
       i.capital !== null && i.capital <= 100_000_000 ? kubun("BGA00160", 2) : null,
+      // 同非区分（1 同族会社 / 3 非同族会社 / 4 特定同族会社）。株主名簿があるときだけ（別表二と同じ判定）
+      i.family ? kubun("BGA00170", i.family.result.kind) : null,
       kubun("BGA00300", tekiyou.length ? 1 : 2), // 適用額明細書提出の有無
       group("BGA00330", ref("BGA00340", "JIGYO_NENDO_FROM"), ref("BGA00350", "JIGYO_NENDO_TO")),
       ref("BGA00360", "SHINKOKU_KBN"),
@@ -220,6 +238,52 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
     group("QHC00000", amount("QHC00010", Math.floor((b1("28") ?? 0) / 1000) * 1000), group("QHC00030", amount("QHC00050", b1("31")))),
   ];
   forms.push({ id: "HOA116-1", xml: form("HOA116", "6.0", "HOA116-1", by, hoa116.filter(Boolean).join("")) });
+
+  // ===================== 別表二（同族会社等の判定） =====================
+  if (i.family) {
+    const f = i.family.result;
+    // 上位3グループまでを書く（それより下の株主は書かなくてよい）。1枚に13行（1行目は順位1位の本人）
+    type Row = { rank: number | null; m: (typeof f.groups)[number]["members"][number] };
+    const rows: Row[] = f.groups.slice(0, 3).flatMap((g) => g.members.map((m, k) => ({ rank: k === 0 ? g.rank : null, m })));
+    const addressName = (p: string, codes: [number, number, number], m: Row["m"]) =>
+      group(`${p}${String(codes[0]).padStart(5, "0")}`, value(`${p}${String(codes[1]).padStart(5, "0")}`, [...etaxText(m.address)].slice(0, 60).join("") || null), value(`${p}${String(codes[2]).padStart(5, "0")}`, [...etaxText(m.name)].slice(0, 60).join("")));
+    const rowXml = (r: Row, first: boolean) =>
+      first
+        ? group(
+            "VAE00010",
+            group("VAE00020", value("VAE00030", r.rank)),
+            addressName("VAE", [50, 60, 70], r.m),
+            group("VAE00080", group("VAE00120", amount("VAE00130", r.m.shares)))
+          )
+        : group(
+            "VAE00170",
+            r.rank !== null ? group("VAE00180", value("VAE00190", r.rank)) : null,
+            addressName("VAE", [210, 220, 230], r.m),
+            relationKubun("VAE00235", r.rank !== null ? "本人" : r.m.relationship),
+            group("VAE00250", group("VAE00290", amount("VAE00300", r.m.shares)))
+          );
+    const sheets = rows.length ? Array.from({ length: Math.ceil(rows.length / 13) }, (_, k) => rows.slice(k * 13, k * 13 + 13)) : [[]];
+    const vadCode = { 4: 1, 1: 2, 3: 3 }[f.kind];
+    sheets.forEach((sheetRows, k) => {
+      const body = [
+        header("VAA"),
+        k === 0
+          ? group(
+              "VAB00000",
+              amount("VAB00005", i.family!.treasuryShares), // 内書: 自己株式
+              amount("VAB00010", f.outstanding + (i.family!.treasuryShares ?? 0)),
+              amount("VAB00020", f.top3Shares),
+              value("VAB00030", f.top3Ratio.toFixed(1)),
+              value("VAB00120", f.top3Ratio.toFixed(1))
+            )
+          : null,
+        k === 0 ? kubun("VAD00000", vadCode) : null,
+        group("VAE00000", ...sheetRows.map((r, n) => rowXml(r, k === 0 && n === 0))),
+      ];
+      forms.push({ id: `HOA201-${k + 1}`, xml: form("HOA201", "5.0", `HOA201-${k + 1}`, by, body.filter(Boolean).join("")) });
+    });
+    warnings.push(...f.warnings);
+  }
 
   // ===================== 別表四（簡易様式） =====================
   const r4 = (no: string) => row("beppyo4", no)?.values ?? null;

@@ -34,6 +34,7 @@ import { corporateTaxXml } from "@/lib/etax-hojin-xml";
 import { missingFilerInfo } from "@/lib/etax-xml";
 import { loadFiler } from "@/lib/etax-filer";
 import { getDepreciationBook } from "@/actions/assets";
+import { getShareholderRegister } from "@/actions/shareholders";
 
 type Db = Awaited<ReturnType<typeof createServerSupabaseClient>>;
 
@@ -369,7 +370,10 @@ export async function getCorporateTaxXtx(
   const filer = await loadFiler(db as unknown as SupabaseClient, clientId);
   const missing = missingFilerInfo(filer);
   if (missing.length) return { missing };
-  const depBook = await getDepreciationBook(clientId, view.period.startDate); // 別表十六
+  const [depBook, register] = await Promise.all([
+    getDepreciationBook(clientId, view.period.startDate), // 別表十六
+    getShareholderRegister(clientId), // 別表二
+  ]);
   const [y, m, d] = view.period.startDate.split("-").map(Number);
   const priorEnd = new Date(Date.UTC(y, m - 1, d - 1)).toISOString().slice(0, 10);
   return corporateTaxXml({
@@ -381,6 +385,9 @@ export async function getCorporateTaxXtx(
     businessDescription: filer.businessDescription,
     defenseApplies: defenseTaxApplies(view.period.startDate),
     assets: depBook.assets,
+    family: register.judgement
+      ? { result: register.judgement, issuedShares: register.issuedShares, treasuryShares: register.treasuryShares }
+      : null,
     today: toJstDate(new Date().toISOString()),
   });
 }

@@ -146,6 +146,8 @@ export interface Database {
           name_kana: string | null;
           representative_name: string | null;
           representative_kana: string | null;
+          issued_shares: number | null;
+          treasury_shares: number | null;
           ai_share_company_info: boolean;
           ai_share_personal_info: boolean;
           is_active: boolean;
@@ -177,6 +179,8 @@ export interface Database {
           name_kana?: string | null;
           representative_name?: string | null;
           representative_kana?: string | null;
+          issued_shares?: number | null;
+          treasury_shares?: number | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -208,6 +212,8 @@ export interface Database {
           name_kana?: string | null;
           representative_name?: string | null;
           representative_kana?: string | null;
+          issued_shares?: number | null;
+          treasury_shares?: number | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -1707,6 +1713,51 @@ export interface Database {
           adjustments?: unknown;
           local_tax_rates?: unknown;
           note?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [];
+      };
+      shareholders: {
+        Row: {
+          id: string;
+          client_id: string;
+          group_no: number;
+          name: string;
+          address: string | null;
+          relationship: string | null;
+          is_corporation: boolean;
+          shares: number;
+          voting_rights: number | null;
+          sort_order: number;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          group_no?: number;
+          name: string;
+          address?: string | null;
+          relationship?: string | null;
+          is_corporation?: boolean;
+          shares?: number;
+          voting_rights?: number | null;
+          sort_order?: number;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          group_no?: number;
+          name?: string;
+          address?: string | null;
+          relationship?: string | null;
+          is_corporation?: boolean;
+          shares?: number;
+          voting_rights?: number | null;
+          sort_order?: number;
+          created_at?: string;
           updated_at?: string;
         };
         Relationships: [];
