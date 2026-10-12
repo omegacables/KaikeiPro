@@ -144,3 +144,42 @@ export function summarizeBySubAccount(
   const rows = [...map.values()].map((r) => ({ ...r, closing: r.opening + r.increase - r.decrease }));
   return rows.filter((r) => r.opening !== 0 || r.count > 0);
 }
+
+/** 元帳の表示行: 取引の行と、月ごとの「月計」の行 */
+export type LedgerDisplayItem<R> =
+  | { kind: "row"; row: R }
+  | { kind: "month"; month: string; debit: number; credit: number; balance: number };
+
+/**
+ * 元帳の行に月計（その月の借方・貸方の合計と月末の残高）をはさむ。
+ * 要確認の仕訳は残高・合計と同じく月計にも入れない。
+ * 新しい順のときは、月のまとまりごとに先頭（その月のいちばん新しい行の上）に置く。
+ */
+export function withMonthlyTotals<R extends { entryDate: string; debit: number; credit: number; balance: number; needsReview: boolean }>(
+  rows: R[],
+  opening: number,
+  descending = false
+): LedgerDisplayItem<R>[] {
+  const groups: { month: string; rows: R[] }[] = [];
+  for (const r of rows) {
+    const month = r.entryDate.slice(0, 7);
+    const last = groups[groups.length - 1];
+    if (last && last.month === month) last.rows.push(r);
+    else groups.push({ month, rows: [r] });
+  }
+  let balance = opening;
+  const out: LedgerDisplayItem<R>[][] = groups.map((g) => {
+    const counted = g.rows.filter((r) => !r.needsReview);
+    if (counted.length) balance = counted[counted.length - 1].balance;
+    const total: LedgerDisplayItem<R> = {
+      kind: "month",
+      month: g.month,
+      debit: counted.reduce((s, r) => s + r.debit, 0),
+      credit: counted.reduce((s, r) => s + r.credit, 0),
+      balance,
+    };
+    const items = g.rows.map((row) => ({ kind: "row" as const, row }));
+    return descending ? [total, ...items.reverse()] : [...items, total];
+  });
+  return (descending ? out.reverse() : out).flat();
+}

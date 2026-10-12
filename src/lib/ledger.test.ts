@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildLedger, summarizeBySubAccount, type LedgerLine } from "@/lib/ledger";
+import { buildLedger, summarizeBySubAccount, withMonthlyTotals, type LedgerLine } from "@/lib/ledger";
 
 let n = 0;
 const line = (date: string, debit: number, credit: number, over: Partial<LedgerLine> = {}): LedgerLine => ({
@@ -98,5 +98,38 @@ describe("補助科目（相手先）ごとの集計", () => {
   it("前期繰越も動きも無い相手先は出さない", () => {
     const lines = [line("2025-03-01", 10, 0, { subAccountId: "A" }), line("2025-03-02", 0, 10, { subAccountId: "A" })];
     expect(summarizeBySubAccount("asset", lines, "2025-05-01", "2025-05-31", "2025-04-01")).toEqual([]);
+  });
+});
+
+describe("月計", () => {
+  const r = (entryDate: string, debit: number, credit: number, balance: number, needsReview = false) => ({ entryDate, debit, credit, balance, needsReview });
+  const rows = [r("2025-09-30", 14_760_170, 0, 14_760_170), r("2025-10-15", 1_000, 0, 14_761_170), r("2025-10-31", 29_238_688, 0, 43_999_858), r("2025-10-31", 500, 0, 0, true)];
+
+  it("月ごとに借方・貸方の合計と月末の残高をはさむ（要確認の仕訳は入れない）", () => {
+    const items = withMonthlyTotals(rows, 0);
+    expect(items.map((x) => (x.kind === "month" ? `計${x.month}:${x.debit}:${x.balance}` : x.row.entryDate))).toEqual([
+      "2025-09-30",
+      "計2025-09:14760170:14760170",
+      "2025-10-15",
+      "2025-10-31",
+      "2025-10-31",
+      "計2025-10:29239688:43999858",
+    ]);
+  });
+
+  it("新しい順では、月ごとに月計を先頭に", () => {
+    const items = withMonthlyTotals(rows.slice(0, 3), 0, true);
+    expect(items.map((x) => (x.kind === "month" ? `計${x.month}` : x.row.entryDate))).toEqual([
+      "計2025-10",
+      "2025-10-31",
+      "2025-10-15",
+      "計2025-09",
+      "2025-09-30",
+    ]);
+  });
+
+  it("要確認の仕訳だけの月は、前の月末の残高", () => {
+    const items = withMonthlyTotals([r("2025-11-05", 100, 0, 0, true)], 5_000);
+    expect(items[1]).toEqual({ kind: "month", month: "2025-11", debit: 0, credit: 0, balance: 5_000 });
   });
 });

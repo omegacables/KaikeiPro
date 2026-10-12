@@ -278,3 +278,40 @@ describe("簡易課税（事業区分が2つ以上）", () => {
   });
 });
 
+
+describe("有価証券の譲渡・非課税資産の輸出等・輸入の消費税", () => {
+  const line = (o: Partial<TaxBookLine>): TaxBookLine => ({
+    accountType: "revenue", taxCategory: "sales_10", taxRate: null, debit: 0, credit: 0, needsReview: false, exclusive: false, ...o,
+  });
+
+  it("集計: 有価証券・輸出等は別に、輸入の消費税は仮払消費税（資産）の行でも国税分だけ数える", () => {
+    const r = aggregateReturnInput([
+      line({ taxCategory: "sales_exempt_securities", credit: 20_000_000 }),
+      line({ taxCategory: "sales_exempt_export", credit: 300_000 }),
+      line({ accountType: "assets", taxCategory: "purchase_import_10", debit: 78_000 }),
+      line({ accountType: "assets", taxCategory: "purchase_import_local", debit: 22_000 }),
+      line({ accountType: "assets", taxCategory: "purchase_10", debit: 99_999 }), // 輸入以外の区分は資産の行では数えない
+    ]);
+    expect(r).toMatchObject({ exemptSecurities: 20_000_000, exemptExport: 300_000, importTax: { A: 0, B: 78_000 } });
+    expect(r.purchaseGross).toEqual({ A: 0, B: 0 });
+  });
+
+  it("課税売上割合: 有価証券の譲渡は対価の5%だけを分母に、非課税資産の輸出等は分子・分母に（付表2-3 ③⑥）", () => {
+    const r = computeConsumptionTaxReturn(
+      input({ sales: { A: 0, B: 11_000_000 }, exemptSecurities: 20_000_000, exemptExport: 300_000 }),
+      settings()
+    );
+    expect(cell(r, "fuhyo2-3", "③").c).toBe(300_000);
+    expect(cell(r, "fuhyo2-3", "⑥").c).toBe(1_000_000); // 20,000,000 × 5%
+    expect(cell(r, "fuhyo2-3", "④").c).toBe(10_300_000);
+    expect(cell(r, "fuhyo2-3", "⑦").c).toBe(11_300_000);
+    expect(r.deductionMethod).toBe("proportional"); // 91.1% < 95%
+  });
+
+  it("輸入の消費税は付表2-3 ⑮ に入り、控除の対象になる", () => {
+    const r = computeConsumptionTaxReturn(input({ sales: { A: 0, B: 11_000_000 }, importTax: { A: 0, B: 78_000 } }), settings());
+    expect(cell(r, "fuhyo2-3", "⑮")).toMatchObject({ b: 78_000 });
+    expect(cell(r, "fuhyo2-3", "⑰")).toMatchObject({ b: 78_000 });
+    expect(cell(r, "first", "④").c).toBe(78_000);
+  });
+});

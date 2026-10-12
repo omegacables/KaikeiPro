@@ -50,8 +50,14 @@ export type ReturnInput = {
   sales: Pair;
   /** 免税売上（輸出など） */
   taxFree: number;
-  /** 非課税売上 */
+  /** 非課税売上（有価証券の譲渡等を除く） */
   exempt: number;
+  /** 非課税売上のうち有価証券の譲渡等の対価（課税売上割合の分母には5%だけを入れる） */
+  exemptSecurities?: number;
+  /** 非課税資産の輸出等の金額（課税売上割合の分子・分母に入れる。付表2-3 ③） */
+  exemptExport?: number;
+  /** 輸入の消費税（税関に納めた国税分。付表2-3 ⑮ 課税貨物に係る消費税額） */
+  importTax?: Pair;
   /** 課税仕入れ（経過措置の対象を除く）の支払対価（税込）と、帳簿に記載された消費税額 */
   purchaseGross: Pair;
   purchaseTax: Pair;
@@ -76,7 +82,7 @@ export type PurchaseUse = "taxable" | "non_taxable" | "common";
  * 無ければ合計額から計算する
  */
 export type Transition = { col: Col; rate: number; gross: number; tax: number; stackedTax?: number };
-type UseGroup = { gross: Pair; tax: Pair; transition: Transition[] };
+type UseGroup = { gross: Pair; tax: Pair; transition: Transition[]; importTax?: Pair };
 
 /** 経過措置の仕入れ1件の、積上げ計算でみなされる国税の消費税額（1円未満切捨て） */
 export function transitionStackedTax(gross: number, col: Col, rate: number): number {
@@ -84,7 +90,7 @@ export function transitionStackedTax(gross: number, col: Col, rate: number): num
   const v = col === "B" ? (gross * 78 * pct) / 110_000 : (gross * 624 * pct) / 1_080_000;
   return Math.trunc(v);
 }
-const useGroup = (): UseGroup => ({ gross: pair(), tax: pair(), transition: [] });
+const useGroup = (): UseGroup => ({ gross: pair(), tax: pair(), transition: [], importTax: pair() });
 export const PURCHASE_USE_LABELS: Record<PurchaseUse, string> = {
   taxable: "課税売上げにのみ要するもの",
   non_taxable: "非課税売上げにのみ要するもの",
@@ -97,6 +103,9 @@ export function aggregateReturnInput(lines: TaxBookLine[]): ReturnInput {
     sales: pair(),
     taxFree: 0,
     exempt: 0,
+    exemptSecurities: 0,
+    exemptExport: 0,
+    importTax: pair(),
     purchaseGross: pair(),
     purchaseTax: pair(),
     transition: [],
@@ -130,6 +139,17 @@ export function aggregateReturnInput(lines: TaxBookLine[]): ReturnInput {
       }
       else if (code === "sales_tax_free") r.taxFree += a.net;
       else if (code === "sales_exempt") r.exempt += a.net;
+      else if (info.securities) r.exemptSecurities! += a.net;
+      else if (info.exemptExport) r.exemptExport! += a.net;
+      continue;
+    }
+    // 輸入の消費税: 国税分だけを控除の対象に（地方消費税貨物割は国税の計算に入らない）
+    if (info.importTax) {
+      if (info.importTax === "national" && col) {
+        r.importTax![col] += a.tax;
+        r.purchaseByUse![l.purchaseUse ?? "common"].importTax![col] += a.tax;
+        if (!l.purchaseUse) r.unclassifiedPurchases!++;
+      }
       continue;
     }
     if (!col) continue; // 非課税・不課税の仕入れは控除の対象外
@@ -289,8 +309,11 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
   if (s.method === "standard") {
     // ---- 付表2-3 課税売上割合・控除対象仕入税額等の計算表 ----
     const taxableSales = st.net; // ① 課税売上額（税抜。返還等は直接減額済み）
-    const r4 = sumPair(taxableSales) + input.taxFree; // ④
-    const r7 = r4 + input.exempt; // ⑦
+    const exportExempt = input.exemptExport ?? 0; // ③ 非課税資産の輸出等
+    const r4 = sumPair(taxableSales) + input.taxFree + exportExempt; // ④
+    // ⑥ 非課税売上額: 有価証券の譲渡等は対価の5%だけを入れる（消費税法施行令48条5項）
+    const exempt6 = input.exempt + Math.floor(((input.exemptSecurities ?? 0) * 5) / 100);
+    const r7 = r4 + exempt6; // ⑦
     ratio = r7 > 0 ? r4 / r7 : null;
     const purchaseGross = input.purchaseGross; // ⑨
     const purchaseTax = mapPair((c) =>
@@ -309,7 +332,8 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
           0
         )
     ); // ⑫
-    const total = mapPair((c) => purchaseTax[c] + transTax[c]); // ⑰
+    const importTax = input.importTax ?? pair(); // ⑮ 課税貨物に係る消費税額
+    const total = mapPair((c) => purchaseTax[c] + transTax[c] + importTax[c]); // ⑰
     /** 課税仕入れ等の税額（⑩＋⑫の計算を、用途区分ごとの仕入れに当てたもの） */
     const taxOfGroup = (g: UseGroup) =>
       mapPair(
@@ -324,9 +348,12 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
                   ? (t.stackedTax ?? Math.floor(mulDiv(t.tax, 78, 100) * t.rate))
                   : Math.floor(nationalInGross(t.gross, c) * t.rate)),
               0
-            )
+            ) +
+          (g.importTax?.[c] ?? 0)
       );
-    const annualSales = s.periodMonths > 0 && s.periodMonths < 12 ? Math.floor((r4 * 12) / s.periodMonths) : r4;
+    // 課税売上高（5億円の判定）には非課税資産の輸出等を入れない
+    const turnover = r4 - exportExempt;
+    const annualSales = s.periodMonths > 0 && s.periodMonths < 12 ? Math.floor((turnover * 12) / s.periodMonths) : turnover;
     const full = annualSales <= 500_000_000 && (r7 === 0 || r4 * 100 >= r7 * 95);
     const individual = !full && s.deductionMethod === "individual" && Boolean(input.purchaseByUse);
     deductionMethod = full ? "full" : individual ? "individual" : "proportional";
@@ -359,10 +386,15 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
       rows: [
         row("①", "課税売上額（税抜き）", taxableSales),
         single("②", "免税売上額", input.taxFree),
-        single("③", "非課税資産の輸出等の金額、海外支店等へ移送した資産の価額", 0),
+        single("③", "非課税資産の輸出等の金額、海外支店等へ移送した資産の価額", exportExempt),
         single("④", "課税資産の譲渡等の対価の額（①＋②＋③）", r4, "第一表⑮へ"),
         single("⑤", "課税資産の譲渡等の対価の額（④の金額）", r4),
-        single("⑥", "非課税売上額", input.exempt),
+        single(
+          "⑥",
+          "非課税売上額",
+          exempt6,
+          input.exemptSecurities ? `有価証券の譲渡等 ${input.exemptSecurities.toLocaleString()}円は5%だけを含めています` : undefined
+        ),
         single("⑦", "資産の譲渡等の対価の額（⑤＋⑥）", r7, "第一表⑯へ"),
         single("⑧", "課税売上割合（④／⑦）", ratioPct, "%（端数切り捨て）"),
         row("⑨", "課税仕入れに係る支払対価の額（税込み）", purchaseGross),
@@ -376,7 +408,7 @@ export function computeConsumptionTaxReturn(input: ReturnInput, s: ReturnSetting
         row("⑫", "⑪の経過措置により課税仕入れに係る消費税額とみなされる額", transTax, "控除できる割合（80%など）を掛けた額"),
         row("⑬", "特定課税仕入れに係る支払対価の額", pair()),
         row("⑭", "特定課税仕入れに係る消費税額", pair()),
-        row("⑮", "課税貨物に係る消費税額", pair()),
+        row("⑮", "課税貨物に係る消費税額", importTax, "輸入のときに税関に納めた消費税（国税分）"),
         row("⑯", "納税義務の免除を受けない（受ける）こととなった場合における消費税額の調整（加算又は減算）額", pair()),
         row("⑰", "課税仕入れ等の税額の合計額（⑩＋⑫＋⑭＋⑮±⑯）", total),
         row("⑱", "課税売上高が5億円以下、かつ、課税売上割合が95%以上の場合（⑰の金額）", full ? total : pair()),

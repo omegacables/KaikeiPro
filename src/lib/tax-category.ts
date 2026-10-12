@@ -20,6 +20,8 @@ export type TaxCategoryCode =
   | "sales_exempt"
   | "sales_tax_free"
   | "sales_out_of_scope"
+  | "sales_exempt_securities"
+  | "sales_exempt_export"
   | "purchase_10"
   | "purchase_08_reduced"
   | "purchase_10_trans_80"
@@ -33,7 +35,10 @@ export type TaxCategoryCode =
   | "purchase_exempt"
   | "purchase_out_of_scope"
   | "bad_debt_10"
-  | "bad_debt_08";
+  | "bad_debt_08"
+  | "purchase_import_10"
+  | "purchase_import_08"
+  | "purchase_import_local";
 
 export type TaxCategoryInfo = {
   code: TaxCategoryCode;
@@ -48,6 +53,16 @@ export type TaxCategoryInfo = {
    * 貸倒れに係る消費税額は、売上の消費税から控除する（消費税法39条）
    */
   badDebt?: true;
+  /**
+   * 輸入の消費税（税関に納めた額）。行の金額がそのまま税額で、本体の金額は無い。
+   * national は国税分（付表2-3 ⑮ 課税貨物に係る消費税額）、local は地方消費税貨物割（集計表に出すだけ）。
+   * 税抜経理では仮払消費税の行に付ける（費用・収益以外で税区分を付けられる唯一の場合）
+   */
+  importTax?: "national" | "local";
+  /** 非課税売上のうち有価証券の譲渡等（課税売上割合の分母には対価の5%だけを入れる） */
+  securities?: true;
+  /** 非課税資産の輸出等（課税売上割合の分子・分母に入れる） */
+  exemptExport?: true;
 };
 
 export const TAX_CATEGORY_LIST: TaxCategoryInfo[] = [
@@ -56,6 +71,8 @@ export const TAX_CATEGORY_LIST: TaxCategoryInfo[] = [
   { code: "sales_exempt", name: "非課税売上", rate: 0, side: "sales" },
   { code: "sales_tax_free", name: "免税売上", rate: 0, side: "sales" },
   { code: "sales_out_of_scope", name: "不課税売上", rate: 0, side: "sales" },
+  { code: "sales_exempt_securities", name: "非課税売上（有価証券の譲渡等）", rate: 0, side: "sales", securities: true },
+  { code: "sales_exempt_export", name: "非課税資産の輸出等", rate: 0, side: "sales", exemptExport: true },
   { code: "purchase_10", name: "課税仕入10%", rate: 0.1, side: "purchase" },
   { code: "purchase_08_reduced", name: "課税仕入8%（軽減）", rate: 0.08, side: "purchase" },
   { code: "purchase_10_trans_80", name: "課税仕入10%（経過措置80%）", rate: 0.1, side: "purchase", transitionRate: 0.8 },
@@ -70,7 +87,13 @@ export const TAX_CATEGORY_LIST: TaxCategoryInfo[] = [
   { code: "purchase_out_of_scope", name: "不課税仕入（租税公課など）", rate: 0, side: "purchase" },
   { code: "bad_debt_10", name: "貸倒れ（課税売上10%）", rate: 0.1, side: "purchase", badDebt: true },
   { code: "bad_debt_08", name: "貸倒れ（課税売上8%）", rate: 0.08, side: "purchase", badDebt: true },
+  { code: "purchase_import_10", name: "輸入仕入（消費税7.8%分）", rate: 0.1, side: "purchase", importTax: "national" },
+  { code: "purchase_import_08", name: "輸入仕入（消費税6.24%分）", rate: 0.08, side: "purchase", importTax: "national" },
+  { code: "purchase_import_local", name: "地方消費税貨物割（輸入）", rate: 0, side: "purchase", importTax: "local" },
 ];
+
+/** 税抜経理で輸入の消費税を立てる科目（この科目の行には輸入仕入の税区分だけを付けられる） */
+const INPUT_TAX_ACCOUNT_NAME = /仮払消費税/;
 
 const BY_CODE = new Map(TAX_CATEGORY_LIST.map((c) => [c.code, c]));
 
@@ -179,11 +202,21 @@ export function sanitizeTaxCategory(code: string | null | undefined): TaxCategor
   return BY_CODE.has(v as TaxCategoryCode) ? (v as TaxCategoryCode) : null;
 }
 
-/** その科目の行で選べる税区分（収益は売上側、費用は仕入側。それ以外は税区分を持たない） */
-export function taxCategoriesFor(accountType: string): TaxCategoryInfo[] {
+/**
+ * その科目の行で選べる税区分（収益は売上側、費用は仕入側）。
+ * 資産・負債には税区分を持たせない。ただし仮払消費税の行には、輸入の消費税（税関に納めた額）の区分だけを付けられる
+ */
+export function taxCategoriesFor(accountType: string, accountName?: string | null): TaxCategoryInfo[] {
   if (accountType === "revenue") return TAX_CATEGORY_LIST.filter((c) => c.side === "sales");
   if (accountType === "expenses") return TAX_CATEGORY_LIST.filter((c) => c.side === "purchase");
+  if (accountType === "assets" && accountName && INPUT_TAX_ACCOUNT_NAME.test(accountName))
+    return TAX_CATEGORY_LIST.filter((c) => c.importTax);
   return [];
+}
+
+/** その科目の行に、その税区分を付けてよいか（保存の前に確かめる） */
+export function taxCategoryAllowed(accountType: string, accountName: string | null | undefined, code: string | null | undefined): boolean {
+  return Boolean(code) && taxCategoriesFor(accountType, accountName).some((c) => c.code === code);
 }
 
 // 消費税がかからない費用・収益（科目名で判断できる代表的なもの）

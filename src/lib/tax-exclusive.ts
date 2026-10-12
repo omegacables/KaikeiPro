@@ -52,9 +52,11 @@ export function toTaxBookLines(raw: RawTaxLine[], ex: ExclusiveEntries): TaxBook
   const isBadDebt = (l: Pick<RawTaxLine, "taxCategory">) => Boolean(taxCategoryInfo(l.taxCategory)?.badDebt);
   const sideOfLine = (l: Pick<RawTaxLine, "accountType" | "taxCategory">) =>
     l.accountType === "revenue" || isBadDebt(l) ? "sales" : "purchase";
+  // 輸入の消費税の行は税額そのもので、記録された消費税額を当てる対象ではない
   const isTaxable = (l: RawTaxLine) => {
     const code = taxCodeOfLine(l);
-    return code !== undefined && code !== "none" && (taxCategoryInfo(code)?.rate ?? 0) > 0;
+    const info = code !== undefined && code !== "none" ? taxCategoryInfo(code) : null;
+    return Boolean(info && info.rate > 0 && !info.importTax);
   };
   // 仕訳×売上/仕入ごとの、課税の行の数
   const taxableCount = new Map<string, number>();

@@ -4,6 +4,7 @@
  * 売上・仕入の税区分別。
  * 期間内の収益・費用の行を税区分ごとに合計し、税区分を選ぶとその取引を一覧にする。
  * 「すべて」で売上・仕入をまとめて見ることもできる。税区分が未設定の行もここで見つけて直せる。
+ * 科目別税区分表と、消費税の集計表（10%分／8%（軽）分）にも切り替えられる。
  */
 
 import { Fragment, useEffect, useMemo, useState } from "react";
@@ -15,6 +16,8 @@ import { TaxBadge } from "@/components/journal/tax-badge";
 import { getTaxCategoryBook, type TaxBookLineView } from "@/actions/ledger-books";
 import { summarizeByAccountAndCategory, type TaxBookRow, type AccountTaxRow } from "@/lib/tax-book";
 import type { CsvSpec } from "@/components/ledgers/general-ledger-view";
+import { ConsumptionTaxTable } from "@/components/ledgers/consumption-tax-table";
+import { buildConsumptionTaxTable } from "@/lib/tax-summary-table";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 
 /** 一覧の絞り込み: すべて / 売上すべて / 仕入すべて / 税区分ひとつ */
@@ -40,8 +43,8 @@ export function TaxCategoryView({
   const [data, setData] = useState<{ summary: TaxBookRow[]; lines: TaxBookLineView[] } | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [filter, setFilter] = useState<Filter>("all");
-  /** 税区分ごとの一覧か、科目別税区分表か */
-  const [view, setView] = useState<"category" | "account">("category");
+  /** 税区分ごとの一覧か、科目別税区分表か、消費税の集計表か */
+  const [view, setView] = useState<"category" | "account" | "table">("category");
 
   useEffect(() => {
     let alive = true;
@@ -69,10 +72,22 @@ export function TaxCategoryView({
   }, [data, filter, descending]);
 
   const accountRows = useMemo(() => (data ? summarizeByAccountAndCategory(data.lines) : []), [data]);
+  const taxTable = useMemo(() => (data ? buildConsumptionTaxTable(data.lines) : []), [data]);
 
   useEffect(() => {
     if (!onCsv) return;
     if (!data) return onCsv(null);
+    if (view === "table") {
+      return onCsv({
+        filename: `消費税集計表_${dateFrom}_${dateTo}.csv`,
+        headers: ["税率", "区分", "グループ", "項目", "件数", "税込金額", "税抜金額", "消費税額"],
+        rows: taxTable.flatMap((t) =>
+          (["sales", "purchase"] as const).flatMap((side) =>
+            t[side].map((r) => [t.title, side === "sales" ? "売上" : "仕入", r.group ?? "", r.label, r.cell.count, r.cell.gross, r.cell.net, r.cell.tax])
+          )
+        ),
+      });
+    }
     if (view === "account") {
       return onCsv({
         filename: `科目別税区分表_${dateFrom}_${dateTo}.csv`,
@@ -108,7 +123,7 @@ export function TaxCategoryView({
         l.needsReview ? "要確認" : "",
       ]),
     });
-  }, [data, lines, onCsv, dateFrom, dateTo, view, accountRows]);
+  }, [data, lines, onCsv, dateFrom, dateTo, view, accountRows, taxTable]);
 
   if (error) return <p className="text-sm text-destructive p-4">{error}</p>;
   if (!data) {
@@ -148,6 +163,7 @@ export function TaxCategoryView({
           [
             ["category", "税区分ごと"],
             ["account", "科目別税区分表"],
+            ["table", "消費税集計表"],
           ] as const
         ).map(([k, label]) => (
           <button
@@ -164,6 +180,8 @@ export function TaxCategoryView({
       </div>
 
       {view === "account" && <AccountTaxTable rows={accountRows} />}
+
+      {view === "table" && <ConsumptionTaxTable tabs={taxTable} />}
 
       {view === "category" && (
       <>

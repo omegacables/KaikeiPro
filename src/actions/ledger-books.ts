@@ -20,7 +20,10 @@ import {
 import { summarizeByTaxCategory, taxCodeOfLine, lineTaxAmounts, type TaxBookRow } from "@/lib/tax-book";
 import { loadExclusiveEntries, toTaxBookLines } from "@/lib/tax-exclusive";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { taxCategoryInfo } from "@/lib/tax-category";
+import { taxCategoryInfo, TAX_CATEGORY_LIST } from "@/lib/tax-category";
+
+/** 輸入の消費税の税区分（仮払消費税の行にも付く） */
+const IMPORT_CODES = TAX_CATEGORY_LIST.filter((c) => c.importTax).map((c) => c.code);
 
 type Admin = ReturnType<typeof createAdminSupabaseClient>;
 
@@ -319,9 +322,11 @@ export type TaxBookLineView = {
   exclusive: boolean;
   subAccountName: string | null;
   needsReview: boolean;
+  /** 仕入の用途区分（個別対応方式） */
+  purchaseUse: "taxable" | "non_taxable" | "common" | null;
 };
 
-/** 期間内の売上・仕入（収益・費用の行）を税区分ごとに */
+/** 期間内の売上・仕入（収益・費用の行と、仮払消費税の行の輸入の消費税）を税区分ごとに */
 export async function getTaxCategoryBook(
   clientId: string,
   dateFrom: string,
@@ -337,23 +342,29 @@ export async function getTaxCategoryBook(
     tax_rate: number | null;
     sub_account_id: string | null;
     journal_entry_id: string;
+    purchase_use: "taxable" | "non_taxable" | "common" | null;
     accounts: { code: string; name: string; account_categories: { type: string } | null } | null;
     journal_entries: { client_id: string; entry_date: string; description: string | null; needs_review: boolean | null };
   };
-  const raw = await fetchAllRows<Raw>((from, to) =>
-    admin
-      .from("journal_entry_lines")
-      .select(
-        `id, debit_amount, credit_amount, tax_category, tax_rate, sub_account_id, journal_entry_id,
-         accounts!inner ( code, name, account_categories!inner ( type ) ),
-         journal_entries!inner ( client_id, entry_date, description, needs_review )`
-      )
-      .eq("journal_entries.client_id", clientId)
-      .gte("journal_entries.entry_date", dateFrom)
-      .lte("journal_entries.entry_date", dateTo)
-      .in("accounts.account_categories.type", ["revenue", "expenses"])
-      .range(from, to) as unknown as PromiseLike<{ data: Raw[] | null; error: { message: string } | null }>
-  );
+  const query = (types: ("revenue" | "expenses" | "assets")[], importOnly: boolean) =>
+    fetchAllRows<Raw>((from, to) => {
+      let q = admin
+        .from("journal_entry_lines")
+        .select(
+          `id, debit_amount, credit_amount, tax_category, tax_rate, sub_account_id, journal_entry_id, purchase_use,
+           accounts!inner ( code, name, account_categories!inner ( type ) ),
+           journal_entries!inner ( client_id, entry_date, description, needs_review )`
+        )
+        .eq("journal_entries.client_id", clientId)
+        .gte("journal_entries.entry_date", dateFrom)
+        .lte("journal_entries.entry_date", dateTo)
+        .in("accounts.account_categories.type", types);
+      if (importOnly) q = q.in("tax_category", IMPORT_CODES);
+      return q.range(from, to) as unknown as PromiseLike<{ data: Raw[] | null; error: { message: string } | null }>;
+    });
+  // 収益・費用の行と、税抜経理で輸入の消費税を立てた仮払消費税（資産）の行
+  const [plRaw, importRaw] = await Promise.all([query(["revenue", "expenses"], false), query(["assets"], true)]);
+  const raw = [...plRaw, ...importRaw];
   const subNames = await subAccountNames(admin, clientId);
   const exclusive = await loadExclusiveEntries(admin as unknown as SupabaseClient, clientId, dateFrom, dateTo);
 
@@ -366,6 +377,7 @@ export async function getTaxCategoryBook(
       debit: Number(l.debit_amount) || 0,
       credit: Number(l.credit_amount) || 0,
       needsReview: Boolean(l.journal_entries.needs_review),
+      purchaseUse: l.purchase_use,
     })),
     exclusive
   );
@@ -390,6 +402,7 @@ export async function getTaxCategoryBook(
       exclusive: b.exclusive,
       subAccountName: l.sub_account_id ? subNames.get(l.sub_account_id) ?? null : null,
       needsReview: b.needsReview,
+      purchaseUse: l.purchase_use,
     });
   });
   lines.sort((a, b) => a.entryDate.localeCompare(b.entryDate));

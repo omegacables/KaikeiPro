@@ -2,7 +2,7 @@
 
 /**
  * 総勘定元帳（補助科目を指定すれば補助元帳）。
- * 前期繰越から始めて残高を出し、各行に補助科目・相手先・税区分を添える。
+ * 前期繰越から始めて残高を出し、各行に補助科目・相手先・税区分を添える。月ごとに「月計」をはさむ（切り替えられる）。
  * 行をクリックすると仕訳の詳細が開き、その場で修正できる。
  */
 
@@ -13,6 +13,7 @@ import { cn, formatDate } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
 import { TaxBadge } from "@/components/journal/tax-badge";
 import { getLedgerBook, type LedgerBook } from "@/actions/ledger-books";
+import { withMonthlyTotals } from "@/lib/ledger";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 
 export type CsvSpec = { filename: string; headers: string[]; rows: (string | number)[][] };
@@ -43,6 +44,8 @@ export function GeneralLedgerView({
   const [book, setBook] = useState<LedgerBook | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** 月計の行を出すか */
+  const [monthly, setMonthly] = useState(true);
 
   useEffect(() => {
     if (!accountId) return;
@@ -70,20 +73,26 @@ export function GeneralLedgerView({
       headers: ["日付", "相手科目", "補助科目", "摘要", "相手先", "税区分", "借方", "貸方", "残高"],
       rows: [
         [dateFrom, "前期繰越", "", "", "", "", "", "", book.opening],
-        ...book.rows.map((r) => [
-          r.entryDate,
-          r.counterAccount,
-          r.subAccountName ?? "",
-          r.description,
-          r.partnerName ?? "",
-          r.taxCategoryName ?? "",
-          r.debit,
-          r.credit,
-          r.needsReview ? "要確認" : r.balance,
-        ]),
+        ...withMonthlyTotals(book.rows, book.opening)
+          .filter((x) => monthly || x.kind === "row")
+          .map((x) =>
+            x.kind === "month"
+              ? ["", "", "", `${monthLabel(x.month)} 月計`, "", "", x.debit, x.credit, x.balance]
+              : [
+                  x.row.entryDate,
+                  x.row.counterAccount,
+                  x.row.subAccountName ?? "",
+                  x.row.description,
+                  x.row.partnerName ?? "",
+                  x.row.taxCategoryName ?? "",
+                  x.row.debit,
+                  x.row.credit,
+                  x.row.needsReview ? "要確認" : x.row.balance,
+                ]
+          ),
       ],
     });
-  }, [book, onCsv, dateFrom, dateTo]);
+  }, [book, onCsv, dateFrom, dateTo, monthly]);
 
   if (!accountId) {
     return <p className="text-sm text-muted-foreground p-6">勘定科目を選んでください。</p>;
@@ -98,7 +107,7 @@ export function GeneralLedgerView({
     );
   }
 
-  const rows = descending ? [...book.rows].reverse() : book.rows;
+  const items = withMonthlyTotals(book.rows, book.opening, descending).filter((x) => monthly || x.kind === "row");
   const reviewCount = book.rows.filter((r) => r.needsReview).length;
   const isPl = book.account.category === "revenue" || book.account.category === "expense";
 
@@ -110,6 +119,10 @@ export function GeneralLedgerView({
           要確認の仕訳が{reviewCount}件あります。試算表と同じく残高には含めていません（行をクリックして確認・修正できます）。
         </div>
       )}
+      <label className="flex items-center gap-1.5 text-xs text-muted-foreground print:hidden w-fit">
+        <input type="checkbox" checked={monthly} onChange={(e) => setMonthly(e.target.checked)} />
+        月計を表示する
+      </label>
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
         <table className="w-full min-w-[980px] text-xs">
           <thead>
@@ -127,47 +140,58 @@ export function GeneralLedgerView({
           </thead>
           <tbody>
             {!descending && <OpeningRow amount={book.opening} isPl={isPl} />}
-            {rows.map((r) => (
-              <tr
-                key={r.lineId}
-                onClick={() => onOpenEntry(r.entryId)}
-                className={cn(
-                  "border-b border-border last:border-0 cursor-pointer hover:bg-primary/5",
-                  r.needsReview && "bg-warning/5"
-                )}
-                title="クリックで仕訳の詳細（相手先・税率など）を表示・修正"
-              >
-                <td className="px-2 py-1.5 whitespace-nowrap">{formatDate(r.entryDate)}</td>
-                <td className="px-2 py-1.5">
-                  <span className="text-primary underline-offset-2 hover:underline">{r.counterAccount}</span>
-                  {r.counterLines.length > 1 && (
-                    <div className="text-[10px] text-muted-foreground">
-                      {r.counterLines.map((c) => c.accountName).join("・")}
-                    </div>
+            {items.map((x) =>
+              x.kind === "month" ? (
+                <tr key={`m-${x.month}`} className="border-b border-border bg-muted/10 font-bold">
+                  <td className="px-2 py-1.5" colSpan={6}>
+                    <span className="block text-center">※※ {monthLabel(x.month)} 月計 ※※</span>
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono">{formatYen(x.debit)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{formatYen(x.credit)}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{formatYen(x.balance)}</td>
+                </tr>
+              ) : (
+                <tr
+                  key={x.row.lineId}
+                  onClick={() => onOpenEntry(x.row.entryId)}
+                  className={cn(
+                    "border-b border-border last:border-0 cursor-pointer hover:bg-primary/5",
+                    x.row.needsReview && "bg-warning/5"
                   )}
-                </td>
-                <td className="px-2 py-1.5">{r.subAccountName ?? ""}</td>
-                <td className="px-2 py-1.5 max-w-[260px] truncate" title={r.description}>
-                  {r.description}
-                  {r.needsReview && (
-                    <Badge variant="warning" className="ml-1">
-                      要確認
-                    </Badge>
-                  )}
-                </td>
-                <td className="px-2 py-1.5 max-w-[160px] truncate">{r.partnerName ?? ""}</td>
-                <td className="px-2 py-1.5 whitespace-nowrap">
-                  <TaxBadge code={r.taxCategory} missing={isPl} />
-                </td>
-                <td className="px-2 py-1.5 text-right font-mono">{r.debit ? formatYen(r.debit) : ""}</td>
-                <td className="px-2 py-1.5 text-right font-mono">{r.credit ? formatYen(r.credit) : ""}</td>
-                <td className="px-2 py-1.5 text-right font-mono font-bold">
-                  {r.needsReview ? <span className="text-muted-foreground font-normal">-</span> : formatYen(r.balance)}
-                </td>
-              </tr>
-            ))}
+                  title="クリックで仕訳の詳細（相手先・税率など）を表示・修正"
+                >
+                  <td className="px-2 py-1.5 whitespace-nowrap">{formatDate(x.row.entryDate)}</td>
+                  <td className="px-2 py-1.5">
+                    <span className="text-primary underline-offset-2 hover:underline">{x.row.counterAccount}</span>
+                    {x.row.counterLines.length > 1 && (
+                      <div className="text-[10px] text-muted-foreground">
+                        {x.row.counterLines.map((c) => c.accountName).join("・")}
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5">{x.row.subAccountName ?? ""}</td>
+                  <td className="px-2 py-1.5 max-w-[260px] truncate" title={x.row.description}>
+                    {x.row.description}
+                    {x.row.needsReview && (
+                      <Badge variant="warning" className="ml-1">
+                        要確認
+                      </Badge>
+                    )}
+                  </td>
+                  <td className="px-2 py-1.5 max-w-[160px] truncate">{x.row.partnerName ?? ""}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">
+                    <TaxBadge code={x.row.taxCategory} missing={isPl} />
+                  </td>
+                  <td className="px-2 py-1.5 text-right font-mono">{x.row.debit ? formatYen(x.row.debit) : ""}</td>
+                  <td className="px-2 py-1.5 text-right font-mono">{x.row.credit ? formatYen(x.row.credit) : ""}</td>
+                  <td className="px-2 py-1.5 text-right font-mono font-bold">
+                    {x.row.needsReview ? <span className="text-muted-foreground font-normal">-</span> : formatYen(x.row.balance)}
+                  </td>
+                </tr>
+              )
+            )}
             {descending && <OpeningRow amount={book.opening} isPl={isPl} />}
-            {rows.length === 0 && (
+            {book.rows.length === 0 && (
               <tr>
                 <td colSpan={9} className="px-2 py-8 text-center text-muted-foreground">
                   この期間の取引はありません
@@ -201,4 +225,10 @@ function OpeningRow({ amount, isPl }: { amount: number; isPl: boolean }) {
       <td className="px-2 py-1.5 text-right font-mono font-bold text-foreground">{formatYen(amount)}</td>
     </tr>
   );
+}
+
+/** "2025-09" → "2025年9月" */
+function monthLabel(ym: string): string {
+  const [y, m] = ym.split("-").map(Number);
+  return `${y}年${m}月`;
 }

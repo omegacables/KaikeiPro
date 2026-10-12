@@ -73,11 +73,15 @@ export function taxAmounts(
   return { net: sign * (abs - tax), tax: sign * tax, gross: amount };
 }
 
-/** 行の税区分（読み替え後）。収益・費用以外は対象外（undefined） */
+/**
+ * 行の税区分（読み替え後）。収益・費用以外は対象外（undefined）。
+ * ただし輸入の消費税の区分は、税抜経理の仮払消費税（資産）の行に付いていても数える
+ */
 export function taxCodeOfLine(l: Pick<TaxBookLine, "accountType" | "taxCategory" | "taxRate">):
   | TaxCategoryCode
   | "none"
   | undefined {
+  if (l.accountType === "assets" && taxCategoryInfo(l.taxCategory)?.importTax) return l.taxCategory as TaxCategoryCode;
   if (l.accountType !== "revenue" && l.accountType !== "expenses") return undefined;
   return normalizeTaxCategory(l.taxCategory, l.accountType as AccountType, l.taxRate) ?? "none";
 }
@@ -91,6 +95,11 @@ export function taxBookAmount(l: Pick<TaxBookLine, "accountType" | "debit" | "cr
 export function lineTaxAmounts(l: TaxBookLine): TaxAmounts {
   const code = taxCodeOfLine(l);
   const info = code && code !== "none" ? taxCategoryInfo(code) : null;
+  // 輸入の消費税: 行の金額がそのまま税額（本体の金額は無い）
+  if (info?.importTax) {
+    const amount = taxBookAmount(l);
+    return { net: 0, tax: amount, gross: amount };
+  }
   return taxAmounts(taxBookAmount(l), info?.rate ?? 0, l.exclusive, l.recordedTax);
 }
 
@@ -196,8 +205,9 @@ export function computeTaxSummary(lines: TaxBookLine[]): TaxSummary {
       } else if (info.rate === 0.08) {
         r.sales8 += a.net;
         r.sales8Tax += a.tax;
-      } else if (code === "sales_exempt") r.salesExempt += a.net;
-      else if (code === "sales_tax_free") r.salesTaxFree += a.net;
+      } else if (code === "sales_exempt" || info.securities) r.salesExempt += a.net;
+      // 非課税資産の輸出等は、課税売上割合では免税売上と同じく分子に入る
+      else if (code === "sales_tax_free" || info.exemptExport) r.salesTaxFree += a.net;
       else r.salesOutOfScope += a.net;
       continue;
     }

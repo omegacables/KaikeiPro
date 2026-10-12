@@ -3,7 +3,7 @@
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import { assertRecordsAccess, assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import { recordLearnedRule } from "./learned-rules";
-import { sanitizeTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
+import { sanitizeTaxCategory, taxCategoryAllowed, taxCategoryInfo } from "@/lib/tax-category";
 import type { Database } from "@/types/database";
 
 type JournalEntryRow = Database["public"]["Tables"]["journal_entries"]["Row"];
@@ -188,18 +188,17 @@ export async function updateJournalEntryWithLines(
     }
   }
 
-  // 税区分は収益・費用の行にだけ付ける（資産・負債の行に付けると消費税を多重に数える）
+  // 税区分は収益・費用の行にだけ付ける（資産・負債の行に付けると消費税を多重に数える）。
+  // 例外は仮払消費税の行の輸入の消費税（税関に納めた額）
   const accountIds = [...new Set(lines.map((l) => l.account_id).filter(Boolean))];
   const { data: accts } = await admin
     .from("accounts")
-    .select("id, account_categories:category_id ( type )")
+    .select("id, name, account_categories:category_id ( type )")
     .in("id", accountIds.length ? accountIds : ["00000000-0000-0000-0000-000000000000"]);
-  const typeOf = new Map(
-    ((accts ?? []) as unknown as { id: string; account_categories: { type: string } | null }[]).map((a) => [
-      a.id,
-      a.account_categories?.type ?? "",
-    ])
-  );
+  type Acct = { id: string; name: string; account_categories: { type: string } | null };
+  const acctRows = (accts ?? []) as unknown as Acct[];
+  const typeOf = new Map(acctRows.map((a) => [a.id, a.account_categories?.type ?? ""]));
+  const nameOf = new Map(acctRows.map((a) => [a.id, a.name]));
 
   // 明細は削除→再作成なので、画面から渡されない欄（用途区分・事業区分）は今の行から引き継ぐ。
   // 同じ位置で同じ科目の行、無ければ同じ科目の最初の行の値を使う
@@ -217,7 +216,8 @@ export async function updateJournalEntryWithLines(
     .map((l, i) => {
       const type = typeOf.get(l.account_id);
       const prev = inherit(l, i);
-      const code = type === "revenue" || type === "expenses" ? sanitizeTaxCategory(l.tax_category) : null;
+      const raw = sanitizeTaxCategory(l.tax_category);
+      const code = raw && taxCategoryAllowed(type ?? "", nameOf.get(l.account_id), raw) ? raw : null;
       return {
         account_id: l.account_id,
         debit_amount: Math.round(Number(l.debit_amount) || 0),
@@ -226,7 +226,12 @@ export async function updateJournalEntryWithLines(
         department_id: l.department_id || null,
         tax_category: code,
         tax_rate: code ? taxCategoryInfo(code)?.rate ?? null : null,
-        purchase_use: type === "expenses" ? (l.purchase_use !== undefined ? l.purchase_use : prev?.purchase_use ?? null) : null,
+        purchase_use:
+          type === "expenses" || (code && taxCategoryInfo(code)?.importTax)
+            ? l.purchase_use !== undefined
+              ? l.purchase_use
+              : prev?.purchase_use ?? null
+            : null,
         business_type:
           type === "revenue" ? (l.business_type !== undefined ? l.business_type : prev?.business_type ?? null) : null,
       };

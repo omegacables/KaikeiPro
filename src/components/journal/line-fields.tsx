@@ -53,19 +53,21 @@ export function SubAccountInput({
   );
 }
 
-/** 税区分の選択欄。費用・収益の行にだけ出す（それ以外の行には税区分を付けない） */
+/** 税区分の選択欄。費用・収益の行（と、輸入の消費税を立てる仮払消費税の行）にだけ出す */
 export function TaxCategorySelect({
   accountType,
+  accountName,
   value,
   onChange,
   className,
 }: {
   accountType: string;
+  accountName?: string | null;
   value: string;
   onChange: (code: string) => void;
   className?: string;
 }) {
-  const options = taxCategoriesFor(accountType);
+  const options = taxCategoriesFor(accountType, accountName);
   if (options.length === 0) return null;
   return (
     <select

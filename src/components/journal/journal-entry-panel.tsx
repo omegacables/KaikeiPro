@@ -394,7 +394,7 @@ export function JournalEntryPanel({
                             onChange={(v) => setLine(i, { sub: v })}
                           />
                           {acc && (
-                            <TaxCategorySelect accountType={acc.categoryType} value={l.tax} onChange={(v) => setLine(i, { tax: v })} />
+                            <TaxCategorySelect accountType={acc.categoryType} accountName={acc.name} value={l.tax} onChange={(v) => setLine(i, { tax: v })} />
                           )}
                         </div>
                       )}

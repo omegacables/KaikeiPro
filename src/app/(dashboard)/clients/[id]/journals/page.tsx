@@ -1745,7 +1745,7 @@ function LineExtras({
       </div>
       {acc && (
         <div className="w-36 shrink-0">
-          <TaxCategorySelect accountType={acc.categoryType} value={line.tax} onChange={(v) => onChange("tax", v)} />
+          <TaxCategorySelect accountType={acc.categoryType} accountName={acc.name} value={line.tax} onChange={(v) => onChange("tax", v)} />
         </div>
       )}
     </div>

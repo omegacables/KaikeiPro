@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   defaultTaxCategory,
   taxCategoriesFor,
+  taxCategoryAllowed,
   normalizeTaxCategory,
   normalizeTaxRate,
   taxFromGross,
@@ -129,5 +130,16 @@ describe("手入力の初期の税区分", () => {
     expect(defaultTaxCategory("liabilities", "買掛金")).toBeNull();
     expect(taxCategoriesFor("assets")).toEqual([]);
     expect(taxCategoriesFor("revenue").every((c) => c.side === "sales")).toBe(true);
+  });
+});
+
+describe("輸入の消費税の区分", () => {
+  it("仮払消費税（資産）の行には輸入の区分だけを付けられる。ほかの資産の行には付けない", () => {
+    expect(taxCategoriesFor("assets", "仮払消費税").map((c) => c.code)).toEqual(["purchase_import_10", "purchase_import_08", "purchase_import_local"]);
+    expect(taxCategoriesFor("assets", "普通預金")).toEqual([]);
+    expect(taxCategoryAllowed("assets", "仮払消費税", "purchase_import_10")).toBe(true);
+    expect(taxCategoryAllowed("assets", "仮払消費税", "purchase_10")).toBe(false);
+    expect(taxCategoryAllowed("expenses", "租税公課", "purchase_import_10")).toBe(true); // 税込経理
+    expect(taxCategoryAllowed("revenue", "売上高", "purchase_10")).toBe(false);
   });
 });
