@@ -4,16 +4,17 @@
  * 総勘定元帳（補助科目を指定すれば補助元帳）。
  * 前期繰越から始めて残高を出し、各行に補助科目・相手先・税区分を添える。月ごとに「月計」をはさむ（切り替えられる）。
  * 行をクリックすると仕訳の詳細が開き、その場で修正できる。
+ * 科目名をクリックすると「内訳」（相手先別・税区分別の合計）が開き、選ぶとその行だけに絞り込める。
  */
 
 import { useEffect, useState } from "react";
-import { Loader2, AlertTriangle } from "lucide-react";
+import { Loader2, AlertTriangle, ChevronDown, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn, formatDate } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
 import { TaxBadge } from "@/components/journal/tax-badge";
 import { getLedgerBook, type LedgerBook } from "@/actions/ledger-books";
-import { withMonthlyTotals } from "@/lib/ledger";
+import { breakdownLedger, withMonthlyTotals, type LedgerBreakdownRow } from "@/lib/ledger";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 
 export type CsvSpec = { filename: string; headers: string[]; rows: (string | number)[][] };
@@ -46,6 +47,11 @@ export function GeneralLedgerView({
   const [error, setError] = useState<string | null>(null);
   /** 月計の行を出すか */
   const [monthly, setMonthly] = useState(true);
+  /** 内訳（相手先別・税区分別）を開いているか */
+  const [showBreakdown, setShowBreakdown] = useState(false);
+  /** 内訳で選んだ相手先・税区分で行を絞る */
+  const [focus, setFocus] = useState<{ kind: "partner" | "tax"; key: string; label: string } | null>(null);
+  useEffect(() => setFocus(null), [accountId, dateFrom, dateTo, subAccount]);
 
   useEffect(() => {
     if (!accountId) return;
@@ -107,7 +113,16 @@ export function GeneralLedgerView({
     );
   }
 
-  const items = withMonthlyTotals(book.rows, book.opening, descending).filter((x) => monthly || x.kind === "row");
+  // 全角・半角や空白の違いだけの相手先（「２丁目」と「2丁目」など）は同じ相手先にまとめる
+  const partnerKey = (r: LedgerBook["rows"][number]) => r.partnerName?.normalize("NFKC").replace(/\s+/g, " ").trim() || null;
+  const taxKey = (r: LedgerBook["rows"][number]) => r.taxCategory;
+  const taxName = new Map(book.rows.map((r) => [r.taxCategory ?? "", r.taxCategoryName ?? ""]));
+  const matches = (r: LedgerBook["rows"][number]) =>
+    !focus || ((focus.kind === "partner" ? partnerKey(r) : taxKey(r)) ?? "") === focus.key;
+  // 絞り込み中は月計を出さない（一部の行だけの月計は残高と合わず紛らわしいため）
+  const items = withMonthlyTotals(book.rows, book.opening, descending).filter((x) =>
+    x.kind === "row" ? matches(x.row) : monthly && !focus
+  );
   const reviewCount = book.rows.filter((r) => r.needsReview).length;
   const isPl = book.account.category === "revenue" || book.account.category === "expense";
 
@@ -119,10 +134,47 @@ export function GeneralLedgerView({
           要確認の仕訳が{reviewCount}件あります。試算表と同じく残高には含めていません（行をクリックして確認・修正できます）。
         </div>
       )}
-      <label className="flex items-center gap-1.5 text-xs text-muted-foreground print:hidden w-fit">
-        <input type="checkbox" checked={monthly} onChange={(e) => setMonthly(e.target.checked)} />
-        月計を表示する
-      </label>
+      <div className="flex flex-wrap items-center gap-3 print:hidden">
+        <button
+          onClick={() => setShowBreakdown((v) => !v)}
+          className="inline-flex items-center gap-1 rounded-lg border border-border bg-card px-3 py-1.5 text-sm font-bold text-foreground hover:border-primary/50"
+          title="相手先別・税区分別の合計を見る"
+        >
+          {book.account.code} {book.account.name}
+          <span className="text-xs font-normal text-muted-foreground">の内訳</span>
+          <ChevronDown className={cn("size-4 transition-transform", showBreakdown && "rotate-180")} />
+        </button>
+        {focus && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-primary/10 px-2.5 py-1 text-xs text-primary">
+            {focus.kind === "partner" ? "相手先" : "税区分"}: {focus.label} の行だけ表示中
+            <button onClick={() => setFocus(null)} aria-label="絞り込みを解除" className="hover:text-foreground">
+              <X className="size-3.5" />
+            </button>
+          </span>
+        )}
+        <label className="flex items-center gap-1.5 text-xs text-muted-foreground w-fit">
+          <input type="checkbox" checked={monthly} onChange={(e) => setMonthly(e.target.checked)} />
+          月計を表示する
+        </label>
+      </div>
+      {showBreakdown && (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-2 print:hidden">
+          <BreakdownTable
+            title="相手先別"
+            rows={breakdownLedger(book.account.category, book.rows, partnerKey)}
+            label={(k) => k || "（相手先なし）"}
+            active={focus?.kind === "partner" ? focus.key : null}
+            onPick={(key, label) => setFocus(focus?.kind === "partner" && focus.key === key ? null : { kind: "partner", key, label })}
+          />
+          <BreakdownTable
+            title="税区分別"
+            rows={breakdownLedger(book.account.category, book.rows, taxKey)}
+            label={(k) => taxName.get(k) || "（税区分なし）"}
+            active={focus?.kind === "tax" ? focus.key : null}
+            onPick={(key, label) => setFocus(focus?.kind === "tax" && focus.key === key ? null : { kind: "tax", key, label })}
+          />
+        </div>
+      )}
       <div className="overflow-x-auto rounded-xl border border-border bg-card">
         <table className="w-full min-w-[980px] text-xs">
           <thead>
@@ -211,6 +263,61 @@ export function GeneralLedgerView({
           </tfoot>
         </table>
       </div>
+    </div>
+  );
+}
+
+/** 内訳の表（相手先別・税区分別）。行を選ぶと元帳をその行だけに絞る */
+function BreakdownTable({
+  title,
+  rows,
+  label,
+  active,
+  onPick,
+}: {
+  title: string;
+  rows: LedgerBreakdownRow[];
+  label: (key: string) => string;
+  active: string | null;
+  onPick: (key: string, label: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-border bg-card overflow-hidden">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="bg-muted/20 border-b border-border text-muted-foreground">
+            <th className="px-2 py-1.5 text-left font-bold">{title}</th>
+            <th className="px-2 py-1.5 text-right font-bold w-12">件数</th>
+            <th className="px-2 py-1.5 text-right font-bold w-24">借方</th>
+            <th className="px-2 py-1.5 text-right font-bold w-24">貸方</th>
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr
+              key={r.key}
+              onClick={() => onPick(r.key, label(r.key))}
+              className={cn(
+                "border-b border-border last:border-0 cursor-pointer hover:bg-primary/5",
+                active === r.key && "bg-primary/10 font-bold"
+              )}
+              title="クリックでこの行だけを元帳に表示（もう一度で解除）"
+            >
+              <td className="px-2 py-1.5 truncate max-w-[220px]">{label(r.key)}</td>
+              <td className="px-2 py-1.5 text-right font-mono">{r.count}</td>
+              <td className="px-2 py-1.5 text-right font-mono">{r.debit ? formatYen(r.debit) : ""}</td>
+              <td className="px-2 py-1.5 text-right font-mono">{r.credit ? formatYen(r.credit) : ""}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && (
+            <tr>
+              <td colSpan={4} className="px-2 py-4 text-center text-muted-foreground">
+                この期間の取引はありません
+              </td>
+            </tr>
+          )}
+        </tbody>
+      </table>
     </div>
   );
 }

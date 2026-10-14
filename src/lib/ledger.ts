@@ -183,3 +183,36 @@ export function withMonthlyTotals<R extends { entryDate: string; debit: number; 
   });
   return (descending ? out.reverse() : out).flat();
 }
+
+export type LedgerBreakdownRow = {
+  /** まとめる単位（相手先名・税区分コード）。無い行は "" にまとめる */
+  key: string;
+  count: number;
+  debit: number;
+  credit: number;
+  /** 科目の性質の向きの増減（費用なら借方−貸方） */
+  net: number;
+};
+
+/**
+ * 元帳の行を、相手先や税区分ごとにまとめる（総勘定元帳の「内訳」）。
+ * 要確認の行は残高と同じく除く。金額の大きい順（同じなら件数の多い順）。
+ */
+export function breakdownLedger<R extends { debit: number; credit: number; needsReview: boolean }>(
+  category: LedgerCategory,
+  rows: R[],
+  keyOf: (row: R) => string | null
+): LedgerBreakdownRow[] {
+  const map = new Map<string, LedgerBreakdownRow>();
+  for (const r of rows) {
+    if (r.needsReview) continue;
+    const key = keyOf(r) ?? "";
+    const b = map.get(key) ?? { key, count: 0, debit: 0, credit: 0, net: 0 };
+    b.count++;
+    b.debit += r.debit;
+    b.credit += r.credit;
+    b.net += signedAmount(category, r.debit, r.credit);
+    map.set(key, b);
+  }
+  return [...map.values()].sort((a, b) => Math.abs(b.net) - Math.abs(a.net) || b.count - a.count);
+}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildLedger, summarizeBySubAccount, withMonthlyTotals, type LedgerLine } from "@/lib/ledger";
+import { breakdownLedger, buildLedger, summarizeBySubAccount, withMonthlyTotals, type LedgerLine } from "@/lib/ledger";
 
 let n = 0;
 const line = (date: string, debit: number, credit: number, over: Partial<LedgerLine> = {}): LedgerLine => ({
@@ -131,5 +131,30 @@ describe("月計", () => {
   it("要確認の仕訳だけの月は、前の月末の残高", () => {
     const items = withMonthlyTotals([r("2025-11-05", 100, 0, 0, true)], 5_000);
     expect(items[1]).toEqual({ kind: "month", month: "2025-11", debit: 0, credit: 0, balance: 5_000 });
+  });
+});
+
+describe("内訳（相手先別・税区分別）", () => {
+  const rows = [
+    { partner: "Amazon", tax: "purchase_10", debit: 5000, credit: 0, needsReview: false },
+    { partner: "Amazon", tax: "purchase_10", debit: 3000, credit: 0, needsReview: false },
+    { partner: "ミニストップ", tax: "purchase_8_reduced", debit: 300, credit: 0, needsReview: false },
+    { partner: null, tax: "purchase_10", debit: 0, credit: 1000, needsReview: false },
+    { partner: "Amazon", tax: "purchase_10", debit: 9999, credit: 0, needsReview: true },
+  ];
+
+  it("相手先ごとに件数・借方・貸方・増減をまとめ、金額の大きい順に並べる（要確認は除く）", () => {
+    expect(breakdownLedger("expense", rows, (r) => r.partner)).toEqual([
+      { key: "Amazon", count: 2, debit: 8000, credit: 0, net: 8000 },
+      { key: "", count: 1, debit: 0, credit: 1000, net: -1000 },
+      { key: "ミニストップ", count: 1, debit: 300, credit: 0, net: 300 },
+    ]);
+  });
+
+  it("税区分ごとにまとめる", () => {
+    expect(breakdownLedger("expense", rows, (r) => r.tax).map((b) => [b.key, b.net])).toEqual([
+      ["purchase_10", 7000],
+      ["purchase_8_reduced", 300],
+    ]);
   });
 });
