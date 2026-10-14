@@ -10,7 +10,11 @@ type ReceiptRow = Database["public"]["Tables"]["receipts"]["Row"];
 type ReceiptInsert = Database["public"]["Tables"]["receipts"]["Insert"];
 type ReceiptUpdate = Database["public"]["Tables"]["receipts"]["Update"];
 
-export type ReceiptWithReview = ReceiptRow & { needs_review: boolean };
+export type ReceiptWithReview = ReceiptRow & {
+  needs_review: boolean;
+  /** この証憑から作った仕訳（複数あれば日付の早いもの）。一覧で選んだとき仕訳帳で開く */
+  journal_ref: { id: string; date: string } | null;
+};
 
 export async function getReceipts(clientId: string): Promise<ReceiptWithReview[]> {
   const supabase = await createServerSupabaseClient();
@@ -31,27 +35,33 @@ export async function getReceipts(clientId: string): Promise<ReceiptWithReview[]
     }>
   );
 
-  // needs_review=true の仕訳に紐づく receipt_id を取得
-  const reviewEntries = await fetchAllRows<{ receipt_id: string | null }>((from, to) =>
+  // 証憑に紐づく仕訳（要確認の判定と、一覧から仕訳帳へ移るために使う）
+  type EntryRef = { id: string; receipt_id: string | null; entry_date: string; needs_review: boolean };
+  const entries = await fetchAllRows<EntryRef>((from, to) =>
     supabase
       .from("journal_entries")
-      .select("receipt_id")
+      .select("id, receipt_id, entry_date, needs_review")
       .eq("client_id", clientId)
-      .eq("needs_review", true)
       .not("receipt_id", "is", null)
+      .order("entry_date")
       .range(from, to) as unknown as PromiseLike<{
-      data: { receipt_id: string | null }[] | null;
+      data: EntryRef[] | null;
       error: { message: string } | null;
     }>
   );
 
-  const reviewReceiptIds = new Set(
-    reviewEntries.map((e) => e.receipt_id).filter(Boolean)
-  );
+  const reviewReceiptIds = new Set<string>();
+  const firstEntry = new Map<string, { id: string; date: string }>();
+  for (const e of entries) {
+    if (!e.receipt_id) continue;
+    if (e.needs_review) reviewReceiptIds.add(e.receipt_id);
+    if (!firstEntry.has(e.receipt_id)) firstEntry.set(e.receipt_id, { id: e.id, date: e.entry_date });
+  }
 
   return receipts.map((r) => ({
     ...r,
     needs_review: reviewReceiptIds.has(r.id),
+    journal_ref: firstEntry.get(r.id) ?? null,
   })) as ReceiptWithReview[];
 }
 

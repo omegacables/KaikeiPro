@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import {
   Receipt,
   Upload,
@@ -106,6 +106,8 @@ interface ReceiptData {
   mimeType?: string;
   aiSuggestion?: import("@/types/index").AiJournalSuggestion;
   needsReview: boolean;
+  /** この証憑から作った仕訳。あれば一覧で選んだとき仕訳帳で開く */
+  journal: { id: string; date: string } | null;
   // 多通貨
   currency?: string;
   originalAmount?: number;
@@ -272,6 +274,7 @@ export function ReceiptsPageContent({
             taxRate: ocr?.tax_rate,
             invoiceNumber: ocr?.invoice_number,
             needsReview: r.needs_review ?? false,
+            journal: r.journal_ref,
             documentType: ((): DocumentType | undefined => {
               const dt = (r as { document_type?: string }).document_type as DocumentType | undefined;
               // 既存データ救済: 登録番号(T+13)が無いのに適格請求書になっている書類は
@@ -313,6 +316,13 @@ export function ReceiptsPageContent({
 
   // Detail / status change / delete
   const [selectedReceipt, setSelectedReceipt] = useState<string | null>(null);
+  const router = useRouter();
+  // 一覧で選んだとき: 仕訳があれば仕訳帳でその仕訳を開く。まだ無ければ詳細（AI読み取り・仕訳の作成）を開く。
+  // 画像だけ見たいときは目のボタン、または仕訳の詳細の「証憑」ボタンから
+  const openReceipt = (r: ReceiptData) => {
+    if (r.journal) router.push(`/clients/${id}/ledgers?tab=journal&entry=${r.journal.id}&date=${r.journal.date}`);
+    else setSelectedReceipt(r.id);
+  };
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
@@ -522,6 +532,43 @@ export function ReceiptsPageContent({
   const [fiscalYear, setFiscalYear] = useState("");
   const [dateFrom, setDateFrom] = useState(initialPeriod.from);
   const [dateTo, setDateTo] = useState(initialPeriod.to);
+
+  // 絞り込みを覚えておく。一覧から仕訳帳へ移って「戻る」で帰ってきたとき、
+  // 今月に戻ってしまうと証憑を順に確かめる作業が続けられないため（このタブの間だけ）
+  const filterKey = `receipts-filters:${id}:${lockedDirection ?? ""}:${lockedDocType ?? ""}`;
+  // 読み戻しが画面に反映されるまで保存しない（既定値で上書きしないように）
+  const [filtersRestored, setFiltersRestored] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(filterKey) ?? "null");
+      if (saved) {
+        setDocumentTypeFilter(saved.documentTypeFilter);
+        setDirectionFilter(saved.directionFilter);
+        setInvoiceFilter(saved.invoiceFilter);
+        setViewMode(saved.viewMode);
+        setSearchQuery(saved.searchQuery);
+        setPeriodMode(saved.periodMode);
+        setFiscalYear(saved.fiscalYear);
+        setDateFrom(saved.dateFrom);
+        setDateTo(saved.dateTo);
+      }
+    } catch {
+      // 読めなければ既定（今月）のまま
+    }
+    setFiltersRestored(true);
+  }, [filterKey]);
+  useEffect(() => {
+    if (!filtersRestored) return;
+    try {
+      sessionStorage.setItem(
+        filterKey,
+        JSON.stringify({ documentTypeFilter, directionFilter, invoiceFilter, viewMode, searchQuery, periodMode, fiscalYear, dateFrom, dateTo })
+      );
+    } catch {
+      // 保存できなくても一覧は使える
+    }
+  }, [filtersRestored, filterKey, documentTypeFilter, directionFilter, invoiceFilter, viewMode, searchQuery, periodMode, fiscalYear, dateFrom, dateTo]);
+
   // 画像URL管理（詳細パネル用）
   const [detailImageUrl, setDetailImageUrl] = useState<string | null>(null);
   const [loadingImage, setLoadingImage] = useState(false);
@@ -886,7 +933,8 @@ export function ReceiptsPageContent({
               <Card
                 key={receipt.id}
                 className="overflow-hidden hover:shadow-md transition-all hover:border-primary/30 cursor-pointer group"
-                onClick={() => setSelectedReceipt(receipt.id)}
+                onClick={() => openReceipt(receipt)}
+                title={receipt.journal ? "仕訳帳で開く" : undefined}
               >
                 {/* Thumbnail with document info */}
                 <div className="aspect-[4/3] bg-muted/20 flex flex-col items-center justify-center border-b border-border relative p-4">
@@ -965,6 +1013,14 @@ export function ReceiptsPageContent({
                         {receipt.category}
                       </span>
                     )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedReceipt(receipt.id); }}
+                      title="証憑の詳細（画像・読み取り結果）を見る"
+                      aria-label="証憑の詳細を見る"
+                      className="text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      <Eye className="size-4" />
+                    </button>
                   </div>
                   {receipt.memo && (
                     <p className="text-[10px] text-muted-foreground mt-2 truncate">
@@ -1028,7 +1084,8 @@ export function ReceiptsPageContent({
                     <tr
                       key={receipt.id}
                       className="border-b border-border last:border-0 hover:bg-muted/10 transition-colors cursor-pointer"
-                      onClick={() => setSelectedReceipt(receipt.id)}
+                      onClick={() => openReceipt(receipt)}
+                      title={receipt.journal ? "仕訳帳で開く" : undefined}
                     >
                       <td className="px-2 py-3 text-center" onClick={(e) => e.stopPropagation()}>
                         <input type="checkbox" checked={selectedIds.has(receipt.id)} onChange={() => handleToggleSelect(receipt.id)} className="size-4 cursor-pointer" />
@@ -1092,7 +1149,14 @@ export function ReceiptsPageContent({
                         </Badge>
                       </td>
                       <td className="px-2 py-3">
-                        <Eye className="size-4 text-muted-foreground" />
+                        <button
+                          onClick={(e) => { e.stopPropagation(); setSelectedReceipt(receipt.id); }}
+                          title="証憑の詳細（画像・読み取り結果）を見る"
+                          aria-label="証憑の詳細を見る"
+                          className="text-muted-foreground hover:text-primary transition-colors"
+                        >
+                          <Eye className="size-4" />
+                        </button>
                       </td>
                       <td className="px-2 py-3">
                         <button
