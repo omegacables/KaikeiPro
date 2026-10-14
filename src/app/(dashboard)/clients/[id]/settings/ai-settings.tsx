@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
-import { Bot, Loader2, Building2, UserRound } from "lucide-react";
+import { Bot, Loader2, Building2, UserRound, Check, Ban } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 import { getClient, updateClient } from "@/actions/clients";
@@ -49,9 +49,9 @@ export function AiSettingsContent() {
       .catch((e) => setError(e instanceof Error ? e.message : "読み込みに失敗しました"));
   }, [id]);
 
-  const toggle = async (key: keyof Flags) => {
-    if (!flags) return;
-    const next = { ...flags, [key]: !flags[key] };
+  const choose = async (key: keyof Flags, value: boolean) => {
+    if (!flags || flags[key] === value) return;
+    const next = { ...flags, [key]: value };
     setFlags(next);
     setSaving(key);
     setError(null);
@@ -85,29 +85,60 @@ export function AiSettingsContent() {
           const on = flags[it.key];
           return (
             <Card key={it.key} className="p-4">
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex flex-wrap items-start justify-between gap-4">
                 <div className="flex items-start gap-3">
                   <it.icon className="size-5 text-primary mt-0.5" />
                   <div>
-                    <div className="font-bold">{it.title}をAIに渡す</div>
+                    <div className="font-bold">{it.title}</div>
                     <div className="text-sm text-muted-foreground mt-1">対象: {it.what}</div>
                     <div className="text-xs text-muted-foreground mt-1">{it.effect}</div>
                   </div>
                 </div>
-                <button
-                  role="switch"
-                  aria-checked={on}
-                  aria-label={`${it.title}をAIに渡す`}
-                  disabled={saving === it.key}
-                  onClick={() => toggle(it.key)}
-                  className={cn(
-                    "shrink-0 inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-sm font-bold transition-colors",
-                    on ? "border-success/40 bg-success/10 text-success" : "border-border bg-muted/30 text-muted-foreground"
-                  )}
+                {/* 「渡す」「渡さない」を両方並べ、選ばれている方を塗る（ボタン1つだと、
+                    書いてあるのが今の状態なのか押した後の状態なのか分からないため） */}
+                <div
+                  role="radiogroup"
+                  aria-label={`${it.title}をAIに渡すか`}
+                  className="shrink-0 inline-flex rounded-lg border border-border bg-muted/30 p-0.5"
                 >
-                  {saving === it.key ? <Loader2 className="size-3.5 animate-spin" /> : null}
-                  {on ? "渡す" : "渡さない"}
-                </button>
+                  {([true, false] as const).map((v) => {
+                    const selected = on === v;
+                    return (
+                      <button
+                        key={String(v)}
+                        role="radio"
+                        aria-checked={selected}
+                        disabled={saving === it.key}
+                        onClick={() => choose(it.key, v)}
+                        className={cn(
+                          "inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-bold transition-colors",
+                          selected
+                            ? v
+                              ? "bg-success text-success-foreground shadow-sm"
+                              : "bg-foreground/80 text-background shadow-sm"
+                            : "text-muted-foreground hover:text-foreground"
+                        )}
+                      >
+                        {selected && saving === it.key ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : v ? (
+                          <Check className="size-3.5" />
+                        ) : (
+                          <Ban className="size-3.5" />
+                        )}
+                        {v ? "渡す" : "渡さない"}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+              <div
+                className={cn(
+                  "mt-3 rounded-md px-3 py-1.5 text-xs font-bold",
+                  on ? "bg-success/10 text-success" : "bg-muted/50 text-muted-foreground"
+                )}
+              >
+                現在の設定: {on ? `${it.title}をAIに渡しています` : `${it.title}はAIに渡していません`}
               </div>
             </Card>
           );
