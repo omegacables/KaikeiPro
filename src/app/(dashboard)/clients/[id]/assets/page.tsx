@@ -99,7 +99,7 @@ export default function AssetsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Landmark className="size-6 text-primary" />
-            固定資産台帳・減価償却
+            固定資産・減価償却
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
             資産ごとに、その期に経費にできる上限（償却限度額）を計算し、減価償却の仕訳を作ります。

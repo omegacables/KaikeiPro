@@ -391,7 +391,7 @@ function FixedAssetLedgerTable({ assets, clientId }: { assets: AssetDisplay[]; c
       <p className="mb-3 text-xs text-muted-foreground print:hidden">
         ここは閲覧用です。資産の登録・修正と減価償却の計算は
         <Link href={`/clients/${clientId}/assets`} className="mx-1 text-primary underline">
-          固定資産台帳・減価償却
+          固定資産・減価償却
         </Link>
         で行います。
       </p>

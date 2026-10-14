@@ -92,7 +92,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/payroll", label: "給与台帳", icon: Banknote },
       { href: "/loans", label: "借入金台帳", icon: Landmark },
-      { href: "/assets", label: "固定資産台帳・減価償却", icon: Package },
+      { href: "/assets", label: "固定資産・減価償却", icon: Package },
       { href: "/partners", label: "取引先管理", icon: Handshake },
     ],
   },
@@ -103,7 +103,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/accounts", label: "勘定科目管理", icon: FileText },
       { href: "/learned-rules", label: "仕訳学習", icon: Sparkles },
-      { href: "/allocations", label: "按分（家事・役員の私的利用）", icon: Home },
+      { href: "/allocations", label: "私的利用の按分", icon: Home },
       // 消費税計算・会社書類・監査ログ は「設定」ページに集約
       { href: "/settings", label: "設定", icon: Settings },
     ],
@@ -168,7 +168,7 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
               className="w-full flex items-center gap-3 px-3 py-2 rounded-lg transition-colors text-sm cursor-pointer text-white font-bold hover:bg-slate-purple/50"
             >
               <group.icon className="size-4 shrink-0" />
-              <span className="flex-1 text-left">{group.label}</span>
+              <span className="flex-1 text-left [word-break:auto-phrase]">{group.label}</span>
               <ChevronDown
                 className={cn("size-4 shrink-0 transition-transform", isOpen && "rotate-180")}
               />
@@ -176,7 +176,7 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
 
             {/* アコーディオン項目 */}
             {isOpen && (
-              <div className="ml-4 pl-3 border-l border-slate-purple/40 flex flex-col gap-0.5 py-0.5">
+              <div className="ml-2.5 pl-2 border-l border-slate-purple/40 flex flex-col gap-0.5 py-0.5">
                 {group.items.map((item) => {
                   const fullHref = `${basePath}${item.href}`;
                   const isActive = isNavActive(pathname, fullHref);
@@ -185,14 +185,15 @@ function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: st
                       key={item.href}
                       href={fullHref}
                       className={cn(
-                        "flex items-center gap-2.5 px-3 py-1.5 rounded-lg transition-colors text-sm",
+                        "flex items-center gap-2 px-2.5 py-1.5 rounded-lg transition-colors text-sm",
                         isActive
                           ? "bg-primary-light/20 text-cream font-semibold"
                           : "text-sage hover:bg-slate-purple/50 hover:text-cream"
                       )}
                     >
                       <item.icon className="size-4 shrink-0" />
-                      <span>{item.label}</span>
+                      {/* 折り返すときは語の切れ目で（「勘定科目内訳／明細書」のように途中で切らない） */}
+                      <span className="[word-break:auto-phrase]">{item.label}</span>
                     </Link>
                   );
                 })}
@@ -424,7 +425,7 @@ export function Sidebar() {
                         <span className="block text-[10px] text-sage leading-tight">
                           選択中の顧問先
                         </span>
-                        <span className="block font-semibold break-words leading-snug">
+                        <span className="block font-semibold break-words leading-snug [word-break:auto-phrase]">
                           {selectedClient?.name ?? "顧問先を選択"}
                         </span>
                       </span>
