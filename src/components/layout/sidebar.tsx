@@ -31,6 +31,8 @@ import {
   Home,
   Sparkles,
   X,
+  Percent,
+  Package,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -65,6 +67,8 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/ledgers", label: "帳簿閲覧", icon: BookOpen },
       { href: "/statements", label: "試算表・財務諸表", icon: BarChart3 },
+      // 帳簿ではなく集計表（税区分ごと・科目別税区分表・消費税集計表）
+      { href: "/tax-summary", label: "消費税の集計", icon: Percent },
     ],
   },
   {
@@ -88,6 +92,7 @@ const navGroups: NavGroup[] = [
     items: [
       { href: "/payroll", label: "給与台帳", icon: Banknote },
       { href: "/loans", label: "借入金台帳", icon: Landmark },
+      { href: "/assets", label: "固定資産台帳・減価償却", icon: Package },
       { href: "/partners", label: "取引先管理", icon: Handshake },
     ],
   },
