@@ -125,6 +125,8 @@ function PartnerInputInner<T extends PartnerSuggestion>({
           setHighlight(-1);
         }}
         onFocus={() => setOpen(true)}
+        // Enter・矢印キーで隣の欄へ移ったときも候補を閉じる（外のクリックだけでは閉じ残る）
+        onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
           // 日本語入力の変換中は候補を動かさない
           if (e.nativeEvent.isComposing || !show) return;
@@ -149,6 +151,8 @@ function PartnerInputInner<T extends PartnerSuggestion>({
       {show && pos && (
         <div
           role="listbox"
+          // 一覧のスクロールバーを掴んでも入力欄のフォーカスを外さない
+          onMouseDown={(e) => e.preventDefault()}
           style={{ left: pos.left, top: pos.top, width: Math.max(pos.width, 260) }}
           className="fixed z-50 max-h-64 overflow-y-auto rounded-md border border-border bg-card shadow-lg"
         >

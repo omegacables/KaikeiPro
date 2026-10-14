@@ -27,6 +27,7 @@ import {
 } from "@/actions/company-documents";
 import type { CompanyDocument, CompanyDocType } from "@/types/index";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 export const docTypeLabel: Record<CompanyDocType, string> = {
   articles: "定款",
@@ -318,7 +319,7 @@ export function CompanyDocumentsPageContent({ hideHeader = false }: { hideHeader
                 <X className="size-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4" onKeyDown={handleBarKeyNav}>
               {!editingId && (
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">

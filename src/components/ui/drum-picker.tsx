@@ -19,6 +19,8 @@ export type DrumColumn = {
   items: { value: number; label: string }[];
   selected: number;
   onSelect: (value: number) => void;
+  /** キーボードでいま選んでいる列（見出しを色で示す） */
+  active?: boolean;
 };
 
 function DrumColumnView({ col }: { col: DrumColumn }) {
@@ -106,7 +108,14 @@ function DrumColumnView({ col }: { col: DrumColumn }) {
 
   return (
     <div className="flex flex-col items-stretch min-w-[4.5rem] flex-1">
-      <div className="text-center text-[13px] font-bold text-foreground py-1 border-b border-border">{col.label}</div>
+      <div
+        className={
+          "text-center text-[13px] font-bold py-1 border-b border-border " +
+          (col.active ? "bg-primary text-primary-foreground" : "text-foreground")
+        }
+      >
+        {col.label}
+      </div>
       <div className="relative">
       {/* 中央の帯（ここに来た値が選択中） */}
       <div

@@ -58,6 +58,7 @@ import Link from "next/link";
 import { getJournalEntriesForReceipt, type ReceiptJournalRef } from "@/actions/ledgers";
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -708,7 +709,7 @@ export function ReceiptsPageContent({
         </div>
 
         {/* Period filter + search + view toggle */}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" onKeyDown={handleBarKeyNav}>
           <select
             value={periodMode === "year" ? fiscalYear : ""}
             onChange={(e) => {
@@ -1259,7 +1260,7 @@ export function ReceiptsPageContent({
 
               {/* Details — 表示モード / 編集モード */}
               {editingOcr ? (
-                <div className="space-y-3 bg-muted/10 rounded-lg p-4 border border-primary/20">
+                <div className="space-y-3 bg-muted/10 rounded-lg p-4 border border-primary/20" onKeyDown={handleBarKeyNav}>
                   <div className="flex items-center justify-between mb-1">
                     <h4 className="text-sm font-bold text-primary flex items-center gap-1"><Pencil className="size-3.5" /> OCR結果を編集</h4>
                     <button onClick={() => setEditingOcr(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>

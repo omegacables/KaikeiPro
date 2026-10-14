@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useCallback, useState, memo } from "react";
+import { useRef, useCallback, useLayoutEffect, useState, memo } from "react";
 import { ChevronDown } from "lucide-react";
 import { useSegmentWheel, SegmentHighlight } from "./segment-wheel";
 import { DrumPicker, DrumFooterButton, type DrumColumn } from "./drum-picker";
+import { segmentNav, moveCaretToEdge } from "./segment-nav";
 
 const DATE_SEGMENTS = [[0, 4], [5, 7], [8, 10]] as const; // "YYYY/MM/DD"
 
@@ -114,11 +115,12 @@ export function parseDateInput(raw: string, base: { y: number; m: number; d: num
  *
  *   1. 打ち込み  … 20260410 / 0410 / 4/10 など。確定は Enter・Tab・フォーカスを外したとき
  *   2. ドラムロール … 欄のクリック・右の ▼・Alt+↓ で開き、年・月・日の列を回して選ぶ
- *   3. 上下キー   … カーソルのある区画（年・月・日）を1つずつ増減
+ *   3. 上下キー   … 区画（年・月・日。選び始めは年）を1つずつ増減
  *   4. ホイール   … クリックせずに、年・月・日の上でホイールを回して増減
  *
- * 左右キーは区画の移動に使う。Enter などのキーは onKeyDown で親に渡すので、
- * 仕訳入力のような「Enterで次の欄へ」の移動と組み合わせられる。
+ * 区画を選び始めたら、Enter・→ で 年 → 月 → 日 → 次の欄 と進む（← ・Shift+Enter で戻る。
+ * 判定は segment-nav.ts）。欄に入った直後や打ち込み後の Enter は、そのまま次の欄へ進む。
+ * 欄を出るキーは onKeyDown で親に渡すので、仕訳入力のような「Enterで次の欄へ」と組み合わせられる。
  */
 export const DateInput = memo(function DateInput({
   value,
@@ -139,6 +141,8 @@ export const DateInput = memo(function DateInput({
   const [draft, setDraft] = useState<string | null>(null);
   // 日付として読み取れなかったときの目印。黙って元に戻すと理由が分からないため
   const [invalid, setInvalid] = useState(false);
+  // キーボード・ドラムで選んでいる区画（ドラムの列見出しに色を付ける）。全体選択中は null
+  const [activeSeg, setActiveSeg] = useState<number | null>(null);
 
   // 値が未設定・不正な形式のときは「空欄」として扱う。
   // 任意項目（借入の開始日など）で、入っていない日付を勝手に表示しないため。
@@ -151,30 +155,33 @@ export const DateInput = memo(function DateInput({
 
   const display = draft ?? (isEmpty ? "" : `${year}/${pad2(month)}/${pad2(day)}`);
 
-  // カーソルのある区画: 0=年, 1=月, 2=日
-  const getSegment = (): number => {
+  // カーソルのある区画: 0=年, 1=月, 2=日。全選択中（フォーカス直後の既定）は null
+  const getSegment = (): number | null => {
     const el = innerRef.current;
-    if (!el) return 2;
+    if (!el) return null;
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? start;
-    // 全選択中（フォーカス直後の既定）は「日」として扱う。
-    // 上下キーで最も動かしたいのは日のため。
-    if (start === 0 && end >= display.length) return 2;
+    if (start === 0 && end >= display.length) return null;
     if (start <= 4) return 0;
     if (start <= 7) return 1;
     return 2;
   };
 
+  // 値を変えると描き直しで選択が外れるので、選んでいる区画を選び直す
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (activeSeg === null || !el || document.activeElement !== el) return;
+    const [a, b] = DATE_SEGMENTS[activeSeg];
+    if (el.value.length >= b) el.setSelectionRange(a, b);
+  }, [display, activeSeg]);
+
   const selectSegment = (seg: number) => {
     const el = innerRef.current;
     if (!el) return;
-    requestAnimationFrame(() => {
-      switch (seg) {
-        case 0: el.setSelectionRange(0, 4); break;
-        case 1: el.setSelectionRange(5, 7); break;
-        case 2: el.setSelectionRange(8, 10); break;
-      }
-    });
+    setActiveSeg(seg);
+    const [a, b] = DATE_SEGMENTS[seg];
+    // すぐに選ぶ（続けて押したキーが前の区画に効かないように）。値を変えたときの描き直しの後は上の effect で選び直す
+    if (el.value.length >= b) el.setSelectionRange(a, b);
   };
 
   /**
@@ -215,7 +222,8 @@ export const DateInput = memo(function DateInput({
 
   const adjust = useCallback(
     (delta: number, segOverride?: number) => {
-      const seg = segOverride ?? getSegment();
+      // 区画を選んでいなければ、年から選び始める（年 → 月 → 日 の順に決めていく）
+      const seg = segOverride ?? getSegment() ?? 0;
       let y = year, m = month, d = day;
       // 月末の日付は、年・月を動かしても月末のまま保つ（10/31 → 11/30 → 10/31）。
       // 期末日・締め日を月単位で動かしたときに 30日などに崩れないようにするため
@@ -270,6 +278,8 @@ export const DateInput = memo(function DateInput({
       else if (seg === 1) m = v;
       const nd = seg === 2 ? v : wasMonthEnd ? new Date(y, m, 0).getDate() : clampDayToMonthEnd(y, m, d);
       onChange(format(y, m, nd));
+      // 選んだ区画にカーソルを置く。続けて Enter・→ で次の区画（月・日）へ進めるように
+      if (document.activeElement === innerRef.current) selectSegment(seg);
     },
     [year, month, day, isEmpty, onChange]
   );
@@ -281,6 +291,7 @@ export const DateInput = memo(function DateInput({
       items: Array.from({ length: 31 }, (_, i) => yearCenter - 15 + i).map((v) => ({ value: v, label: `${v}` })),
       selected: year,
       onSelect: (v) => setPart(0, v),
+      active: open && activeSeg === 0,
     },
     {
       key: "m",
@@ -288,6 +299,7 @@ export const DateInput = memo(function DateInput({
       items: Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}月` })),
       selected: month,
       onSelect: (v) => setPart(1, v),
+      active: open && activeSeg === 1,
     },
     {
       key: "d",
@@ -295,6 +307,7 @@ export const DateInput = memo(function DateInput({
       items: Array.from({ length: new Date(year, month, 0).getDate() }, (_, i) => ({ value: i + 1, label: `${i + 1}日` })),
       selected: day,
       onSelect: (v) => setPart(2, v),
+      active: open && activeSeg === 2,
     },
   ];
 
@@ -305,44 +318,53 @@ export const DateInput = memo(function DateInput({
 
       switch (e.key) {
         case "ArrowUp":
-          e.preventDefault();
-          if (!commitDraft()) discardDraft();
-          adjust(1);
-          return;
         case "ArrowDown":
           e.preventDefault();
-          if (e.altKey) {
+          if (e.key === "ArrowDown" && e.altKey) {
             openPicker();
             return;
           }
           if (!commitDraft()) discardDraft();
-          adjust(-1);
+          adjust(e.key === "ArrowUp" ? 1 : -1);
+          // どの区画（年・月・日）を選んでいるか、ドラムの列で見えるようにする
+          if (!open) openPicker();
           return;
         case "ArrowLeft":
-        case "ArrowRight": {
-          // 打ち込み中は普通のカーソル移動として扱う（親のセル移動もしない）
-          if (draft !== null) return;
-          const seg = getSegment();
-          const next = e.key === "ArrowLeft" ? seg - 1 : seg + 1;
-          if (next >= 0 && next <= 2) {
-            e.preventDefault();
-            selectSegment(next);
-            return;
-          }
-          break;
-        }
-        case "Enter":
-        case "Tab":
-          setOpen(false);
+        case "ArrowRight":
+        case "Enter": {
+          // 打ち込み中の ← → は普通のカーソル移動として扱う（親のセル移動もしない）
+          if (draft !== null && e.key !== "Enter") return;
           // 打ち込み内容を確定してから、親（Enterで次の欄へ）に処理を渡す。
           // 読み取れないときは次の欄へ進ませない。進んでしまうと
           // 打った日付が消えたことに気づけない
-          if (!commitDraft()) {
-            if (e.key === "Enter") {
+          if (draft !== null) {
+            if (!commitDraft()) {
               e.preventDefault();
               return;
             }
+            setOpen(false);
+            break;
           }
+          if (isEmpty) {
+            setOpen(false);
+            break;
+          }
+          // 年 → 月 → 日 → 次の欄 の順に選ぶ
+          const move = segmentNav(e.key, e.shiftKey, getSegment(), 3);
+          if (move?.kind === "select") {
+            e.preventDefault();
+            selectSegment(move.seg);
+            if (!open) openPicker();
+            return;
+          }
+          setOpen(false);
+          setActiveSeg(null);
+          if (move) moveCaretToEdge(innerRef.current, move.dir);
+          break;
+        }
+        case "Tab":
+          setOpen(false);
+          commitDraft();
           break;
         case "Escape":
           if (open) {
@@ -359,7 +381,7 @@ export const DateInput = memo(function DateInput({
       }
       onKeyDown?.(e);
     },
-    [adjust, commitDraft, discardDraft, draft, onKeyDown, open, openPicker]
+    [adjust, commitDraft, discardDraft, draft, isEmpty, onKeyDown, open, openPicker]
   );
 
   return (
@@ -376,6 +398,7 @@ export const DateInput = memo(function DateInput({
         onChange={(e) => {
           setDraft(e.target.value);
           setInvalid(false);
+          setActiveSeg(null);
         }}
         onKeyDown={handleKeyDown}
         onClick={() => {
@@ -384,6 +407,7 @@ export const DateInput = memo(function DateInput({
         }}
         onBlur={() => {
           setOpen(false);
+          setActiveSeg(null);
           // 読み取れないまま欄を離れても、打った内容と赤枠は残す。
           // 黙って元に戻すと、間違った日付のまま登録されたことに気づけない。
           // 打ち直しをやめたいときは Esc で戻せる
@@ -392,8 +416,9 @@ export const DateInput = memo(function DateInput({
         onFocus={(e) => {
           // 全体を選択しておく。こうしないと「日」の部分にだけ文字が挿し込まれ、
           // 20260410 のようにフルの日付を打ったときに壊れた文字列になる。
-          // 全選択中でも上下キーは日の増減として働く（getSegment 参照）。
+          // 全選択中の上下キーは年から選び始める（adjust 参照）。
           e.currentTarget.select();
+          setActiveSeg(null);
         }}
         onMouseUp={(e) => {
           // 2回目以降のクリックでは onFocus が起きず全選択が外れる。
@@ -404,6 +429,7 @@ export const DateInput = memo(function DateInput({
           if (draft === null) {
             e.preventDefault();
             e.currentTarget.select();
+            setActiveSeg(null);
           }
         }}
         aria-invalid={invalid || undefined}

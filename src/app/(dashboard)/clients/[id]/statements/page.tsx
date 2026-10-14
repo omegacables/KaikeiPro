@@ -46,7 +46,6 @@ import { getFiscalPeriodRows } from "@/actions/fiscal-month";
 import { beginLoad, endLoad } from "@/lib/loading-bus";
 import { DateInput } from "@/components/ui/date-input";
 import { formatYen } from "@/lib/wareki";
-import { YearMonthDayInput } from "@/components/ui/year-month-day-input";
 import { handleBarKeyNav } from "@/lib/key-nav";
 import {
   MONTH_METRICS,
@@ -894,7 +893,7 @@ function PhysicalInventory({ clientId }: { clientId: string }) {
         </Button>
       </div>
       <div className="paper w-fit max-w-full overflow-x-auto rounded-lg border border-neutral-300 bg-white">
-        <table className="w-auto text-sm tabular-nums bg-white text-foreground">
+        <table className="w-auto text-sm tabular-nums bg-white text-foreground" onKeyDown={handleBarKeyNav}>
           <thead>
             <tr className="border-b-2 border-neutral-400">
               <th className="text-left px-3 py-1.5 text-xs font-bold">棚卸日</th>
@@ -1094,8 +1093,6 @@ export default function StatementsPage() {
   const { id } = useParams<{ id: string }>();
 
   const [activeTab, setActiveTab] = useState<StatementTab>("trial_balance");
-  // 期間指定で選べる年（来年から7年前まで）
-  const periodYears = Array.from({ length: 8 }, (_, i) => new Date().getFullYear() + 1 - i);
   // 集計期間（開始日〜終了日）。既定は「期首〜今月末」。
   // 開始日は決算月を読み込んでから決める（それまで空）
   const [rangeStart, setRangeStart] = useState("");
@@ -1321,13 +1318,13 @@ export default function StatementsPage() {
       {/* Controls */}
       <Card className="mb-4 w-fit">
         <CardContent className="py-2 px-3">
-          {/* 期間: 年は選択・月日は入力（例 4/1）。Enter／←→ で隣の欄へ移れる */}
+          {/* 期間: 新規仕訳と同じ日付欄（4/1 の打ち込み・年月日の選択）。Enter／←→ で隣の欄へ移れる */}
           <div className="flex flex-wrap items-center gap-2" onKeyDown={handleBarKeyNav}>
             <Calendar className="size-4 text-muted-foreground" />
             <label className="text-sm text-foreground font-bold">期間</label>
-            <YearMonthDayInput label="開始日" value={rangeStart} onChange={setRangeStart} years={periodYears} />
+            <div className="w-36"><DateInput value={rangeStart} onChange={setRangeStart} className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm tabular-nums pr-7" /></div>
             <span className="text-foreground">〜</span>
-            <YearMonthDayInput label="終了日" value={rangeEnd} onChange={setRangeEnd} years={periodYears} />
+            <div className="w-36"><DateInput value={rangeEnd} onChange={setRangeEnd} className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm tabular-nums pr-7" /></div>
             <div className="flex gap-1">
               {([
                 ["ytd", "当期累計"],

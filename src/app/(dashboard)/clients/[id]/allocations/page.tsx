@@ -27,6 +27,7 @@ import {
   type AllocationReportRow,
 } from "@/actions/allocations";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import { useClientRole } from "@/lib/use-client-role";
 
 interface Draft {
@@ -520,7 +521,7 @@ export default function AllocationsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4" onKeyDown={handleBarKeyNav}>
               <div>
                 <label className="block text-xs font-bold text-muted-foreground mb-1">日付</label>
                 <DateInput allowEmpty value={jDate} onChange={(v) => setJDate(v)} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />

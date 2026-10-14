@@ -14,6 +14,7 @@ import { Button } from "@/components/ui/button";
 import { AmountInput } from "@/components/ui/amount-input";
 import { DateInput } from "@/components/ui/date-input";
 import { PartnerInput } from "@/components/ui/partner-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import { Notice, CheckNotice } from "@/components/breakdown/notices";
 import {
   FormSheet,
@@ -340,7 +341,7 @@ function SectionEditor({
     <div className="space-y-2">
       {section.title && <h3 className="text-[15px] font-bold">{section.title}</h3>}
       <div className="overflow-x-auto">
-        <table className="w-full text-sm">
+        <table className="w-full text-sm" onKeyDown={handleBarKeyNav}>
           <thead>
             <tr className="text-left text-[13px] text-muted-foreground">
               {section.fields.map((f) => (

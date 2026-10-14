@@ -31,6 +31,7 @@ import {
 import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 type CardAccountInfo = {
   id: string;
@@ -297,7 +298,7 @@ export default function CardTransactionsPage({
               <X className="size-4" />
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-4 mb-4">
+          <div className="grid grid-cols-3 gap-4 mb-4" onKeyDown={handleBarKeyNav}>
             <div>
               <label className="text-xs text-muted-foreground font-bold block mb-1">カード</label>
               <select

@@ -17,6 +17,7 @@ import { cn, formatCurrency } from "@/lib/utils";
 import { getAuditLogs, type AuditLogFilters, type AuditLogWithActor } from "@/actions/audit";
 import type { Database } from "@/types/database";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 type AuditLogRow = Database["public"]["Tables"]["audit_logs"]["Row"];
 
@@ -163,7 +164,7 @@ export function AuditLogPageContent({ hideHeader = false }: { hideHeader?: boole
       {/* Filters */}
       <Card className="mb-6">
         <CardContent className="pt-4 pb-4">
-          <div className="flex flex-wrap items-center gap-4">
+          <div className="flex flex-wrap items-center gap-4" onKeyDown={handleBarKeyNav}>
             <div className="flex items-center gap-2">
               <Calendar className="size-4 text-muted-foreground" />
               <label className="text-xs text-muted-foreground font-bold">期間:</label>

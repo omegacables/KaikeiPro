@@ -28,6 +28,7 @@ import { AmountInput } from "@/components/ui/amount-input";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
 import { useClientRole } from "@/lib/use-client-role";
@@ -718,7 +719,7 @@ function AssetForm({
   return (
     <Card className="p-5">
       <h3 className="text-sm font-bold text-foreground mb-4">{asset ? "資産を編集" : "資産を登録"}</h3>
-      <form onSubmit={submit} className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <form onSubmit={submit} onKeyDown={handleBarKeyNav} className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <label>
           {label("資産名 *")}
           <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className={fieldCls} placeholder="例: ノートパソコン" />

@@ -15,6 +15,7 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import {
   getFiscalMonthOverview,
   changeFiscalStartMonth,
@@ -257,7 +258,7 @@ export function FiscalMonthSettingsContent({ onOpenDocuments }: { onOpenDocument
                 </div>
               </div>
 
-              <div className="grid sm:grid-cols-2 gap-4">
+              <div className="grid sm:grid-cols-2 gap-4" onKeyDown={handleBarKeyNav}>
                 <div>
                   <label className="block text-[15px] font-medium text-foreground mb-1">新しい決算月</label>
                   <select

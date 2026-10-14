@@ -85,6 +85,7 @@ import { useRouter } from "next/navigation";
 import { toHalfWidth } from "@/lib/account-reading";
 import { formatCurrency } from "@/lib/utils";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 /** 直前に終わった事業年度の期首日（内訳書を開くのに使う。変則期間は記録どおり） */
 function previousPeriodStart(rows: FiscalPeriodRow[], startMonth: number): string {
@@ -1633,7 +1634,7 @@ function AiPanel(props: {
               AIの下書き（{props.drafts.length}件）— 内容を確認して登録してください
             </p>
             <div className="overflow-x-auto">
-              <table className="w-full text-[17px]">
+              <table className="w-full text-[17px]" onKeyDown={handleBarKeyNav}>
                 <thead>
                   <tr className="border-b border-border text-left">
                     <th className="py-2 pr-2 whitespace-nowrap">採用</th>

@@ -34,6 +34,7 @@ import { useFiscalPeriods } from "@/lib/use-fiscal-periods";
 import { importRaqtoSalesOrders, exportRaqtoPaymentStatus, type RaqtoSyncResult } from "@/actions/raqto-sync";
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 // ---------------------------------------------------------------------------
 // Types & config
@@ -468,7 +469,7 @@ export function InvoicesPageContent({
               <X className="size-4" />
             </Button>
           </CardHeader>
-          <CardContent>
+          <CardContent onKeyDown={handleBarKeyNav}>
             {/* 区分選択（固定でない場合のみ） */}
             {!lockedDirection && (
               <div className="mb-4">
@@ -744,7 +745,7 @@ export function InvoicesPageContent({
       )}
 
       {/* ===== 検索 & フィルター ===== */}
-      <div className="flex flex-wrap items-center gap-3 mb-4">
+      <div className="flex flex-wrap items-center gap-3 mb-4" onKeyDown={handleBarKeyNav}>
         {/* 発行/受領フィルター（区分固定時は非表示） */}
         {!lockedDirection && (
           <div className="inline-flex gap-1 bg-muted/20 p-1 rounded-lg shrink-0">

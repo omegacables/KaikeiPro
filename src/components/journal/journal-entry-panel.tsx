@@ -21,6 +21,7 @@ import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { TaxBadge } from "@/components/journal/tax-badge";
 import { useClientRole } from "@/lib/use-client-role";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 type EntryLine = {
   accountId: string;
@@ -331,7 +332,7 @@ export function JournalEntryPanel({
           )}
 
           {editing && draft && (
-            <div className="space-y-4">
+            <div className="space-y-4" onKeyDown={handleBarKeyNav}>
               <div className="grid grid-cols-1 sm:grid-cols-[180px_1fr] gap-3">
                 <div>
                   <label className="text-xs text-muted-foreground font-bold">日付</label>

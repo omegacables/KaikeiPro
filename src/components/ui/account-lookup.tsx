@@ -193,6 +193,8 @@ export const AccountLookup = memo(function AccountLookup({
         value={query}
         onChange={handleInputChange}
         onFocus={handleFocus}
+        // Enter・矢印キーで隣の欄へ移ったときも候補を閉じる（外のクリックだけでは閉じ残る）
+        onBlur={() => setOpen(false)}
         onKeyDown={handleKeyDown}
         placeholder="科目検索..."
         className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
@@ -200,6 +202,8 @@ export const AccountLookup = memo(function AccountLookup({
       {open && groups.length > 0 && (
         <div
           ref={listRef}
+          // 一覧のスクロールバーを掴んでも入力欄のフォーカスを外さない（外れると上の onBlur で閉じる）
+          onMouseDown={(e) => e.preventDefault()}
           className="absolute left-0 right-0 top-full mt-1 z-50 bg-card border border-border rounded-lg shadow-lg max-h-60 overflow-y-auto"
         >
           {groups.map((group) => (

@@ -52,6 +52,7 @@ import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, type LineSub } from "@/c
 import { getSubAccounts, ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { useClientRole } from "@/lib/use-client-role";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1117,7 +1118,7 @@ export default function JournalsPage() {
           {/* AIプレビュー（編集可能） */}
           {importSuggestions.length > 0 && (
             <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-xs">
+              <table className="w-full text-xs" onKeyDown={handleBarKeyNav}>
                 <thead className="bg-muted/30 sticky top-0">
                   <tr>
                     <th className="px-2 py-1.5 w-8">
@@ -1377,7 +1378,7 @@ export default function JournalsPage() {
           {/* AIプレビュー */}
           {bankSuggestions.length > 0 && (
             <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-              <table className="w-full text-xs">
+              <table className="w-full text-xs" onKeyDown={handleBarKeyNav}>
                 <thead className="bg-muted/30 sticky top-0">
                   <tr>
                     <th className="px-2 py-1.5 w-8">
@@ -1570,7 +1571,7 @@ export default function JournalsPage() {
                                 value={newEntry.date}
                                 onChange={(v) => setNewEntry({ ...newEntry, date: v })}
                                 inputRef={(el) => setGridRef(idx, 0, el)}
-                                onKeyDown={(e) => { if (e.key === "Enter") handleGridKeyDown(idx, 0, e); }}
+                                onKeyDown={(e) => handleGridKeyDown(idx, 0, e)}
                                 className="w-full bg-card border border-border rounded px-2 py-1.5 pr-7 text-sm"
                               />
                             </td>

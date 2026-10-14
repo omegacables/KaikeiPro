@@ -1,9 +1,10 @@
 "use client";
 
-import { useCallback, useRef, useState, memo } from "react";
+import { useCallback, useLayoutEffect, useRef, useState, memo } from "react";
 import { ChevronDown } from "lucide-react";
 import { useSegmentWheel, SegmentHighlight } from "./segment-wheel";
 import { DrumPicker, DrumFooterButton, type DrumColumn } from "./drum-picker";
+import { segmentNav, moveCaretToEdge } from "./segment-nav";
 
 const MONTH_SEGMENTS = [[0, 4], [5, 7]] as const; // "YYYY/MM"
 
@@ -67,6 +68,7 @@ interface MonthInputProps {
 /**
  * 年月の入力欄。日付入力欄（DateInput）と同じ操作ができる。
  *   打ち込み（202604 / 2026/4 / 4）・ドラムロール（クリック・▼・Alt+↓）・↑↓キー・ホイール（クリック不要）
+ * 区画を選び始めたら、Enter・→ で 年 → 月 → 次の欄 と進む（← ・Shift+Enter で戻る）。
  */
 export const MonthInput = memo(function MonthInput({
   value,
@@ -83,6 +85,8 @@ export const MonthInput = memo(function MonthInput({
   const [yearCenter, setYearCenter] = useState(() => new Date().getFullYear());
   const [draft, setDraft] = useState<string | null>(null);
   const [invalid, setInvalid] = useState(false);
+  // キーボード・ドラムで選んでいる区画（ドラムの列見出しに色を付ける）。全体選択中は null
+  const [activeSeg, setActiveSeg] = useState<number | null>(null);
 
   const isEmpty = !/^\d{4}-\d{2}$/.test(value);
   const now = new Date();
@@ -130,23 +134,43 @@ export const MonthInput = memo(function MonthInput({
     [year, month, isEmpty, onChange]
   );
 
-  const segmentAtCaret = (): number => {
+  // カーソルのある区画: 0=年, 1=月。全選択中（フォーカス直後の既定）は null
+  const segmentAtCaret = (): number | null => {
     const el = innerRef.current;
-    if (!el) return 1;
+    if (!el) return null;
     const start = el.selectionStart ?? 0;
     const end = el.selectionEnd ?? start;
-    if (start === 0 && end >= display.length) return 1; // 全選択中は「月」
+    if (start === 0 && end >= display.length) return null;
     return start <= 4 ? 0 : 1;
+  };
+
+  // 値を変えると描き直しで選択が外れるので、選んでいる区画を選び直す
+  useLayoutEffect(() => {
+    const el = innerRef.current;
+    if (activeSeg === null || !el || document.activeElement !== el) return;
+    const [a, b] = MONTH_SEGMENTS[activeSeg];
+    if (el.value.length >= b) el.setSelectionRange(a, b);
+  }, [display, activeSeg]);
+
+  const selectSegment = (seg: number) => {
+    const el = innerRef.current;
+    if (!el) return;
+    setActiveSeg(seg);
+    const [a, b] = MONTH_SEGMENTS[seg];
+    // すぐに選ぶ（続けて押したキーが前の区画に効かないように）。値を変えたときの描き直しの後は下の effect で選び直す
+    if (el.value.length >= b) el.setSelectionRange(a, b);
   };
 
   const openPicker = () => {
     setYearCenter(year);
     setOpen(true);
   };
-  const pick = (y: number, m: number) => {
+  const pick = (y: number, m: number, seg?: number) => {
     setDraft(null);
     setInvalid(false);
     onChange(`${y}-${pad2(m)}`);
+    // 選んだ区画にカーソルを置く。続けて Enter・→ で月・次の欄へ進めるように
+    if (seg !== undefined && document.activeElement === innerRef.current) selectSegment(seg);
   };
   const drumColumns: DrumColumn[] = [
     {
@@ -154,14 +178,16 @@ export const MonthInput = memo(function MonthInput({
       label: "年",
       items: Array.from({ length: 31 }, (_, i) => yearCenter - 15 + i).map((v) => ({ value: v, label: `${v}` })),
       selected: year,
-      onSelect: (v) => pick(v, month),
+      onSelect: (v) => pick(v, month, 0),
+      active: open && activeSeg === 0,
     },
     {
       key: "m",
       label: "月",
       items: Array.from({ length: 12 }, (_, i) => ({ value: i + 1, label: `${i + 1}月` })),
       selected: month,
-      onSelect: (v) => pick(year, v),
+      onSelect: (v) => pick(year, v, 1),
+      active: open && activeSeg === 1,
     },
   ];
 
@@ -183,6 +209,7 @@ export const MonthInput = memo(function MonthInput({
         onChange={(e) => {
           setDraft(e.target.value);
           setInvalid(false);
+          setActiveSeg(null);
         }}
         onKeyDown={(e) => {
           if ((e.nativeEvent as KeyboardEvent).isComposing) return;
@@ -195,7 +222,23 @@ export const MonthInput = memo(function MonthInput({
               setDraft(null);
               setInvalid(false);
             }
-            adjust(e.key === "ArrowUp" ? 1 : -1, segmentAtCaret());
+            // 区画を選んでいなければ年から選び始める
+            const seg = segmentAtCaret() ?? 0;
+            adjust(e.key === "ArrowUp" ? 1 : -1, seg);
+            if (!isEmpty) selectSegment(seg);
+            if (!open) openPicker();
+          } else if (draft === null && !isEmpty && (e.key === "Enter" || e.key === "ArrowLeft" || e.key === "ArrowRight")) {
+            // 年 → 月 → 次の欄 の順に選ぶ
+            const move = segmentNav(e.key, e.shiftKey, segmentAtCaret(), 2);
+            if (move?.kind === "select") {
+              e.preventDefault();
+              selectSegment(move.seg);
+              if (!open) openPicker();
+            } else {
+              setOpen(false);
+              setActiveSeg(null);
+              if (move) moveCaretToEdge(innerRef.current, move.dir);
+            }
           } else if (e.key === "Enter" || e.key === "Tab") {
             setOpen(false);
             if (!commitDraft() && e.key === "Enter") e.preventDefault();
@@ -213,13 +256,18 @@ export const MonthInput = memo(function MonthInput({
         }}
         onBlur={() => {
           setOpen(false);
+          setActiveSeg(null);
           commitDraft();
         }}
-        onFocus={(e) => e.currentTarget.select()}
+        onFocus={(e) => {
+          e.currentTarget.select();
+          setActiveSeg(null);
+        }}
         onMouseUp={(e) => {
           if (draft === null) {
             e.preventDefault();
             e.currentTarget.select();
+            setActiveSeg(null);
           }
         }}
         aria-invalid={invalid || undefined}

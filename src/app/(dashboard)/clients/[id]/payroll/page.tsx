@@ -31,6 +31,7 @@ import { DateInput } from "@/components/ui/date-input";
 import { paydayOf } from "@/lib/payday";
 import { getClient } from "@/actions/clients";
 import { MonthInput } from "@/components/ui/month-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 function currentMonth(): string {
   const d = new Date();
@@ -465,7 +466,7 @@ export default function PayrollPage({
                 <X className="size-5" />
               </button>
             </div>
-            <div className="p-5 space-y-4">
+            <div className="p-5 space-y-4" onKeyDown={handleBarKeyNav}>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block text-xs font-medium text-muted-foreground mb-1">氏名</label>

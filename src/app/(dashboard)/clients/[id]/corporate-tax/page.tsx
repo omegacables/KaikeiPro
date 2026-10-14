@@ -12,6 +12,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { AmountInput } from "@/components/ui/amount-input";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import { cn } from "@/lib/utils";
 import { SettlementCard } from "@/components/tax/settlement-card";
 import { useClientRole } from "@/lib/use-client-role";
@@ -293,7 +294,7 @@ function InputsCard({ view, clientId, canWrite, onSaved }: { view: CorporateRetu
   const setAdj = (idx: number, patch: Partial<Adjustment>) => setF({ ...f, adjustments: f.adjustments.map((a, i) => (i === idx ? { ...a, ...patch } : a)) });
 
   return (
-    <Card className="p-4 space-y-4 print:hidden">
+    <Card className="p-4 space-y-4 print:hidden" onKeyDown={handleBarKeyNav}>
       <div className="flex items-center justify-between">
         <h3 className="font-bold text-sm">申告の入力（この期）</h3>
         <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>

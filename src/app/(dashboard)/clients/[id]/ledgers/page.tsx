@@ -32,8 +32,8 @@ import { getJournalLedger, type JournalLedgerRow } from "@/actions/ledgers";
 import { getSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { JournalEntryPanel } from "@/components/journal/journal-entry-panel";
 import { TaxBadge } from "@/components/journal/tax-badge";
-import { YearMonthDayInput } from "@/components/ui/year-month-day-input";
 import { handleBarKeyNav } from "@/lib/key-nav";
+import { DateInput } from "@/components/ui/date-input";
 import { GeneralLedgerView, type CsvSpec } from "@/components/ledgers/general-ledger-view";
 import { SubLedgerView } from "@/components/ledgers/sub-ledger-view";
 import { UnassignedPartnerLinesCard } from "@/components/ledgers/unassigned-partner-lines";
@@ -621,8 +621,6 @@ export default function LedgersPage() {
   const [reloadKey, setReloadKey] = useState(0);
   // 元帳・補助元帳・税区分別のCSV出力の中身（各表示が作って渡す）
   const [csvSpec, setCsvSpec] = useState<CsvSpec | null>(null);
-  // 期間指定で選べる年（来年から7年前まで）
-  const periodYears = Array.from({ length: 8 }, (_, i) => year + 1 - i);
   const accountIdByName = (name: string) => accountOptions.find((a) => a.name === name)?.id ?? "";
 
   // 指定した日付の月を表示期間にする（証憑や仕訳の詳細から移ってきたとき）
@@ -931,30 +929,32 @@ export default function LedgersPage() {
               </div>
               <div className="flex flex-col gap-1">
                 <label className="text-xs text-muted-foreground font-bold">
-                  期間指定 <span className="font-normal">（年は選択・月日は入力 例: 4/1）</span>
+                  期間指定 <span className="font-normal">（4/1 のように入力、または年・月・日を選ぶ）</span>
                 </label>
                 <div className="flex items-center gap-1.5">
-                  <YearMonthDayInput
-                    label="開始日"
-                    value={dateFrom}
-                    years={periodYears}
-                    onChange={(v) => {
-                      setDateFrom(v);
-                      if (v > dateTo) setDateTo(v);
-                      setPeriodMode("custom");
-                    }}
-                  />
+                  <div className="w-36">
+                    <DateInput
+                      value={dateFrom}
+                      onChange={(v) => {
+                        setDateFrom(v);
+                        if (v > dateTo) setDateTo(v);
+                        setPeriodMode("custom");
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm tabular-nums pr-7"
+                    />
+                  </div>
                   <span className="text-muted-foreground">〜</span>
-                  <YearMonthDayInput
-                    label="終了日"
-                    value={dateTo}
-                    years={periodYears}
-                    onChange={(v) => {
-                      setDateTo(v);
-                      if (v < dateFrom) setDateFrom(v);
-                      setPeriodMode("custom");
-                    }}
-                  />
+                  <div className="w-36">
+                    <DateInput
+                      value={dateTo}
+                      onChange={(v) => {
+                        setDateTo(v);
+                        if (v < dateFrom) setDateFrom(v);
+                        setPeriodMode("custom");
+                      }}
+                      className="w-full px-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm tabular-nums pr-7"
+                    />
+                  </div>
                 </div>
               </div>
               {activeTab === "journal" && (

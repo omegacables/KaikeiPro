@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { AmountInput } from "@/components/ui/amount-input";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
 import { calcAllowance, writeOffLines } from "@/lib/bad-debt";
@@ -203,7 +204,7 @@ function WriteOffSection({ clientId, ctx, onDone }: { clientId: string; ctx: Bad
         <Note tone="info">この期間末に残高のある売掛金・貸付金などはありません。</Note>
       ) : (
         <>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3" onKeyDown={handleBarKeyNav}>
             <label className="text-xs font-bold text-muted-foreground">
               債権の科目
               <select value={accountId} onChange={(e) => setAccountId(e.target.value)} className={cn(fieldCls, "mt-1")}>

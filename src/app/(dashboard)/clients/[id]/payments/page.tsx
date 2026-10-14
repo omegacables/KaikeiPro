@@ -33,6 +33,7 @@ import { getBankAccounts, createBankAccount } from "@/actions/bank";
 import { BankSelectModal } from "@/components/bank-select-modal";
 import type { JapanBank } from "@/lib/japan-banks";
 import { DateInput } from "@/components/ui/date-input";
+import { handleBarKeyNav } from "@/lib/key-nav";
 
 type UnmatchedPayment = {
   id: string;
@@ -390,7 +391,7 @@ export default function PaymentsPage() {
       {showNewForm && (
         <Card className="mb-6 p-6">
           <h3 className="text-sm font-bold text-foreground mb-4">新規入金登録</h3>
-          <form onSubmit={handleCreatePayment} className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <form onSubmit={handleCreatePayment} onKeyDown={handleBarKeyNav} className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-xs font-bold text-muted-foreground mb-1">入金日 *</label>
               <DateInput allowEmpty value={newPayment.payment_date} onChange={(v) => setNewPayment({ ...newPayment, payment_date: v })} className="w-full px-3 py-2 rounded-lg border border-border bg-card text-foreground text-sm" />
@@ -524,7 +525,7 @@ export default function PaymentsPage() {
           {deposits.length > 0 && (
             <>
               <div className="mt-4 overflow-x-auto rounded-lg border border-border">
-                <table className="w-full text-xs">
+                <table className="w-full text-xs" onKeyDown={handleBarKeyNav}>
                   <thead className="bg-muted/30">
                     <tr>
                       <th className="px-2 py-1.5 w-8">
