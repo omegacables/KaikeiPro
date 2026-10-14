@@ -60,6 +60,8 @@ interface PartnerInputProps<T extends PartnerSuggestion> {
   inputRef?: (el: HTMLInputElement | null) => void;
   /** 候補の選択に使わなかったキー（Enter で次の欄へ、など）を親に渡す */
   onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
+  /** 候補の絞り込みを差し替える（仕訳の摘要の連想など、名前の一致以外で候補を選ぶとき） */
+  filter?: (partners: T[], query: string) => T[];
 }
 
 function PartnerInputInner<T extends PartnerSuggestion>({
@@ -72,6 +74,7 @@ function PartnerInputInner<T extends PartnerSuggestion>({
   showOnEmpty = true,
   inputRef: inputRefProp,
   onKeyDown: onKeyDownProp,
+  filter,
 }: PartnerInputProps<T>) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -80,9 +83,10 @@ function PartnerInputInner<T extends PartnerSuggestion>({
   // 横スクロールする表の中でも候補が切れないよう、画面に対して固定位置で出す
   const [pos, setPos] = useState<{ left: number; top: number; width: number } | null>(null);
 
-  const candidates = useMemo(() => filterPartners(partners, value), [partners, value]);
-  // 入力が候補の名前と完全に同じなら、候補を出し続けない
-  const exact = candidates.length === 1 && candidates[0].name === value;
+  const candidates = useMemo(() => (filter ?? filterPartners)(partners, value), [filter, partners, value]);
+  // 入力が候補の名前と完全に同じなら、候補を出し続けない（絞り込みを差し替えた欄では、
+  // 打った言葉そのものを摘要にする候補もあるので隠さない）
+  const exact = !filter && candidates.length === 1 && candidates[0].name === value;
   const show = open && candidates.length > 0 && !exact && (showOnEmpty || value.trim() !== "");
 
   useEffect(() => {

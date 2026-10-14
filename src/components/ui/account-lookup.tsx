@@ -45,6 +45,11 @@ interface AccountLookupProps {
   accounts: AccountOption[];
   inputRef?: (el: HTMLInputElement | null) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  /**
+   * 打った言葉から連想する科目（「ドコモ」→ 通信費 など。科目名・読みで見つからない言葉用）。
+   * 返した科目は一覧のいちばん上に「連想」として出す
+   */
+  associate?: (query: string) => string[];
 }
 
 export const AccountLookup = memo(function AccountLookup({
@@ -53,6 +58,7 @@ export const AccountLookup = memo(function AccountLookup({
   accounts,
   inputRef,
   onKeyDown,
+  associate,
 }: AccountLookupProps) {
   const selected = accounts.find((a) => a.id === value);
   const [query, setQuery] = useState(selected ? `${selected.code} ${selected.name}` : "");
@@ -83,10 +89,20 @@ export const AccountLookup = memo(function AccountLookup({
     ? accounts.filter((a) => matchesAccountQuery(query, a, extraReadings))
     : accounts;
 
+  // 連想した科目（いちばん上に出し、下の分類からは外す）
+  const associated =
+    associate && query && open && !isSelectedText
+      ? associate(query)
+          .map((aid) => accounts.find((a) => a.id === aid))
+          .filter((a): a is AccountOption => !!a)
+      : [];
+  const associatedIds = new Set(associated.map((a) => a.id));
+
   // Build flat list with category groups for rendering
   const groups: { label: string; items: AccountOption[] }[] = [];
+  if (associated.length > 0) groups.push({ label: `連想（${query}）`, items: associated });
   for (const catType of categoryOrder) {
-    const items = filtered.filter((a) => a.categoryType === catType);
+    const items = filtered.filter((a) => a.categoryType === catType && !associatedIds.has(a.id));
     if (items.length > 0) {
       groups.push({ label: categoryLabels[catType] ?? catType, items });
     }

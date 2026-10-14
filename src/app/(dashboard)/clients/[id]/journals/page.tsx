@@ -26,7 +26,6 @@ import { cn, formatCurrency } from "@/lib/utils";
 import {
   createJournalEntry,
   importJournalEntries,
-  getDescriptionSuggestions,
   type JournalImportRow,
   type JournalImportResult,
 } from "@/actions/journals";
@@ -50,6 +49,9 @@ import { DateInput } from "@/components/ui/date-input";
 import { AmountInput } from "@/components/ui/amount-input";
 import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, usesSubAccount, type LineSub } from "@/components/journal/line-fields";
 import { getSubAccounts, ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
+import { getJournalPatterns } from "@/actions/journal-patterns";
+import { associateAccountIds, suggestEntries, type JournalPattern, type EntrySuggestion, type LineFill } from "@/lib/journal-association";
+import { PartnerInput } from "@/components/ui/partner-input";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { useClientRole } from "@/lib/use-client-role";
 import { handleBarKeyNav } from "@/lib/key-nav";
@@ -74,10 +76,10 @@ export default function JournalsPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
 
-  // 摘要の予測候補（過去の摘要から）
-  const [descSuggestions, setDescSuggestions] = useState<string[]>([]);
+  // 連想の元になる過去の仕訳の組み合わせ（摘要・科目・補助科目）
+  const [patterns, setPatterns] = useState<JournalPattern[]>([]);
   useEffect(() => {
-    getDescriptionSuggestions(id).then(setDescSuggestions).catch(() => setDescSuggestions([]));
+    getJournalPatterns(id).then(setPatterns).catch(() => setPatterns([]));
   }, [id]);
 
   // ---- Receipt upload state (multi-file) ----
@@ -528,6 +530,45 @@ export default function JournalsPage() {
   const updateCreditLine = (idx: number, field: string, value: unknown) =>
     setCreditLines((prev) => prev.map((l, i) => (i === idx ? withField(l, field, value) : l)));
 
+  // ---- 連想（過去の仕訳と言葉の辞書から、科目・補助科目・摘要を候補に出す）----
+  // 科目の欄: 「ドコモ」→ 通信費 のように、科目名・読みで見つからない言葉から科目を連想する
+  const associate = useCallback((q: string) => associateAccountIds(q, accounts, patterns), [accounts, patterns]);
+  const accountName = (aid: string) => accounts.find((a) => a.id === aid)?.name ?? "";
+  /** 摘要の欄の候補（その行で選んだ科目に合うもの） */
+  const memoCandidates = (idx: number, q: string) => {
+    const side = (f: LineFill | null) => (f ? accountName(f.accountId) + (f.subName ? `・${f.subName}` : "") : "");
+    return suggestEntries({
+      query: q,
+      debitAccountId: debitLines[idx]?.account ?? "",
+      creditAccountId: creditLines[idx]?.account ?? "",
+      patterns,
+      accounts,
+    }).map((s) => ({
+      ...s,
+      id: s.key,
+      name: s.description,
+      sub: [side(s.debit), side(s.credit)].filter(Boolean).join(" / ") + (s.source === "dictionary" ? "（言葉から推測）" : ""),
+    }));
+  };
+  /** 候補を選んだとき: 摘要を入れ、その行の空いている科目・補助科目・税区分を埋める（選んだ科目は変えない） */
+  const applySuggestion = (idx: number, s: EntrySuggestion) => {
+    setMemos((prev) => {
+      const next = [...prev];
+      next[idx] = s.description;
+      return next;
+    });
+    const fill = (l: InputLine, f: LineFill | null): InputLine => {
+      if (!f) return l;
+      if (l.account && l.account !== f.accountId) return l;
+      let out = l.account ? l : withField(l, "account", f.accountId);
+      if (!l.account && f.tax) out = { ...out, tax: f.tax };
+      if (f.subName && !out.sub.name) out = { ...out, sub: { id: f.subId, name: f.subName } };
+      return out;
+    };
+    setDebitLines((prev) => prev.map((l, i) => (i === idx ? fill(l, s.debit) : l)));
+    setCreditLines((prev) => prev.map((l, i) => (i === idx ? fill(l, s.credit) : l)));
+  };
+
   // Arrow key navigation grid: [row][col] where cols = date, debitAccount, debitAmount, creditAccount, creditAmount, memo
   // The submit button is stored as a special extra row at grid[maxRows][0]
   const gridRefs = useRef<(HTMLElement | null)[][]>([]);
@@ -778,12 +819,6 @@ export default function JournalsPage() {
 
   return (
     <>
-      {/* 摘要の予測候補（過去の摘要） */}
-      <datalist id="memo-suggestions">
-        {descSuggestions.map((d) => (
-          <option key={d} value={d} />
-        ))}
-      </datalist>
       {/* Page Header */}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
@@ -1601,7 +1636,7 @@ export default function JournalsPage() {
                           <td className="py-1.5 px-1 border-r border-border/50">
                             {dl ? (
                               <div className="flex items-center gap-1">
-                                <AccountLookup accounts={accounts} value={dl.account} onChange={(v) => updateDebitLine(idx, "account", v)} inputRef={(el) => setGridRef(idx, 1, el)} onKeyDown={(e) => handleGridKeyDown(idx, 1, e)} />
+                                <AccountLookup accounts={accounts} value={dl.account} onChange={(v) => updateDebitLine(idx, "account", v)} inputRef={(el) => setGridRef(idx, 1, el)} onKeyDown={(e) => handleGridKeyDown(idx, 1, e)} associate={associate} />
                                 {debitLines.length > 1 && (
                                   <button onClick={() => removeDebitLine(idx)} className="text-destructive hover:text-destructive/80 shrink-0">
                                     <Trash2 className="size-3.5" />
@@ -1637,7 +1672,7 @@ export default function JournalsPage() {
                           <td className="py-1.5 px-1 border-r border-border/50">
                             {cl ? (
                               <div className="flex items-center gap-1">
-                                <AccountLookup accounts={accounts} value={cl.account} onChange={(v) => updateCreditLine(idx, "account", v)} inputRef={(el) => setGridRef(idx, 3, el)} onKeyDown={(e) => handleGridKeyDown(idx, 3, e)} />
+                                <AccountLookup accounts={accounts} value={cl.account} onChange={(v) => updateCreditLine(idx, "account", v)} inputRef={(el) => setGridRef(idx, 3, el)} onKeyDown={(e) => handleGridKeyDown(idx, 3, e)} associate={associate} />
                                 {creditLines.length > 1 && (
                                   <button onClick={() => removeCreditLine(idx)} className="text-destructive hover:text-destructive/80 shrink-0">
                                     <Trash2 className="size-3.5" />
@@ -1672,22 +1707,23 @@ export default function JournalsPage() {
                           {/* 摘要 */}
                           <td className="py-1.5 px-1 border-l border-border">
                             {(dl || cl) ? (
-                              <input
-                                ref={(el) => setGridRef(idx, 5, el)}
-                                type="text"
+                              <PartnerInput
+                                inputRef={(el) => setGridRef(idx, 5, el)}
                                 value={memos[idx] ?? ""}
-                                onChange={(e) => {
-                                  const v = e.target.value;
+                                onChange={(v) => {
                                   setMemos((prev) => {
                                     const next = [...prev];
                                     next[idx] = v;
                                     return next;
                                   });
                                 }}
+                                // 過去の仕訳と言葉の辞書から連想した候補。選ぶと科目・補助科目もまとめて入る
+                                partners={[] as ReturnType<typeof memoCandidates>}
+                                filter={(_, q) => memoCandidates(idx, q)}
+                                onSelect={(s) => applySuggestion(idx, s)}
                                 onKeyDown={(e) => handleGridKeyDown(idx, 5, e)}
-                                placeholder="摘要..."
-                                list="memo-suggestions"
-                                className="w-full bg-card border border-border rounded px-2 py-1.5 text-sm"
+                                placeholder="摘要...（「ドコモ」など打つと候補）"
+                                className="py-1.5 text-sm rounded"
                               />
                             ) : null}
                           </td>
