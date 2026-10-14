@@ -17,9 +17,9 @@ import {
   createSubAccountsFromPartners,
   type SubAccount,
 } from "@/actions/sub-accounts";
+// 相手先ごとに管理することが多い科目（取引先マスタからの一括作成を目立たせる）
+import { PARTNER_ACCOUNT } from "@/components/journal/line-fields";
 
-/** 相手先ごとに管理することが多い科目（取引先マスタからの一括作成を目立たせる） */
-const PARTNER_ACCOUNT = /売掛金|買掛金|未払金|未収入金|前受金|前払金|前渡金|預り金|仮払金|仮受金|受取手形|支払手形|借入金|貸付金/;
 
 export function SubAccountManager({
   clientId,

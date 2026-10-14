@@ -48,7 +48,7 @@ import { useAuth } from "@/components/providers/auth-provider";
 import Link from "next/link";
 import { DateInput } from "@/components/ui/date-input";
 import { AmountInput } from "@/components/ui/amount-input";
-import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, type LineSub } from "@/components/journal/line-fields";
+import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, usesSubAccount, type LineSub } from "@/components/journal/line-fields";
 import { getSubAccounts, ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { useClientRole } from "@/lib/use-client-role";
@@ -536,6 +536,19 @@ export default function JournalsPage() {
     if (!gridRefs.current[row]) gridRefs.current[row] = [];
     gridRefs.current[row][col] = el;
   }, []);
+  // 補助科目の欄（売掛金など補助科目を使う科目の行だけ）。キーは "行-科目の列(1=借方,3=貸方)"
+  const subRefs = useRef<Record<string, HTMLInputElement | null>>({});
+  const setSubRef = useCallback((row: number, col: number, el: HTMLInputElement | null) => {
+    subRefs.current[`${row}-${col}`] = el;
+  }, []);
+  /** 補助科目の欄で Enter → 同じ側の金額へ */
+  const handleSubKeyDown = useCallback((row: number, col: number, e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key !== "Enter" || e.nativeEvent.isComposing) return;
+    const amount = gridRefs.current[row]?.[col + 1];
+    if (!amount) return;
+    e.preventDefault();
+    amount.focus();
+  }, []);
   const handleGridKeyDown = useCallback((row: number, col: number, e: React.KeyboardEvent) => {
     // IME変換中はナビゲーションしない
     if (e.nativeEvent.isComposing) return;
@@ -563,7 +576,14 @@ export default function JournalsPage() {
     let targetCol = col;
 
     switch (e.key) {
-      case "Enter":
+      case "Enter": {
+        // 科目の欄から: 補助科目を使う科目（売掛金など）なら、金額の前に補助科目の欄に止まる
+        const sub = col === 1 || col === 3 ? subRefs.current[`${row}-${col}`] : null;
+        if (sub) {
+          e.preventDefault();
+          sub.focus();
+          return;
+        }
         // Move right, wrap to next row's first available cell at end
         if (col < 5) {
           targetCol = col + 1;
@@ -572,6 +592,7 @@ export default function JournalsPage() {
           targetCol = 0;
         }
         break;
+      }
       case "ArrowRight":
         // From 摘要 (col 5), go to submit button
         if (col === 5) {
@@ -1594,6 +1615,8 @@ export default function JournalsPage() {
                                 accounts={accounts}
                                 subAccounts={subAccounts}
                                 onChange={(field, v) => updateDebitLine(idx, field, v)}
+                                subInputRef={(el) => setSubRef(idx, 1, el)}
+                                onSubKeyDown={(e) => handleSubKeyDown(idx, 1, e)}
                               />
                             ) : null}
                           </td>
@@ -1628,6 +1651,8 @@ export default function JournalsPage() {
                                 accounts={accounts}
                                 subAccounts={subAccounts}
                                 onChange={(field, v) => updateCreditLine(idx, field, v)}
+                                subInputRef={(el) => setSubRef(idx, 3, el)}
+                                onSubKeyDown={(e) => handleSubKeyDown(idx, 3, e)}
                               />
                             ) : null}
                           </td>
@@ -1727,13 +1752,23 @@ function LineExtras({
   accounts,
   subAccounts,
   onChange,
+  subInputRef,
+  onSubKeyDown,
 }: {
   line: { account: string; sub: LineSub; tax: string };
   accounts: AccountOption[];
   subAccounts: SubAccount[];
   onChange: (field: "sub" | "tax", value: LineSub | string) => void;
+  /** 補助科目を使う科目のときだけ、Enter の移動先として登録する */
+  subInputRef?: (el: HTMLInputElement | null) => void;
+  onSubKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const acc = accounts.find((a) => a.id === line.account);
+  const stopHere = acc ? usesSubAccount(acc, subAccounts) : false;
+  // 補助科目を使わない科目になったら、移動先から外す
+  useEffect(() => {
+    if (!stopHere) subInputRef?.(null);
+  }, [stopHere, subInputRef]);
   return (
     <div className="mt-1 flex items-center gap-1">
       <div className="flex-1 min-w-0">
@@ -1742,6 +1777,8 @@ function LineExtras({
           subAccounts={subAccounts}
           value={line.sub}
           onChange={(v) => onChange("sub", v)}
+          inputRef={stopHere ? subInputRef : undefined}
+          onKeyDown={onSubKeyDown}
         />
       </div>
       {acc && (

@@ -16,6 +16,17 @@ export type LineSub = { id: string | null; name: string };
 
 export const EMPTY_SUB: LineSub = { id: null, name: "" };
 
+/** 相手先ごとに管理することが多い科目（売掛金・買掛金・借入金など） */
+export const PARTNER_ACCOUNT = /売掛金|買掛金|未払金|未収入金|前受金|前払金|前渡金|預り金|仮払金|仮受金|受取手形|支払手形|借入金|貸付金/;
+
+/**
+ * 補助科目を使う科目か。相手先ごとに管理する科目と、補助科目を登録してある科目。
+ * 仕訳入力で Enter を押したとき、補助科目の欄に止まるかどうかに使う。
+ */
+export function usesSubAccount(account: { id: string; name: string }, subAccounts: SubAccount[]) {
+  return PARTNER_ACCOUNT.test(account.name) || subAccounts.some((s) => s.accountId === account.id && s.isActive);
+}
+
 /**
  * 補助科目の入力欄。その科目の補助科目を予測変換で出す。
  * 候補に無い名前もそのまま入力でき、保存時に新しい補助科目として登録される。
@@ -26,12 +37,16 @@ export function SubAccountInput({
   value,
   onChange,
   className,
+  inputRef,
+  onKeyDown,
 }: {
   accountId: string;
   subAccounts: SubAccount[];
   value: LineSub;
   onChange: (v: LineSub) => void;
   className?: string;
+  inputRef?: (el: HTMLInputElement | null) => void;
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }) {
   const options = useMemo(
     () => subAccounts.filter((s) => s.accountId === accountId && s.isActive),
@@ -48,6 +63,8 @@ export function SubAccountInput({
         onChange({ id: hit?.id ?? null, name: text });
       }}
       onSelect={(s) => onChange({ id: s.id, name: s.name })}
+      inputRef={inputRef}
+      onKeyDown={onKeyDown}
       className={cn("py-1 text-xs", className)}
     />
   );

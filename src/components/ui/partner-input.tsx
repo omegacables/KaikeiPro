@@ -56,6 +56,10 @@ interface PartnerInputProps<T extends PartnerSuggestion> {
   className?: string;
   /** 何も入力していないときにも候補を出すか（既定は出す） */
   showOnEmpty?: boolean;
+  /** 入力欄の要素（Enter で次の欄へ移る画面がフォーカスを当てるため） */
+  inputRef?: (el: HTMLInputElement | null) => void;
+  /** 候補の選択に使わなかったキー（Enter で次の欄へ、など）を親に渡す */
+  onKeyDown?: (e: React.KeyboardEvent<HTMLInputElement>) => void;
 }
 
 function PartnerInputInner<T extends PartnerSuggestion>({
@@ -66,6 +70,8 @@ function PartnerInputInner<T extends PartnerSuggestion>({
   placeholder,
   className,
   showOnEmpty = true,
+  inputRef: inputRefProp,
+  onKeyDown: onKeyDownProp,
 }: PartnerInputProps<T>) {
   const [open, setOpen] = useState(false);
   const [highlight, setHighlight] = useState(-1);
@@ -111,7 +117,10 @@ function PartnerInputInner<T extends PartnerSuggestion>({
   return (
     <div ref={boxRef} className="relative">
       <input
-        ref={inputRef}
+        ref={(el) => {
+          inputRef.current = el;
+          inputRefProp?.(el);
+        }}
         type="text"
         value={value}
         placeholder={placeholder}
@@ -129,7 +138,11 @@ function PartnerInputInner<T extends PartnerSuggestion>({
         onBlur={() => setOpen(false)}
         onKeyDown={(e) => {
           // 日本語入力の変換中は候補を動かさない
-          if (e.nativeEvent.isComposing || !show) return;
+          if (e.nativeEvent.isComposing) return;
+          if (!show) {
+            onKeyDownProp?.(e);
+            return;
+          }
           if (e.key === "ArrowDown") {
             e.preventDefault();
             setHighlight((h) => Math.min(h + 1, candidates.length - 1));
@@ -141,6 +154,8 @@ function PartnerInputInner<T extends PartnerSuggestion>({
             pick(candidates[highlight]);
           } else if (e.key === "Escape") {
             setOpen(false);
+          } else {
+            onKeyDownProp?.(e);
           }
         }}
         className={cn(
