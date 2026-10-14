@@ -6,7 +6,7 @@
  * 各行の勘定科目・補助科目・税区分・税率・金額と、取引先・品目明細を表示し、その場で修正できる。
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { X, Pen, Plus, Trash2, Loader2, Check, AlertTriangle, ImageIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +17,9 @@ import { SubAccountInput, TaxCategorySelect, EMPTY_SUB, type LineSub } from "@/c
 import { getJournalEntry, updateJournalEntryWithLines } from "@/actions/journals";
 import { getJournalEntryDetail, type JournalEntryDetail } from "@/actions/ledgers";
 import { ensureSubAccounts, type SubAccount } from "@/actions/sub-accounts";
+import { getJournalPatterns } from "@/actions/journal-patterns";
+import { associateAccountIds, suggestEntries, type JournalPattern, type EntrySuggestion, type LineFill } from "@/lib/journal-association";
+import { PartnerInput } from "@/components/ui/partner-input";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { cn, formatCurrency, formatDate } from "@/lib/utils";
 import { TaxBadge } from "@/components/journal/tax-badge";
@@ -80,6 +83,8 @@ export function JournalEntryPanel({
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Entry | null>(null);
   const [saving, setSaving] = useState(false);
+  // 連想の元になる過去の仕訳の組み合わせ（修正を始めたときに読み込む）
+  const [patterns, setPatterns] = useState<JournalPattern[] | null>(null);
   const role = useClientRole(clientId);
 
   const subName = (id: string | null) => (id ? subAccounts.find((s) => s.id === id)?.name ?? "" : "");
@@ -144,6 +149,7 @@ export function JournalEntryPanel({
     // 補助科目の一覧が後から読み込まれた場合に備え、名前をここで埋める
     setDraft({ ...entry, lines: entry.lines.map((l) => ({ ...l, sub: { ...l.sub, name: l.sub.name || subName(l.sub.id) } })) });
     setEditing(true);
+    if (patterns === null) getJournalPatterns(clientId).then(setPatterns).catch(() => setPatterns([]));
   };
   const setLine = (i: number, patch: Partial<EntryLine>) =>
     setDraft((d) => d && { ...d, lines: d.lines.map((l, idx) => (idx === i ? { ...l, ...patch } : l)) });
@@ -153,6 +159,52 @@ export function JournalEntryPanel({
       accountId,
       sub: EMPTY_SUB,
       tax: acc ? defaultTaxCategory(acc.categoryType, acc.name) ?? "" : "",
+    });
+  };
+
+  // ---- 連想（仕訳入力と同じ。摘要・科目・補助科目を過去の仕訳と言葉の辞書から候補に出す）----
+  const associate = useCallback((q: string) => associateAccountIds(q, accounts, patterns ?? []), [accounts, patterns]);
+  /** 借方・貸方の行（金額の入っている行。まだ無ければ1行目・2行目） */
+  const sideIndex = (lines: EntryLine[], side: "debit" | "credit") => {
+    const hit = lines.findIndex((l) => num(l[side]) > 0);
+    return hit >= 0 ? hit : side === "debit" ? 0 : lines.length > 1 ? 1 : -1;
+  };
+  const memoCandidates = (q: string) => {
+    if (!draft) return [];
+    const di = sideIndex(draft.lines, "debit");
+    const ci = sideIndex(draft.lines, "credit");
+    const name = (f: LineFill | null) => (f ? (account(f.accountId)?.name ?? "") + (f.subName ? `・${f.subName}` : "") : "");
+    return suggestEntries({
+      query: q,
+      debitAccountId: draft.lines[di]?.accountId ?? "",
+      creditAccountId: ci >= 0 ? draft.lines[ci]?.accountId ?? "" : "",
+      patterns: patterns ?? [],
+      accounts,
+    }).map((s) => ({
+      ...s,
+      id: s.key,
+      name: s.description,
+      sub: [name(s.debit), name(s.credit)].filter(Boolean).join(" / ") + (s.source === "dictionary" ? "（言葉から推測）" : ""),
+    }));
+  };
+  /** 候補を選んだとき: 摘要を入れ、借方・貸方の行の空いている科目・補助科目・税区分を埋める（選んだ科目は変えない） */
+  const applySuggestion = (s: EntrySuggestion) => {
+    setDraft((d) => {
+      if (!d) return d;
+      const di = sideIndex(d.lines, "debit");
+      const ci = sideIndex(d.lines, "credit");
+      const fill = (l: EntryLine, f: LineFill | null): EntryLine => {
+        if (!f || (l.accountId && l.accountId !== f.accountId)) return l;
+        const acc = account(f.accountId);
+        let out = l.accountId ? l : { ...l, accountId: f.accountId, sub: EMPTY_SUB, tax: f.tax ?? (acc ? defaultTaxCategory(acc.categoryType, acc.name) ?? "" : "") };
+        if (f.subName && !out.sub.name) out = { ...out, sub: { id: f.subId, name: f.subName } };
+        return out;
+      };
+      return {
+        ...d,
+        description: s.description,
+        lines: d.lines.map((l, i) => (i === di ? fill(l, s.debit) : i === ci ? fill(l, s.credit) : l)),
+      };
     });
   };
 
@@ -344,11 +396,18 @@ export function JournalEntryPanel({
                 </div>
                 <div>
                   <label className="text-xs text-muted-foreground font-bold">摘要</label>
-                  <input
-                    value={draft.description}
-                    onChange={(e) => setDraft({ ...draft, description: e.target.value })}
-                    className="w-full mt-1 px-2 py-1.5 rounded-lg border border-border bg-card text-sm"
-                  />
+                  <div className="mt-1">
+                    <PartnerInput
+                      value={draft.description}
+                      onChange={(v) => setDraft({ ...draft, description: v })}
+                      // 過去の仕訳と言葉の辞書から連想した候補。選ぶと科目・補助科目もまとめて入る
+                      partners={[] as ReturnType<typeof memoCandidates>}
+                      filter={(_, q) => memoCandidates(q)}
+                      onSelect={applySuggestion}
+                      placeholder="摘要（「ドコモ」など打つと候補）"
+                      className="py-1.5 rounded-lg"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -374,7 +433,7 @@ export function JournalEntryPanel({
                     <div key={i} className="rounded-lg border border-border p-2 space-y-1.5">
                       <div className="flex items-start gap-2">
                         <div className="flex-1 min-w-0">
-                          <AccountLookup accounts={accounts} value={l.accountId} onChange={(v) => setLineAccount(i, v)} />
+                          <AccountLookup accounts={accounts} value={l.accountId} onChange={(v) => setLineAccount(i, v)} associate={associate} />
                         </div>
                         {draft.lines.length > 1 && (
                           <button
