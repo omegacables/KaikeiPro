@@ -75,8 +75,8 @@ const tabs: { key: LedgerTab; label: string }[] = [
   { key: "journal", label: "仕訳帳" },
   { key: "general", label: "総勘定元帳" },
   { key: "subledger", label: "補助元帳" },
-  { key: "receivable", label: "売掛帳（相手先別）" },
-  { key: "payable", label: "買掛帳（相手先別）" },
+  { key: "receivable", label: "売掛帳" },
+  { key: "payable", label: "買掛帳" },
   { key: "tax", label: "税区分別" },
   { key: "assets", label: "固定資産台帳" },
 ];
