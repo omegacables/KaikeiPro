@@ -92,7 +92,20 @@ export type DepreciationBook = {
   rounding: DepreciationRounding;
   entryMethod: "direct" | "indirect";
   assets: DepreciationAsset[];
-  totals: { cost: number; openingBook: number; limit: number; booked: number; excess: number; allowed: number; closingBook: number };
+  totals: {
+    cost: number;
+    openingBook: number;
+    /** 償却限度額（普通＋特別）と、その内訳 */
+    limit: number;
+    ordinaryLimit: number;
+    specialLimit: number;
+    /** 翌期へ繰り越す特別償却不足額 */
+    specialShortfall: number;
+    booked: number;
+    excess: number;
+    allowed: number;
+    closingBook: number;
+  };
   /** この期に作った減価償却の仕訳 */
   journal: { entryIds: string[]; date: string; amount: number } | null;
   /** 選べる固定資産の科目 */
@@ -280,6 +293,9 @@ async function computeBook(clientId: string, periodKey?: string): Promise<Deprec
     cost: sum((a) => a.acquisitionCost),
     openingBook: sum((a) => a.current?.openingBook ?? a.closingBook),
     limit: sum((a) => a.current?.limit ?? 0),
+    ordinaryLimit: sum((a) => a.current?.ordinaryLimit ?? 0),
+    specialLimit: sum((a) => a.current?.specialLimit ?? 0),
+    specialShortfall: sum((a) => a.current?.specialShortfall ?? 0),
     booked: sum((a) => a.current?.booked ?? 0),
     excess: sum((a) => a.current?.excess ?? 0),
     allowed: sum((a) => a.current?.allowed ?? 0),
@@ -518,6 +534,12 @@ export async function setBookedAmount(
     throw new Error("個人事業主は償却限度額どおりに計上します（任意償却はできません）");
   if (amount !== null && !(amount >= 0)) throw new Error("計上額を正しく入力してください");
   const { db } = ctx;
+  // 取得価額を超える額は計算の側で丸められ、打ち間違いに気づけないので受け付けない（画面では期首の帳簿価額で止める）
+  if (amount !== null) {
+    const { data: asset } = await db.from("fixed_assets").select("acquisition_cost").eq("id", assetId).eq("client_id", clientId).maybeSingle();
+    if (!asset) throw new Error("この顧問先の固定資産ではありません");
+    if (amount > Number(asset.acquisition_cost) - 1) throw new Error("計上額が取得価額を超えています（1円の備忘価額を残します）");
+  }
   const { data: existing } = await db
     .from("fixed_asset_depreciations")
     .select("id, journal_entry_id")

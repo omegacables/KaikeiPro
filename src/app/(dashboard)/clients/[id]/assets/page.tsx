@@ -167,10 +167,25 @@ export default function AssetsPage() {
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <Summary label="取得価額の合計" value={book.totals.cost} note={`${book.assets.length}件`} />
-            <Summary label="当期の償却限度額" value={book.totals.limit} note="経費にできる上限" />
+            <Summary
+              label="当期の償却限度額"
+              value={book.totals.limit}
+              note={
+                book.totals.specialLimit > 0
+                  ? `普通 ${formatYen(book.totals.ordinaryLimit)} ＋ 特別 ${formatYen(book.totals.specialLimit)}`
+                  : "経費にできる上限（普通償却）"
+              }
+            />
             <Summary label="当期の計上額" value={book.totals.booked} note="帳簿に計上する減価償却費" />
             <Summary label="期末の帳簿価額" value={book.totals.closingBook} />
           </div>
+
+          {book.totals.specialShortfall > 0 && (
+            <Note tone="info">
+              特別償却の限度額まで計上しなかった分（特別償却不足額）{formatYen(book.totals.specialShortfall)} を、
+              翌期に1年だけ繰り越して上乗せできます（翌期の特別償却限度額に足しています）。
+            </Note>
+          )}
 
           {isCorp && (book.totals.excess > 0 || book.totals.allowed > 0) && (
             <Note tone="info">
@@ -190,7 +205,7 @@ export default function AssetsPage() {
 
           <Card className="overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-xs min-w-[960px]">
+              <table className="w-full text-xs min-w-[1060px]">
                 <thead>
                   <tr className="bg-muted/20 border-b-2 border-border text-muted-foreground">
                     <th className="text-left px-3 py-2 font-bold">資産名・科目</th>
@@ -198,7 +213,8 @@ export default function AssetsPage() {
                     <th className="text-right px-3 py-2 font-bold">取得価額</th>
                     <th className="text-left px-3 py-2 font-bold">耐用年数・方法</th>
                     <th className="text-right px-3 py-2 font-bold">期首帳簿価額</th>
-                    <th className="text-right px-3 py-2 font-bold">償却限度額</th>
+                    <th className="text-right px-3 py-2 font-bold">普通償却限度額</th>
+                    <th className="text-right px-3 py-2 font-bold">特別償却限度額</th>
                     <th className="text-right px-3 py-2 font-bold">当期の計上額</th>
                     {isCorp && <th className="text-right px-3 py-2 font-bold">償却超過額</th>}
                     <th className="text-right px-3 py-2 font-bold">期末帳簿価額</th>
@@ -232,10 +248,11 @@ export default function AssetsPage() {
                             {a.specialRate ? <Badge variant="info" className="ml-1">特別償却</Badge> : null}
                           </td>
                           <td className="px-3 py-2 text-right font-mono">{c ? formatYen(c.openingBook) : "—"}</td>
+                          <td className="px-3 py-2 text-right font-mono">{c?.limit != null ? formatYen(c.ordinaryLimit) : "—"}</td>
                           <td className="px-3 py-2 text-right font-mono">
-                            {c?.limit != null ? formatYen(c.limit) : "—"}
-                            {c && c.specialLimit > 0 && (
-                              <div className="text-[10px] text-muted-foreground">うち特別 {formatYen(c.specialLimit)}</div>
+                            {c && c.specialLimit > 0 ? formatYen(c.specialLimit) : ""}
+                            {c && c.specialShortfall > 0 && (
+                              <div className="text-[10px] text-info">不足額 {formatYen(c.specialShortfall)} を翌期へ</div>
                             )}
                           </td>
                           <td className={cn("px-3 py-2 text-right font-mono font-bold", c?.overridden && "text-primary")}>
@@ -254,7 +271,7 @@ export default function AssetsPage() {
                         </tr>
                         {open && (
                           <tr>
-                            <td colSpan={isCorp ? 10 : 9} className="p-0">
+                            <td colSpan={isCorp ? 11 : 10} className="p-0">
                               <AssetDetail
                                 clientId={id}
                                 book={book}
@@ -287,7 +304,8 @@ export default function AssetsPage() {
                       <td className="px-3 py-2 text-right font-mono">{formatYen(book.totals.cost)}</td>
                       <td />
                       <td className="px-3 py-2 text-right font-mono">{formatYen(book.totals.openingBook)}</td>
-                      <td className="px-3 py-2 text-right font-mono">{formatYen(book.totals.limit)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{formatYen(book.totals.ordinaryLimit)}</td>
+                      <td className="px-3 py-2 text-right font-mono">{book.totals.specialLimit ? formatYen(book.totals.specialLimit) : ""}</td>
                       <td className="px-3 py-2 text-right font-mono">{formatYen(book.totals.booked)}</td>
                       {isCorp && <td className="px-3 py-2 text-right font-mono">{book.totals.excess ? formatYen(book.totals.excess) : ""}</td>}
                       <td className="px-3 py-2 text-right font-mono">{formatYen(book.totals.closingBook)}</td>
@@ -494,6 +512,9 @@ function AssetDetail({
 }) {
   const c = asset.current;
   const [amount, setAmount] = useState(c ? String(c.booked) : "");
+  // 期首の帳簿価額から備忘価額1円を残した額までしか計上できない。超える額は黙って丸めず、止めて知らせる
+  const maxAmount = c ? Math.max(0, c.openingBook - 1) : 0;
+  const amountTooLarge = amount !== "" && Number(amount) > maxAmount;
   const [disposeDate, setDisposeDate] = useState("");
   const canSetAmount = canWrite && c && !journalLocked && (isCorp || asset.kind === "unsupported");
 
@@ -531,7 +552,7 @@ function AssetDetail({
           </label>
           <Button
             size="sm"
-            disabled={busy === `amt-${asset.id}` || amount === ""}
+            disabled={busy === `amt-${asset.id}` || amount === "" || amountTooLarge}
             onClick={() => run(`amt-${asset.id}`, () => setBookedAmount(clientId, asset.id, book.period, Number(amount)))}
           >
             この額にする
@@ -546,23 +567,31 @@ function AssetDetail({
               償却限度額どおりに戻す
             </Button>
           )}
-          <span className="text-xs text-muted-foreground">
-            {c?.limit != null && `償却限度額は ${formatYen(c.limit)} です。下回っても構いませんが、超えた分は損金になりません。`}
-          </span>
+          {amountTooLarge ? (
+            <span className="text-xs text-destructive">
+              期首の帳簿価額（{formatYen(c?.openingBook ?? 0)}）から1円（備忘価額）を残した {formatYen(maxAmount)} までしか計上できません。
+            </span>
+          ) : (
+            <span className="text-xs text-muted-foreground">
+              {c?.limit != null && `償却限度額は ${formatYen(c.limit)} です。下回っても構いませんが、超えた分は損金になりません。`}
+            </span>
+          )}
         </div>
       )}
 
       <div>
         <h4 className="text-sm font-bold text-foreground mb-2">償却スケジュール</h4>
         <div className="overflow-x-auto">
-          <table className="w-full text-xs min-w-[640px]">
+          <table className="w-full text-xs min-w-[820px]">
             <thead>
               <tr className="border-b border-border text-muted-foreground">
                 <th className="text-left px-2 py-1.5">事業年度</th>
                 <th className="text-right px-2 py-1.5">月数</th>
                 <th className="text-right px-2 py-1.5">期首帳簿価額</th>
-                <th className="text-right px-2 py-1.5">償却限度額</th>
+                <th className="text-right px-2 py-1.5">普通償却限度額</th>
+                <th className="text-right px-2 py-1.5">特別償却限度額</th>
                 <th className="text-right px-2 py-1.5">計上額</th>
+                <th className="text-right px-2 py-1.5">特別償却不足額（翌期へ）</th>
                 {isCorp && <th className="text-right px-2 py-1.5">償却超過額の残り</th>}
                 <th className="text-right px-2 py-1.5">期末帳簿価額</th>
               </tr>
@@ -584,8 +613,10 @@ function AssetDetail({
                     </td>
                     <td className="px-2 py-1 text-right">{r.months}</td>
                     <td className="px-2 py-1 text-right font-mono">{formatYen(r.openingBook)}</td>
-                    <td className="px-2 py-1 text-right font-mono">{r.limit != null ? formatYen(r.limit) : "—"}</td>
+                    <td className="px-2 py-1 text-right font-mono">{r.limit != null ? formatYen(r.ordinaryLimit) : "—"}</td>
+                    <td className="px-2 py-1 text-right font-mono">{r.specialLimit ? formatYen(r.specialLimit) : ""}</td>
                     <td className={cn("px-2 py-1 text-right font-mono", r.overridden && "text-primary")}>{formatYen(r.booked)}</td>
+                    <td className="px-2 py-1 text-right font-mono">{r.specialShortfall ? formatYen(r.specialShortfall) : ""}</td>
                     {isCorp && <td className="px-2 py-1 text-right font-mono">{r.closingExcess ? formatYen(r.closingExcess) : ""}</td>}
                     <td className="px-2 py-1 text-right font-mono">{formatYen(r.closingBook)}</td>
                   </tr>
