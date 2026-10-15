@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   FileText,
   Plus,
   Printer,
+  Eye,
   Search,
   AlertCircle,
   Clock,
@@ -114,6 +115,8 @@ type Invoice = {
   status: Exclude<InvoiceStatus, "all">;
   direction: Direction;
   raqtoOrderStatus: string | null;
+  /** 計上した仕訳（クリックで仕訳帳を開く） */
+  journalEntryId: string | null;
 };
 
 // ---------------------------------------------------------------------------
@@ -193,10 +196,30 @@ export function InvoicesPageContent({
           status:      r.status as Exclude<InvoiceStatus, "all">,
           direction:   ((r as { direction?: Direction }).direction ?? "sales"),
           raqtoOrderStatus: r.raqto_order_status ?? null,
+          journalEntryId: r.journal_entry_id ?? null,
         }))
       ),
     [] as Invoice[]
   );
+
+  // 今月の請求書が無ければ、請求書のある最新の月を表示する（今月だけでは何も出ず、無いように見えるため）
+  const autoPicked = useRef(false);
+  const [autoMonthNote, setAutoMonthNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (autoPicked.current || invoices.length === 0) return;
+    autoPicked.current = true;
+    const mine = invoices.filter((inv) => effectiveDirection === "all" || inv.direction === effectiveDirection).map((inv) => inv.issuedDate.replace(/\//g, "-"));
+    if (mine.length === 0 || mine.some((d) => d >= dateFrom && d <= dateTo)) return;
+    const latest = mine.reduce((m, d) => (d > m ? d : m), "");
+    const [y, mo] = latest.split("-").map(Number);
+    if (!y || !mo) return;
+    const mm = String(mo).padStart(2, "0");
+    setPeriodMode("month");
+    setDateFrom(`${y}-${mm}-01`);
+    setDateTo(`${y}-${mm}-${String(new Date(y, mo, 0).getDate()).padStart(2, "0")}`);
+    setAutoMonthNote(`今月の請求書が無いため、請求書のある最新の月（${y}年${mo}月）を表示しています。`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [invoices]);
 
   // ---- Filtered list ----
   const filteredInvoices = invoices.filter((inv) => {
@@ -823,6 +846,7 @@ export function InvoicesPageContent({
       </div>
 
       {/* ===== テーブル ===== */}
+      {autoMonthNote && <p className="mb-2 text-xs text-muted-foreground">{autoMonthNote}</p>}
       <Card className="overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -856,7 +880,16 @@ export function InvoicesPageContent({
                 const isPurchaseInv = inv.direction === "purchase";
 
                 return (
-                  <tr key={inv.id} className="border-b border-border last:border-0 hover:bg-muted/10">
+                  <tr
+                    key={inv.id}
+                    // 計上済みの請求書は、クリックで仕訳帳のその仕訳を開く（証憑と同じ動き）
+                    onClick={() => {
+                      if (inv.journalEntryId)
+                        router.push(`/clients/${id}/ledgers?tab=journal&entry=${inv.journalEntryId}&date=${inv.issuedDate.replace(/\//g, "-")}`);
+                    }}
+                    title={inv.journalEntryId ? "仕訳帳で開く" : "まだ計上していません（「発行・計上」「計上」で仕訳を作ります）"}
+                    className={cn("border-b border-border last:border-0 hover:bg-muted/10", inv.journalEntryId && "cursor-pointer")}
+                  >
                     {/* 請求書番号 */}
                     <td className="px-4 py-3 font-mono font-medium text-primary">
                       {inv.invoiceNumber}
@@ -941,6 +974,16 @@ export function InvoicesPageContent({
                             {issuingId === inv.id ? <Loader2 className="size-3.5 animate-spin" /> : <Download className="size-3.5" />}
                             計上
                           </Button>
+                        )}
+                        {!isPurchaseInv && (
+                          <button
+                            onClick={(e) => { e.stopPropagation(); router.push(`/clients/${id}/invoices/print/${inv.id}`); }}
+                            title="請求書を見る"
+                            aria-label="請求書を見る"
+                            className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                          >
+                            <Eye className="size-4" />
+                          </button>
                         )}
                         {!isPurchaseInv && (
                           <Button size="sm" variant="ghost"

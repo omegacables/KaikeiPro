@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 import {
   Receipt,
@@ -122,6 +122,8 @@ interface ReceiptData {
   possibleDuplicate?: boolean;
   ocrConfidence?: number;
   folderId?: string | null;
+  /** アップロードした日時（読み取りが止まっているかの判断に使う） */
+  uploadedAt?: string;
 }
 
 
@@ -288,6 +290,7 @@ export function ReceiptsPageContent({
             possibleDuplicate: ocr?.possible_duplicate === true,
             ocrConfidence: typeof ocr?.confidence === "number" ? ocr.confidence : undefined,
             folderId: (r as { folder_id?: string | null }).folder_id ?? null,
+            uploadedAt: r.uploaded_at,
           };
         })
       ),
@@ -538,10 +541,13 @@ export function ReceiptsPageContent({
   const filterKey = `receipts-filters:${id}:${lockedDirection ?? ""}:${lockedDocType ?? ""}`;
   // 読み戻しが画面に反映されるまで保存しない（既定値で上書きしないように）
   const [filtersRestored, setFiltersRestored] = useState(false);
+  // 覚えていた絞り込みが無いとき（初めて開いたとき）だけ、表示する月を自動で選ぶ
+  const hadSavedFilters = useRef(false);
   useEffect(() => {
     try {
       const saved = JSON.parse(sessionStorage.getItem(filterKey) ?? "null");
       if (saved) {
+        hadSavedFilters.current = true;
         setDocumentTypeFilter(saved.documentTypeFilter);
         setDirectionFilter(saved.directionFilter);
         setInvoiceFilter(saved.invoiceFilter);
@@ -592,6 +598,8 @@ export function ReceiptsPageContent({
   const processingReceipts = receipts.filter(
     (r) => r.status === "uploaded" || r.status === "processing"
   );
+  /** アップロードから10分たっても読み取りが終わっていない（AIの利用枠切れなどで止まっている） */
+  const isStuck = (r: ReceiptData) => !!r.uploadedAt && Date.now() - new Date(r.uploadedAt).getTime() > 10 * 60 * 1000;
   // 処理中を除いた確定済みの証憑（一覧・件数集計の対象）
   // 書類種別固定（明細書タブ等）・除外（受領/発行から明細書を除く等）・区分固定（受領/発行タブ）を
   // ここで先に適用し、「全○件」やステータス集計が区分ごとに正しく分かれるようにする。
@@ -615,6 +623,26 @@ export function ReceiptsPageContent({
   // Filtered
   // 明細書タブなど書類種別固定時は区分（発行/受領）の概念がないため "all" に固定
   const effectiveDirection = lockedDocType ? "all" : (lockedDirection ?? directionFilter);
+  // 初めて開いたとき、今月の証憑が無ければ、証憑のある最新の月を表示する
+  // （今月だけを出すと何も表示されず、証憑が無いように見えてしまうため）
+  const autoPicked = useRef(false);
+  const [autoMonthNote, setAutoMonthNote] = useState<string | null>(null);
+  useEffect(() => {
+    if (autoPicked.current || !filtersRestored || receiptsLoading || hadSavedFilters.current) return;
+    autoPicked.current = true;
+    const mine = classifiedReceipts.filter((r) => effectiveDirection === "all" || r.direction === effectiveDirection);
+    if (mine.length === 0 || mine.some((r) => r.date >= dateFrom && r.date <= dateTo)) return;
+    const latest = mine.reduce((m, r) => (r.date > m ? r.date : m), "");
+    const [y, mo] = latest.split("-").map(Number);
+    if (!y || !mo) return;
+    const mm = String(mo).padStart(2, "0");
+    setPeriodMode("month");
+    setDateFrom(`${y}-${mm}-01`);
+    setDateTo(`${y}-${mm}-${String(new Date(y, mo, 0).getDate()).padStart(2, "0")}`);
+    setAutoMonthNote(`今月の証憑が無いため、証憑のある最新の月（${y}年${mo}月）を表示しています。`);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filtersRestored, receiptsLoading]);
+
   const filtered = classifiedReceipts.filter((r) => {
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
     // 書類種別フィルター
@@ -827,6 +855,10 @@ export function ReceiptsPageContent({
       </div>
       )}
 
+      {autoMonthNote && !processingOnly && (
+        <p className="mb-3 text-xs text-muted-foreground">{autoMonthNote}</p>
+      )}
+
       {/* Bulk action bar */}
       {!processingOnly && (
       <div className="flex items-center gap-3 mb-4">
@@ -862,12 +894,14 @@ export function ReceiptsPageContent({
       {(processingOnly || !hideProcessingSection) && processingReceipts.length > 0 && (
         <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
           <div className="flex items-center gap-2 mb-3 flex-wrap">
-            <Loader2 className="size-4 animate-spin text-warning" />
+            {processingReceipts.every(isStuck) ? <AlertTriangle className="size-4 text-warning" /> : <Loader2 className="size-4 animate-spin text-warning" />}
             <h3 className="text-sm font-bold text-warning">
-              処理中（{processingReceipts.length}件）
+              {processingReceipts.every(isStuck) ? "読み取りが止まっている証憑" : "処理中"}（{processingReceipts.length}件）
             </h3>
             <span className="text-xs text-muted-foreground">
-              AIが内容を読み取り、発行／受領を判定しています。完了すると自動的に各タブへ振り分けられます。
+              {processingReceipts.some(isStuck)
+                ? "AIの読み取りが終わっていない証憑です（AIの利用枠切れなど）。開いて「OCR実行」を押すと、もう一度読み取ります。画像はそのまま見られます。"
+                : "AIが内容を読み取り、発行／受領を判定しています。完了すると自動的に各タブへ振り分けられます。"}
             </span>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -878,17 +912,18 @@ export function ReceiptsPageContent({
                 className="flex items-center gap-2 p-2 rounded-lg bg-card border border-border text-left hover:border-primary/30 transition-colors"
               >
                 <div className="size-8 rounded bg-muted/30 flex items-center justify-center shrink-0">
-                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                  {isStuck(r) ? <AlertTriangle className="size-4 text-warning" /> : <Loader2 className="size-4 animate-spin text-muted-foreground" />}
                 </div>
                 <div className="min-w-0 flex-1">
                   <p className="text-xs font-medium text-foreground truncate">
-                    {r.vendor && r.vendor !== "不明" ? r.vendor : "読み取り中…"}
+                    {r.vendor && r.vendor !== "不明" ? r.vendor : isStuck(r) ? "読み取りが止まっています" : "読み取り中…"}
                   </p>
                   <p className="text-[10px] text-muted-foreground">{formatDate(r.date)}</p>
                 </div>
                 <Badge variant="warning" className="text-[10px] shrink-0">
                   {statusConfig[r.status].label}
                 </Badge>
+                <Eye className="size-4 text-muted-foreground shrink-0" aria-label="証憑の詳細を見る" />
               </button>
             ))}
           </div>
