@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { IconButton } from "@/components/ui/icon-button";
 import { useParams, useRouter } from "next/navigation";
 import {
   FileText,
@@ -976,14 +977,13 @@ export function InvoicesPageContent({
                           </Button>
                         )}
                         {!isPurchaseInv && (
-                          <button
+                          <IconButton
+                            label="請求書を表示"
                             onClick={(e) => { e.stopPropagation(); router.push(`/clients/${id}/invoices/print/${inv.id}`); }}
-                            title="請求書を見る"
-                            aria-label="請求書を見る"
-                            className="p-1 text-muted-foreground hover:text-primary transition-colors"
+                            className="text-muted-foreground hover:text-primary"
                           >
                             <Eye className="size-4" />
-                          </button>
+                          </IconButton>
                         )}
                         {!isPurchaseInv && (
                           <Button size="sm" variant="ghost"

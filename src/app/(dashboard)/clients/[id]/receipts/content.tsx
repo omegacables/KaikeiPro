@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { IconButton } from "@/components/ui/icon-button";
+import { HoverTip } from "@/components/ui/hover-tip";
 import { useParams, useRouter } from "next/navigation";
 import {
   Receipt,
@@ -923,7 +925,9 @@ export function ReceiptsPageContent({
                 <Badge variant="warning" className="text-[10px] shrink-0">
                   {statusConfig[r.status].label}
                 </Badge>
-                <Eye className="size-4 text-muted-foreground shrink-0" aria-label="証憑の詳細を見る" />
+                <HoverTip label="証憑を表示（画像・読み取り結果）" className="shrink-0">
+                  <Eye className="size-4 text-muted-foreground" />
+                </HoverTip>
               </button>
             ))}
           </div>
@@ -1048,14 +1052,13 @@ export function ReceiptsPageContent({
                         {receipt.category}
                       </span>
                     )}
-                    <button
+                    <IconButton
+                      label="証憑を表示（画像・読み取り結果）"
                       onClick={(e) => { e.stopPropagation(); setSelectedReceipt(receipt.id); }}
-                      title="証憑の詳細（画像・読み取り結果）を見る"
-                      aria-label="証憑の詳細を見る"
-                      className="text-muted-foreground hover:text-primary transition-colors"
+                      className="text-muted-foreground hover:text-primary"
                     >
                       <Eye className="size-4" />
-                    </button>
+                    </IconButton>
                   </div>
                   {receipt.memo && (
                     <p className="text-[10px] text-muted-foreground mt-2 truncate">
@@ -1184,14 +1187,13 @@ export function ReceiptsPageContent({
                         </Badge>
                       </td>
                       <td className="px-2 py-3">
-                        <button
+                        <IconButton
+                          label="証憑を表示（画像・読み取り結果）"
                           onClick={(e) => { e.stopPropagation(); setSelectedReceipt(receipt.id); }}
-                          title="証憑の詳細（画像・読み取り結果）を見る"
-                          aria-label="証憑の詳細を見る"
-                          className="text-muted-foreground hover:text-primary transition-colors"
+                          className="text-muted-foreground hover:text-primary"
                         >
                           <Eye className="size-4" />
-                        </button>
+                        </IconButton>
                       </td>
                       <td className="px-2 py-3">
                         <button
