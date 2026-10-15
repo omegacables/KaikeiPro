@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeBlueReturn, wageBreakdown, partnerBreakdown, type BlueTbRow } from "@/lib/blue-return";
+import { computeBlueReturn, wageBreakdown, partnerBreakdown, counterparties, type BlueTbRow } from "@/lib/blue-return";
 
 // 試算表の1行。PL科目は期中の借方・貸方、BS科目は期首・期末残高（借方プラス）
 const pl = (name: string, category: "revenue" | "expense", amount: number, o: Partial<BlueTbRow> = {}): BlueTbRow => ({
@@ -140,5 +140,30 @@ describe("2・3ページの内訳", () => {
       { partner: "大家A", amount: 660_000 },
       { partner: "その他（2件）", amount: 130_000 },
     ]);
+  });
+});
+
+describe("貸倒引当金・売上先の明細", () => {
+  it("貸倒引当金: 年末の売掛金等 × 5.5% が繰入限度額。超えたら知らせる", () => {
+    const withAr = [...tb.map((x) => (x.name === "普通預金" ? bs("普通預金", "asset", 900_000, 443_000) : x)), bs("売掛金", "asset", 0, 1_000_000), pl("貸倒引当金繰入", "expense", 60_000), bs("貸倒引当金", "liability", 0, -60_000)];
+    const r = computeBlueReturn({ tb: withAr, deductionLimit: 650_000 });
+    expect(r.badDebt).toEqual({ individual: 0, receivables: 1_000_000, limit: 55_000, booked: 60_000, total: 60_000 });
+    expect(r.warnings.some((w) => w.includes("繰入限度額"))).toBe(true);
+  });
+
+  it("売上先: 取引先ごとに多い順4件、所在地・登録番号は取引先マスタ（別名でも当てる）、残りは「上記以外」", () => {
+    const c = counterparties(
+      [
+        { partner: "（株）Ａ商事", amount: 500 },
+        { partner: "A商事", amount: 100 },
+        { partner: "B", amount: 400 }, { partner: "C", amount: 300 }, { partner: "D", amount: 200 }, { partner: "E", amount: 50 },
+        { partner: null, amount: 30 },
+      ],
+      [{ name: "A商事", aliases: ["（株）Ａ商事"], address: "東京都港区", registrationNo: "T1234567890123" }]
+    );
+    expect(c.rows[0]).toEqual({ name: "A商事", address: "東京都港区", registrationNo: "T1234567890123", amount: 600 });
+    expect(c.rows.map((r) => r.name)).toEqual(["A商事", "B", "C", "D"]);
+    expect(c.others).toBe(80);
+    expect(c.total).toBe(1_580);
   });
 });

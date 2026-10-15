@@ -15,7 +15,9 @@ import {
   computeBlueReturn,
   wageBreakdown,
   partnerBreakdown,
+  counterparties,
   PROFESSIONAL,
+  type Counterparties,
   type BlueReturn,
   type WageBreakdown,
   type PartnerAmount,
@@ -54,6 +56,9 @@ export type BlueReturnView = {
   rent: PartnerAmount[];
   interest: PartnerAmount[];
   professional: PartnerAmount[];
+  /** 3ページ 売上先・仕入先の明細（元帳の取引先ごと。所在地・登録番号は取引先マスタ） */
+  customers: Counterparties;
+  suppliers: Counterparties;
   warnings: string[];
 };
 
@@ -171,7 +176,23 @@ export async function getBlueReturn(clientId: string, year?: number): Promise<Bl
     return books.flatMap((b) => b.rows.filter((r) => !r.needsReview).map((r) => ({ partner: r.partnerName, description: r.description, amount: r.debit - r.credit })));
   };
   const feeAccounts = tb.filter((r) => r.category === "expense" && /支払報酬|報酬|支払手数料|顧問料/.test(r.name)).map((r) => r.name);
-  const [rentRows, interestRows, feeRows] = await Promise.all([ledgerRows(plLine("23").accounts), ledgerRows(plLine("22").accounts), ledgerRows(feeAccounts)]);
+  const [rentRows, interestRows, feeRows, salesRows, costRows, { data: partnersMaster }] = await Promise.all([
+    ledgerRows(plLine("23").accounts),
+    ledgerRows(plLine("22").accounts),
+    ledgerRows(feeAccounts),
+    ledgerRows(plLine("1").accounts.filter((n) => !/雑収入/.test(n))),
+    ledgerRows(plLine("3").accounts),
+    db.from("business_partners").select("name, aliases, address, invoice_registration_number").eq("client_id", clientId),
+  ]);
+  const master = (partnersMaster ?? []).map((m) => ({
+    name: m.name as string,
+    aliases: (m.aliases as string[] | null) ?? [],
+    address: (m.address as string | null) ?? null,
+    registrationNo: (m.invoice_registration_number as string | null) ?? null,
+  }));
+  // 売上は貸方が増加なので符号を戻す
+  const customers = counterparties(salesRows.map((r) => ({ partner: r.partner, amount: -r.amount })), master);
+  const suppliers = counterparties(costRows, master);
   const rent = partnerBreakdown(rentRows);
   const interest = partnerBreakdown(interestRows);
   const professional = partnerBreakdown(feeRows.filter((r) => PROFESSIONAL.test(r.partner ?? "") || PROFESSIONAL.test(r.description)));
@@ -194,6 +215,8 @@ export async function getBlueReturn(clientId: string, year?: number): Promise<Bl
     rent,
     interest,
     professional,
+    customers,
+    suppliers,
     warnings: [...warnings, ...result.warnings],
   };
 }

@@ -16,7 +16,7 @@ import { formatYen } from "@/lib/wareki";
 import { printPage } from "@/lib/export";
 import { useClientRole } from "@/lib/use-client-role";
 import { getBlueReturn, saveBlueReturnDeduction, type BlueReturnView, type BlueDeduction } from "@/actions/blue-return";
-import type { BsLine, WageBreakdown, PartnerAmount } from "@/lib/blue-return";
+import type { BsLine, WageBreakdown, PartnerAmount, Counterparties } from "@/lib/blue-return";
 
 const CIRCLED = "⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺";
 const circled = (no: string) => [...CIRCLED][Number(no)] ?? no;
@@ -248,6 +248,7 @@ function Page2({ view }: { view: BlueReturnView }) {
           <tr className="font-bold"><td className={td}>⑨ 青色申告特別控除額（1ページ㊹へ）</td><td className={num}>{formatYen(d.deducted)}</td></tr>
         </tbody>
       </table>
+      <BadDebt view={view} />
       <Wages title="給料賃金の内訳" w={view.wages} />
       <Wages title="専従者給与の内訳（1ページ㊳）" w={view.spouseWages} />
       <Partners title="地代家賃の内訳（支払先ごと）" rows={view.rent} />
@@ -298,6 +299,8 @@ function Page3({ view }: { view: BlueReturnView }) {
           </table>
         </div>
       )}
+      <CounterpartyTable title="売上先の明細" label="売上先名" c={view.customers} />
+      <CounterpartyTable title="仕入先の明細" label="仕入先名" c={view.suppliers} />
       <Partners title="利子割引料の内訳（支払先ごと）" rows={view.interest} />
       <Partners title="税理士・弁護士等の報酬・料金の内訳" rows={view.professional} />
     </Section>
@@ -330,6 +333,64 @@ function Wages({ title, w }: { title: string; w: WageBreakdown }) {
               <td className={num}>{formatYen(r.withholding)}</td>
             </tr>
           ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 貸倒引当金繰入額の計算（一括評価） */
+function BadDebt({ view }: { view: BlueReturnView }) {
+  const b = view.result.badDebt;
+  if (!b.booked && !b.receivables) return null;
+  return (
+    <div>
+      <h3 className="text-sm font-bold mt-3 mb-1">貸倒引当金繰入額の計算</h3>
+      <table className="w-full text-sm max-w-xl">
+        <tbody>
+          <tr className="border-b border-border/50"><td className={td}>① 個別評価による本年分繰入額</td><td className={num}>{formatYen(b.individual)}</td></tr>
+          <tr className="border-b border-border/50"><td className={td}>② 年末における一括評価による貸倒引当金の繰入れの対象となる貸金の合計額</td><td className={num}>{formatYen(b.receivables)}</td></tr>
+          <tr className="border-b border-border/50"><td className={td}>③ 本年分繰入限度額（②×5.5%）</td><td className={num}>{formatYen(b.limit)}</td></tr>
+          <tr className="border-b border-border/50"><td className={td}>④ 本年分繰入額</td><td className={num}>{formatYen(b.booked)}</td></tr>
+          <tr className="font-bold"><td className={td}>⑤ 本年分の貸倒引当金繰入額（①＋④。1ページ㊴へ）</td><td className={num}>{formatYen(b.total)}</td></tr>
+        </tbody>
+      </table>
+      <p className="text-[11px] text-muted-foreground">②は年末の売掛金・受取手形・貸付金の残高です。金融業の繰入率（3.3%）には対応していません。</p>
+    </div>
+  );
+}
+
+/** 売上先・仕入先の明細（4件まで。所在地・登録番号は取引先マスタ） */
+function CounterpartyTable({ title, label, c }: { title: string; label: string; c: Counterparties }) {
+  if (c.total === 0) return null;
+  return (
+    <div className="overflow-x-auto">
+      <h3 className="text-sm font-bold mt-3 mb-1">{title}</h3>
+      <table className="w-full text-sm min-w-[560px]">
+        <thead>
+          <tr className="border-b border-border">
+            {[label, "所在地", "登録番号（法人番号）", "金額"].map((h) => (
+              <th key={h} className={cn(th, h === "金額" ? "text-right" : "text-left")}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {c.rows.map((r) => (
+            <tr key={r.name} className="border-b border-border/50">
+              <td className={td}>{r.name}</td>
+              <td className={cn(td, "text-xs")}>{r.address ?? ""}</td>
+              <td className={cn(td, "text-xs font-mono")}>{r.registrationNo ?? ""}</td>
+              <td className={num}>{formatYen(r.amount)}</td>
+            </tr>
+          ))}
+          <tr className="border-b border-border/50">
+            <td className={td} colSpan={3}>上記以外の計</td>
+            <td className={num}>{formatYen(c.others)}</td>
+          </tr>
+          <tr className="font-bold bg-muted/10">
+            <td className={td} colSpan={3}>計</td>
+            <td className={num}>{formatYen(c.total)}</td>
+          </tr>
         </tbody>
       </table>
     </div>

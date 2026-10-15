@@ -45,6 +45,11 @@ export type BlueReturn = {
   income: number;
   /** 2ページ「青色申告特別控除額の計算」 */
   deductionCalc: { limit: number; realEstate: number; business: number; deducted: number };
+  /**
+   * 2ページ「貸倒引当金繰入額の計算」（一括評価。個別評価は0）。
+   * ② 年末の売掛金・受取手形・貸付金の残高 ③ ②×5.5%（繰入限度額）④ 本年分繰入額（帳簿の繰入額）⑤ ①＋④ → ㊴
+   */
+  badDebt: { individual: number; receivables: number; limit: number; booked: number; total: number };
   warnings: string[];
 };
 
@@ -276,7 +281,16 @@ export function computeBlueReturn(p: { tb: BlueTbRow[]; deductionLimit: 650_000 
       `期末の資産合計（${assetTotal.closing.toLocaleString()}円）と負債・資本合計（${liabilityTotal.closing.toLocaleString()}円）が合いません。損益の期間と貸借対照表の日付がそろっているか、記帳に誤りが無いか確かめてください。`
     );
 
+  // 貸倒引当金（一括評価）。対象は年末の売掛金・受取手形・貸付金（事業主への貸付は含めない）
+  const receivables = ["受取手形", "売掛金", "貸付金"].reduce((s, l) => s + (assetLines.find((x) => x.label === l)?.closing ?? 0), 0);
+  const badDebtLimit = Math.floor(Math.max(0, receivables) * 0.055);
+  if (provision39 > badDebtLimit)
+    warnings.push(
+      `貸倒引当金の繰入額（${provision39.toLocaleString()}円）が繰入限度額（年末の売掛金等 ${receivables.toLocaleString()}円 × 5.5% = ${badDebtLimit.toLocaleString()}円）を超えています。超えた分は必要経費になりません。`
+    );
+
   return {
+    badDebt: { individual: 0, receivables, limit: badDebtLimit, booked: provision39, total: provision39 },
     pl: plLines,
     bs: { assets: assetsAll, liabilities: liabilityItems, capital, assetTotal, liabilityTotal },
     incomeBeforeDeduction: before43,
@@ -366,3 +380,37 @@ export function partnerBreakdown(rows: { partner: string | null; amount: number 
 
 /** 税理士・弁護士などの士業か（税理士等の報酬・料金の内訳の対象） */
 export const PROFESSIONAL = /税理士|弁護士|司法書士|行政書士|社会保険労務士|社労士|公認会計士|弁理士|土地家屋調査士/;
+
+export type CounterpartyRow = { name: string; address: string | null; registrationNo: string | null; amount: number };
+export type Counterparties = { rows: CounterpartyRow[]; others: number; total: number };
+
+/**
+ * 3ページ「売上先・仕入先の明細」。元帳の取引先ごとの合計を多い順に4件まで書き、所在地・登録番号は取引先マスタから。
+ * 5件目からは「上記以外の計」。取引先の分からない行も「上記以外」に入れる。
+ */
+export function counterparties(
+  rows: { partner: string | null; amount: number }[],
+  master: { name: string; aliases?: string[] | null; address: string | null; registrationNo: string | null }[]
+): Counterparties {
+  const norm = (v: string) => v.normalize("NFKC").replace(/\s+/g, "");
+  const index = new Map<string, (typeof master)[number]>();
+  for (const m of master) for (const n of [m.name, ...(m.aliases ?? [])]) if (n?.trim() && !index.has(norm(n))) index.set(norm(n), m);
+  const by = new Map<string, number>();
+  let unknown = 0;
+  for (const r of rows) {
+    if (!r.partner?.trim()) {
+      unknown += r.amount;
+      continue;
+    }
+    const m = index.get(norm(r.partner));
+    const key = m?.name ?? r.partner.normalize("NFKC").trim();
+    by.set(key, (by.get(key) ?? 0) + r.amount);
+  }
+  const all = [...by.entries()].filter(([, a]) => a !== 0).sort((a, b) => b[1] - a[1]);
+  const top = all.slice(0, 4).map(([name, amount]) => {
+    const m = index.get(norm(name));
+    return { name, address: m?.address ?? null, registrationNo: m?.registrationNo ?? null, amount };
+  });
+  const others = all.slice(4).reduce((s, [, a]) => s + a, 0) + unknown;
+  return { rows: top, others, total: top.reduce((s, r) => s + r.amount, 0) + others };
+}
