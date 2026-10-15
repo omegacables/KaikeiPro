@@ -16,7 +16,7 @@ import { formatYen } from "@/lib/wareki";
 import { printPage } from "@/lib/export";
 import { useClientRole } from "@/lib/use-client-role";
 import { getBlueReturn, saveBlueReturnDeduction, type BlueReturnView, type BlueDeduction } from "@/actions/blue-return";
-import type { BsLine } from "@/lib/blue-return";
+import type { BsLine, WageBreakdown, PartnerAmount } from "@/lib/blue-return";
 
 const CIRCLED = "⓪①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳㉑㉒㉓㉔㉕㉖㉗㉘㉙㉚㉛㉜㉝㉞㉟㊱㊲㊳㊴㊵㊶㊷㊸㊹㊺";
 const circled = (no: string) => [...CIRCLED][Number(no)] ?? no;
@@ -248,6 +248,9 @@ function Page2({ view }: { view: BlueReturnView }) {
           <tr className="font-bold"><td className={td}>⑨ 青色申告特別控除額（1ページ㊹へ）</td><td className={num}>{formatYen(d.deducted)}</td></tr>
         </tbody>
       </table>
+      <Wages title="給料賃金の内訳" w={view.wages} />
+      <Wages title="専従者給与の内訳（1ページ㊳）" w={view.spouseWages} />
+      <Partners title="地代家賃の内訳（支払先ごと）" rows={view.rent} />
     </Section>
   );
 }
@@ -295,7 +298,61 @@ function Page3({ view }: { view: BlueReturnView }) {
           </table>
         </div>
       )}
+      <Partners title="利子割引料の内訳（支払先ごと）" rows={view.interest} />
+      <Partners title="税理士・弁護士等の報酬・料金の内訳" rows={view.professional} />
     </Section>
+  );
+}
+
+/** 給料賃金・専従者給与の内訳（給与台帳から。年齢・続柄は台帳に無いので空欄） */
+function Wages({ title, w }: { title: string; w: WageBreakdown }) {
+  if (w.rows.length === 0) return null;
+  const rows = [...w.rows, ...(w.other ? [w.other] : []), w.total];
+  return (
+    <div className="overflow-x-auto">
+      <h3 className="text-sm font-bold mt-3 mb-1">{title}</h3>
+      <table className="w-full text-sm min-w-[560px]">
+        <thead>
+          <tr className="border-b border-border">
+            {["氏名", "従事月数", "給料賃金", "賞与", "合計", "所得税及び復興特別所得税の源泉徴収税額"].map((h) => (
+              <th key={h} className={cn(th, h === "氏名" ? "text-left" : "text-right")}>{h}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.name} className={cn("border-b border-border/50", r.name === "計" && "font-bold bg-muted/10")}>
+              <td className={td}>{r.name}</td>
+              <td className={num}>{r.months}</td>
+              <td className={num}>{formatYen(r.salary)}</td>
+              <td className={num}>{formatYen(r.bonus)}</td>
+              <td className={num}>{formatYen(r.total)}</td>
+              <td className={num}>{formatYen(r.withholding)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+/** 支払先ごとの内訳（地代家賃・利子割引料・税理士等の報酬） */
+function Partners({ title, rows }: { title: string; rows: PartnerAmount[] }) {
+  if (rows.length === 0) return null;
+  return (
+    <div>
+      <h3 className="text-sm font-bold mt-3 mb-1">{title}</h3>
+      <table className="w-full text-sm max-w-xl">
+        <tbody>
+          {rows.map((r) => (
+            <tr key={r.partner} className="border-b border-border/50">
+              <td className={td}>{r.partner}</td>
+              <td className={num}>{formatYen(r.amount)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   );
 }
 

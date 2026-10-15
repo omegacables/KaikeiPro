@@ -303,3 +303,66 @@ function fold(lines: BsLine[], max: number, label: string, warnings: string[]): 
     },
   ];
 }
+
+// ===================== 2・3ページの内訳 =====================
+
+export type PayRecord = { employee: string; month: string; amount: number; withholding: number; accountName: string };
+export type WageRow = { name: string; months: number; salary: number; bonus: number; total: number; withholding: number };
+export type WageBreakdown = { rows: WageRow[]; other: (WageRow & { people: number }) | null; total: WageRow };
+
+const BONUS = /賞与/;
+
+/**
+ * 給料賃金の内訳・専従者給与の内訳（2ページ）。給与台帳の記録を人ごとにまとめる。
+ * 4人まで名前を書き、5人目からは「その他（○人分）」にまとめる（専従者給与は4人を超えると次葉なので、まとめて知らせる）。
+ */
+export function wageBreakdown(records: PayRecord[], spouse: boolean): WageBreakdown {
+  const target = records.filter((r) => SPOUSE_SALARY.test(r.accountName) === spouse);
+  const byName = new Map<string, { months: Set<string>; salary: number; bonus: number; withholding: number }>();
+  for (const r of target) {
+    const e = byName.get(r.employee) ?? { months: new Set<string>(), salary: 0, bonus: 0, withholding: 0 };
+    if (BONUS.test(r.accountName)) e.bonus += r.amount;
+    else {
+      e.salary += r.amount;
+      e.months.add(r.month);
+    }
+    e.withholding += r.withholding;
+    byName.set(r.employee, e);
+  }
+  const all: WageRow[] = [...byName.entries()]
+    .map(([name, e]) => ({ name, months: e.months.size, salary: e.salary, bonus: e.bonus, total: e.salary + e.bonus, withholding: e.withholding }))
+    .sort((a, b) => b.total - a.total);
+  const rows = all.slice(0, 4);
+  const rest = all.slice(4);
+  const sum = (xs: WageRow[]): WageRow => ({
+    name: "計",
+    months: xs.reduce((s, x) => s + x.months, 0),
+    salary: xs.reduce((s, x) => s + x.salary, 0),
+    bonus: xs.reduce((s, x) => s + x.bonus, 0),
+    total: xs.reduce((s, x) => s + x.total, 0),
+    withholding: xs.reduce((s, x) => s + x.withholding, 0),
+  });
+  const other = rest.length ? { ...sum(rest), name: `その他（${rest.length}人分）`, people: rest.length } : null;
+  return { rows, other, total: sum(all) };
+}
+
+export type PartnerAmount = { partner: string; amount: number };
+
+/**
+ * 地代家賃・利子割引料・税理士等の報酬の内訳（2・3ページ）。元帳の行を支払先ごとにまとめ、多い順に2行まで。
+ * 3行目からは「その他」にまとめる。支払先の分からない行は「（支払先不明）」。
+ */
+export function partnerBreakdown(rows: { partner: string | null; amount: number }[], max = 2): PartnerAmount[] {
+  const by = new Map<string, number>();
+  for (const r of rows) {
+    const k = r.partner?.normalize("NFKC").trim() || "（支払先不明）";
+    by.set(k, (by.get(k) ?? 0) + r.amount);
+  }
+  const all = [...by.entries()].map(([partner, amount]) => ({ partner, amount })).filter((x) => x.amount !== 0).sort((a, b) => b.amount - a.amount);
+  if (all.length <= max) return all;
+  const rest = all.slice(max - 1);
+  return [...all.slice(0, max - 1), { partner: `その他（${rest.length}件）`, amount: rest.reduce((s, x) => s + x.amount, 0) }];
+}
+
+/** 税理士・弁護士などの士業か（税理士等の報酬・料金の内訳の対象） */
+export const PROFESSIONAL = /税理士|弁護士|司法書士|行政書士|社会保険労務士|社労士|公認会計士|弁理士|土地家屋調査士/;

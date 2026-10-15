@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeBlueReturn, type BlueTbRow } from "@/lib/blue-return";
+import { computeBlueReturn, wageBreakdown, partnerBreakdown, type BlueTbRow } from "@/lib/blue-return";
 
 // 試算表の1行。PL科目は期中の借方・貸方、BS科目は期首・期末残高（借方プラス）
 const pl = (name: string, category: "revenue" | "expense", amount: number, o: Partial<BlueTbRow> = {}): BlueTbRow => ({
@@ -109,5 +109,36 @@ describe("記帳の誤りを知らせる", () => {
   it("期末の資産と負債・資本が合わないとき", () => {
     const off = tb.map((x) => (x.name === "普通預金" ? bs("普通預金", "asset", 900_000, 1_043_000) : x));
     expect(computeBlueReturn({ tb: off, deductionLimit: 650_000 }).warnings.some((w) => w.includes("合いません"))).toBe(true);
+  });
+});
+
+describe("2・3ページの内訳", () => {
+  it("給料賃金: 人ごとに月数・給料・賞与・源泉税。専従者給与は別。5人目からは「その他」", () => {
+    const rec = (employee: string, month: string, amount: number, accountName = "給料手当", withholding = 1_000) => ({ employee, month, amount, withholding, accountName });
+    const records = [
+      rec("A", "2026-01", 200_000), rec("A", "2026-02", 200_000), rec("A", "2026-07", 300_000, "賞与", 5_000),
+      rec("B", "2026-01", 150_000), rec("C", "2026-01", 100_000), rec("D", "2026-01", 90_000), rec("E", "2026-01", 80_000),
+      rec("妻", "2026-01", 120_000, "専従者給与"),
+    ];
+    const w = wageBreakdown(records, false);
+    expect(w.rows[0]).toEqual({ name: "A", months: 2, salary: 400_000, bonus: 300_000, total: 700_000, withholding: 7_000 });
+    expect(w.rows.map((r) => r.name)).toEqual(["A", "B", "C", "D"]);
+    expect(w.other).toMatchObject({ name: "その他（1人分）", people: 1, total: 80_000 });
+    expect(w.total.total).toBe(1_120_000);
+    expect(wageBreakdown(records, true).rows).toEqual([{ name: "妻", months: 1, salary: 120_000, bonus: 0, total: 120_000, withholding: 1_000 }]);
+  });
+
+  it("支払先ごとに多い順、2行を超えたら「その他」にまとめる（全角半角の違いは同じ支払先）", () => {
+    expect(
+      partnerBreakdown([
+        { partner: "大家Ａ", amount: 600_000 },
+        { partner: "大家A", amount: 60_000 },
+        { partner: "駐車場", amount: 120_000 },
+        { partner: null, amount: 10_000 },
+      ])
+    ).toEqual([
+      { partner: "大家A", amount: 660_000 },
+      { partner: "その他（2件）", amount: 130_000 },
+    ]);
   });
 });

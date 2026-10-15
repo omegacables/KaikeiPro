@@ -10,7 +10,16 @@ import { createAdminSupabaseClient, createServerSupabaseClient } from "@/lib/sup
 import { assertClientAccess } from "@/lib/authz";
 import { getTrialBalance, getMonthlyTrend } from "@/actions/statements";
 import { getDepreciationBook, type DepreciationAsset } from "@/actions/assets";
-import { computeBlueReturn, type BlueReturn } from "@/lib/blue-return";
+import { getLedgerBook } from "@/actions/ledger-books";
+import {
+  computeBlueReturn,
+  wageBreakdown,
+  partnerBreakdown,
+  PROFESSIONAL,
+  type BlueReturn,
+  type WageBreakdown,
+  type PartnerAmount,
+} from "@/lib/blue-return";
 import { KIND_LABELS } from "@/lib/depreciation";
 
 export type BlueDeduction = 650_000 | 550_000 | 100_000;
@@ -39,6 +48,12 @@ export type BlueReturnView = {
     expense: number;
     closingBook: number;
   }[];
+  /** 2ページ 給料賃金・専従者給与の内訳（給与台帳から）、地代家賃の内訳 ／ 3ページ 利子割引料・税理士等の報酬の内訳（元帳から） */
+  wages: WageBreakdown;
+  spouseWages: WageBreakdown;
+  rent: PartnerAmount[];
+  interest: PartnerAmount[];
+  professional: PartnerAmount[];
   warnings: string[];
 };
 
@@ -125,6 +140,42 @@ export async function getBlueReturn(clientId: string, year?: number): Promise<Bl
         closingBook: c.closingBook,
       };
     });
+  // ---- 2ページ 給料賃金・専従者給与の内訳（給与台帳） ----
+  const [{ data: pay }, { data: accts }] = await Promise.all([
+    db
+      .from("payroll_records")
+      .select("employee_name, pay_month, gross_salary, income_tax, salary_account_id")
+      .eq("client_id", clientId)
+      .gte("pay_month", start)
+      .lte("pay_month", end),
+    db.from("accounts").select("id, name"),
+  ]);
+  const accountName = new Map((accts ?? []).map((a) => [a.id as string, a.name as string]));
+  const payRecords = (pay ?? []).map((r) => ({
+    employee: r.employee_name as string,
+    month: String(r.pay_month).slice(0, 7),
+    amount: Number(r.gross_salary),
+    withholding: Number(r.income_tax),
+    accountName: (r.salary_account_id && accountName.get(r.salary_account_id as string)) || "給料手当",
+  }));
+  const wages = wageBreakdown(payRecords, false);
+  const spouseWages = wageBreakdown(payRecords, true);
+  const plWages = plLine("20").amount;
+  if (payRecords.length && wages.total.total !== plWages)
+    warnings.push(`給料賃金の内訳（給与台帳の合計 ${wages.total.total.toLocaleString()}円）と、損益計算書の給料賃金 ${plWages.toLocaleString()}円が合いません。給与台帳に無い支払いが無いか確かめてください。`);
+
+  // ---- 地代家賃・利子割引料・税理士等の報酬の内訳（元帳の支払先ごと） ----
+  const idByName = new Map(tb.map((r) => [r.name, r.id]));
+  const ledgerRows = async (names: string[]) => {
+    const books = await Promise.all(names.map((n) => idByName.get(n)).filter((x): x is string => !!x).map((aid) => getLedgerBook(clientId, aid, start, end)));
+    return books.flatMap((b) => b.rows.filter((r) => !r.needsReview).map((r) => ({ partner: r.partnerName, description: r.description, amount: r.debit - r.credit })));
+  };
+  const feeAccounts = tb.filter((r) => r.category === "expense" && /支払報酬|報酬|支払手数料|顧問料/.test(r.name)).map((r) => r.name);
+  const [rentRows, interestRows, feeRows] = await Promise.all([ledgerRows(plLine("23").accounts), ledgerRows(plLine("22").accounts), ledgerRows(feeAccounts)]);
+  const rent = partnerBreakdown(rentRows);
+  const interest = partnerBreakdown(interestRows);
+  const professional = partnerBreakdown(feeRows.filter((r) => PROFESSIONAL.test(r.partner ?? "") || PROFESSIONAL.test(r.description)));
+
   const depTotal = depreciation.reduce((s, d) => s + d.expense, 0);
   const plDep = plLine("18").amount;
   if (depreciation.length && depTotal !== plDep)
@@ -138,6 +189,11 @@ export async function getBlueReturn(clientId: string, year?: number): Promise<Bl
     result,
     monthly: { sales, purchases, misc, salesTotal: plLine("1").amount, purchaseTotal },
     depreciation,
+    wages,
+    spouseWages,
+    rent,
+    interest,
+    professional,
     warnings: [...warnings, ...result.warnings],
   };
 }
