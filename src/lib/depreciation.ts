@@ -242,6 +242,10 @@ export type ScheduleRow = {
   ordinaryLimit: number;
   /** 特別償却限度額（前期から繰り越した特別償却不足額を含む） */
   specialLimit: number;
+  /** うち当期分（別表十六「32」「36」・適用額明細書の適用額） */
+  specialCurrent: number;
+  /** うち前期から繰り越した特別償却不足額（別表十六「33」「37」） */
+  specialCarried: number;
   /** 翌期へ繰り越す特別償却不足額 */
   specialShortfall: number;
   /** 償却限度額（普通＋特別）。旧定額法・旧定率法は計算しないので null */
@@ -367,6 +371,8 @@ export function buildDepreciationSchedule(
       openingExcess: Number(openingExcess),
       ordinaryLimit: Number(ordinary),
       specialLimit: Number(special),
+      specialCurrent: Number(specialThisPeriod),
+      specialCarried: Number(special - specialThisPeriod),
       specialShortfall: Number(specialCarry),
       limit: limit === null ? null : Number(limit),
       booked: Number(amount),

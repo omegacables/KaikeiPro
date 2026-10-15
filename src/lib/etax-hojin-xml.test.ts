@@ -117,7 +117,7 @@ describe("法人税申告書の e-Tax ファイル（.xtx）", () => {
 
 describe("別表十六・適用額明細書", () => {
   const row = (o: Partial<import("./depreciation").ScheduleRow>) => ({
-    start: "2025-09-01", end: "2026-08-31", months: 12, openingBook: 0, openingExcess: 0, ordinaryLimit: 0, specialLimit: 0, specialShortfall: 0,
+    start: "2025-09-01", end: "2026-08-31", months: 12, openingBook: 0, openingExcess: 0, ordinaryLimit: 0, specialLimit: 0, specialCurrent: 0, specialCarried: 0, specialShortfall: 0,
     limit: 0, booked: 0, excess: 0, allowed: 0, closingExcess: 0, closingBook: 0, revised: false, overridden: false, ...o,
   });
   const base = { accountName: "工具器具備品", rate: null, schedule: [] };
@@ -166,6 +166,49 @@ describe("別表十六・適用額明細書", () => {
     const l = make(input({ netIncome: -100_000 }));
     expect(l.xml).not.toContain("<HOE990 ");
     expect(l.xml).toContain("<BGA00300><kubun_CD>2</kubun_CD></BGA00300>");
+  });
+});
+
+describe("特別償却（別表十六の条項・前期繰越の不足額・適用額明細書）", () => {
+  const row = (o: Partial<import("./depreciation").ScheduleRow>) => ({
+    start: "2025-09-01", end: "2026-08-31", months: 12, openingBook: 0, openingExcess: 0, ordinaryLimit: 0, specialLimit: 0, specialCurrent: 0, specialCarried: 0, specialShortfall: 0,
+    limit: 0, booked: 0, excess: 0, allowed: 0, closingExcess: 0, closingBook: 0, revised: false, overridden: false, ...o,
+  });
+  const machine = {
+    name: "工作機械", accountName: "機械装置", acquisitionDate: "2025-10-01", serviceStartDate: "2025-10-01", acquisitionCost: 1_000_000, usefulLife: 10,
+    kind: "sl" as const, rate: { rate: 0.1, revised: null, guarantee: null }, schedule: [], specialRate: 0.3, specialMeasureCode: "00031",
+    current: row({ openingBook: 1_000_000, ordinaryLimit: 91_666, specialLimit: 300_000, specialCurrent: 300_000, limit: 391_666, booked: 200_000, closingBook: 800_000, specialShortfall: 191_666 }),
+  };
+  const soft = {
+    ...machine, name: "生産管理ソフト", accountName: "ソフトウェア", specialMeasureCode: "00712", specialRate: 1, kind: "db200" as const,
+    rate: { rate: 0.4, revised: 0.5, guarantee: 0.10800 },
+    current: row({ openingBook: 500_000, ordinaryLimit: 200_000, specialLimit: 350_000, specialCurrent: 299_999, specialCarried: 50_001, limit: 550_000, booked: 550_000 }),
+  };
+  const r = corporateTaxXml({
+    ret: computeCorporateTaxReturn(input({ netIncome: 5_000_000 })),
+    filer,
+    period: { start: "2025-09-01", end: "2026-08-31" },
+    priorPeriod: { start: "2024-09-01", end: "2025-08-31" },
+    capital: 10_000_000,
+    businessDescription: null,
+    defenseApplies: false,
+    assets: [machine, soft],
+    today: "2026-10-15",
+  });
+  if (process.env.ETAX_XML_OUT) require("node:fs").writeFileSync(process.env.ETAX_XML_OUT, r.xml);
+
+  it("定額法: 条項（42条の6第1項・30%）と当期分の特別償却限度額", () => {
+    expect(r.xml).toContain("<NZE00490><NZE00500><NZE00510>42</NZE00510><NZE00520>6</NZE00520><NZE00530>1</NZE00530><NZE00540>0.3</NZE00540></NZE00500><NZE00560>300000</NZE00560></NZE00490>");
+  });
+
+  it("定率法: 条項（42条の12の4第1項・即時償却）と、前期から繰り越した特別償却不足額を分けて書く", () => {
+    expect(r.xml).toContain("<UZE00610><UZE00620>42</UZE00620><UZE00630>12の4</UZE00630><UZE00640>1</UZE00640><UZE00650>1</UZE00650></UZE00610><UZE00670>299999</UZE00670></UZE00600><UZE00680>50001</UZE00680>");
+  });
+
+  it("適用額明細書: 制度ごとの区分番号と、当期分の特別償却限度額", () => {
+    expect(r.xml).toMatch(/<MAB00020>42<\/MAB00020><MAB00030>の6<\/MAB00030><MAB00040>1<\/MAB00040><MAB00050>1<\/MAB00050><\/MAB00010><MAB00070>00031<\/MAB00070><MAB00080>300000<\/MAB00080>/);
+    expect(r.xml).toMatch(/<MAB00070>00712<\/MAB00070><MAB00080>299999<\/MAB00080>/);
+    expect(r.warnings.some((w) => w.includes("特別償却の付表"))).toBe(true);
   });
 });
 

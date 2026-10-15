@@ -4,11 +4,15 @@
  *   別表十六(二) 定率法 HOE325 v6.0 … 1枚に5資産
  *   別表十六(七) 少額減価償却資産（措法67の5）HOE351 v4.0 … 1枚に15資産。当期に事業の用に供したもの
  *   別表十六(八) 一括償却資産 HOE360 v7.0 … 事業の用に供した事業年度ごと（過去5年度分＋当期分）
+ * 特別償却は「31 租税特別措置法適用条項」「32 特別償却限度額（当期分）」「33 前期から繰り越した特別償却不足額」に分けて書き、
+ * 制度（区分番号）ごとの「32」の合計を適用額明細書の適用額として返す。
+ * 特別償却の付表（HOL335）は令和8年分の e-Tax で受け付けていないので作らない（警告を返す）。
  * 平成19年3月31日以前に取得した資産（旧定額法・旧定率法）は台帳で計算していないので載せない（警告を返す）。
  */
 
 import type { DepreciationKind, ScheduleRow } from "@/lib/depreciation";
 import { amount, etaxDate, etaxText, group, value, type X } from "@/lib/etax-xml";
+import { specialMeasure, type MeasureClause } from "@/lib/special-measures";
 
 export type DepAsset = {
   name: string;
@@ -21,12 +25,17 @@ export type DepAsset = {
   rate: { rate: number; revised: number | null; guarantee: number | null } | null;
   current: ScheduleRow | null;
   schedule: ScheduleRow[];
+  /** 特別償却率（0.3 = 30%）と、使う租税特別措置の区分番号（src/lib/special-measures.ts） */
+  specialRate?: number | null;
+  specialMeasureCode?: string | null;
 };
 
 export type DepreciationForms = {
   forms: { tag: string; version: string; body: string }[];
   /** 少額減価償却資産の取得価額の合計（適用額明細書 区分番号00277 の適用額） */
   smallAssetsTotal: number;
+  /** 特別償却の制度ごとの適用額（別表十六「32」「36」の合計） */
+  specialMeasures: { code: string; clause: MeasureClause; amount: number }[];
   warnings: string[];
 };
 
@@ -37,6 +46,20 @@ function yymm(tag: string, iso: string): string {
   return full.replace(/<gen:dd>\d+<\/gen:dd>/, "");
 }
 const rate3 = (r: number | null | undefined) => (r == null ? null : String(Math.round(r * 1000) / 1000));
+/** 別表十六の「租税特別措置法適用条項」（条・枝番号・項・割合）。号の欄は無い */
+function clauseGroup(p: "NZE" | "UZE", a: DepAsset): X {
+  const m = specialMeasure(a.specialMeasureCode);
+  if (!m) return null;
+  const ids = p === "NZE" ? ["NZE00500", "NZE00510", "NZE00520", "NZE00530", "NZE00540"] : ["UZE00610", "UZE00620", "UZE00630", "UZE00640", "UZE00650"];
+  return group(
+    ids[0],
+    value(ids[1], m.clause.jo),
+    // 枝番号は「の」を除いた番号（第42条の12の4 → 12の4）
+    value(ids[2], m.clause.eda ? m.clause.eda.replace(/^の/, "") : null),
+    value(ids[3], m.clause.ko),
+    value(ids[4], rate3(a.specialRate))
+  );
+}
 const chunk = <T,>(xs: T[], n: number) => Array.from({ length: Math.ceil(xs.length / n) }, (_, k) => xs.slice(k * n, k * n + n));
 
 /** 資産の区分（種類・細目・取得年月日・事業の用に供した年月・耐用年数） */
@@ -83,7 +106,8 @@ function straightLine(a: DepAsset, r: ScheduleRow): string | null {
     group(
       "NZE00470",
       amount("NZE00480", r.ordinaryLimit),
-      r.specialLimit ? group("NZE00490", amount("NZE00560", r.specialLimit)) : null,
+      r.specialLimit ? group("NZE00490", clauseGroup("NZE", a), amount("NZE00560", r.specialCurrent)) : null,
+      amount("NZE00570", r.specialCarried),
       amount("NZE00600", r.limit ?? r.ordinaryLimit)
     ),
     amount("NZE00610", r.booked),
@@ -132,7 +156,8 @@ function decliningBalance(a: DepAsset, r: ScheduleRow): string | null {
     group(
       "UZE00580",
       amount("UZE00590", r.ordinaryLimit),
-      r.specialLimit ? group("UZE00600", amount("UZE00670", r.specialLimit)) : null,
+      r.specialLimit ? group("UZE00600", clauseGroup("UZE", a), amount("UZE00670", r.specialCurrent)) : null,
+      amount("UZE00680", r.specialCarried),
       amount("UZE00710", r.limit ?? r.ordinaryLimit)
     ),
     amount("UZE00720", r.booked),
@@ -241,5 +266,21 @@ export function depreciationForms(
         .join(""),
     });
   }
-  return { forms, smallAssetsTotal, warnings };
+  // 特別償却の適用額（制度ごとに当期分の特別償却限度額を合計）。定額法・定率法の資産だけ
+  const byCode = new Map<string, { code: string; clause: MeasureClause; amount: number }>();
+  for (const a of assets) {
+    const r = a.current;
+    if (!r || !r.specialCurrent || (a.kind !== "sl" && a.kind !== "db200" && a.kind !== "db250")) continue;
+    const m = specialMeasure(a.specialMeasureCode);
+    if (!m) {
+      warnings.push(`「${a.name}」の特別償却は制度が一覧に無いため、適用額明細書に載せていません。申告書に手で書き足してください。`);
+      continue;
+    }
+    const hit = byCode.get(m.code) ?? { code: m.code, clause: m.clause, amount: 0 };
+    hit.amount += r.specialCurrent;
+    byCode.set(m.code, hit);
+  }
+  if (assets.some((a) => a.current?.specialLimit))
+    warnings.push("特別償却の付表は令和8年分の e-Tax で受け付けていないため入れていません。必要なら書面（PDF）で添付してください。");
+  return { forms, smallAssetsTotal, specialMeasures: [...byCode.values()], warnings };
 }

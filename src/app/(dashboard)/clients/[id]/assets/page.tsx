@@ -32,6 +32,7 @@ import { handleBarKeyNav } from "@/lib/key-nav";
 import { cn } from "@/lib/utils";
 import { formatYen } from "@/lib/wareki";
 import { useClientRole } from "@/lib/use-client-role";
+import { SPECIAL_MEASURES, specialMeasure, clauseText } from "@/lib/special-measures";
 import { ROUNDING_LABELS, straightLineOnlyReason, MIN_USEFUL_LIFE, MAX_USEFUL_LIFE, type DepreciationRounding } from "@/lib/depreciation";
 import {
   getDepreciationBook,
@@ -702,6 +703,8 @@ function AssetForm({
     method: asset?.method ?? ("straight_line" as AssetInput["method"]),
     special: asset?.specialRate ? String(Math.round(asset.specialRate * 1000) / 10) : "",
     specialNote: asset?.specialNote ?? "",
+    // 特別償却の制度: "" 使わない / 区分番号 / "other" 一覧に無い制度（制度名を手入力）
+    measure: asset?.specialMeasureCode ?? (asset?.specialRate ? "other" : ""),
     note: asset?.note ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -726,8 +729,9 @@ function AssetForm({
           acquisitionCost: Number(f.acquisitionCost),
           usefulLife: method === "lump_sum" ? 3 : Number(f.usefulLife),
           method,
-          specialRatePercent: f.special ? Number(f.special) : null,
+          specialRatePercent: f.measure && f.special ? Number(f.special) : null,
           specialNote: f.specialNote,
+          specialMeasureCode: f.measure && f.measure !== "other" ? f.measure : null,
           note: f.note,
         },
         asset?.id
@@ -806,29 +810,64 @@ function AssetForm({
           </select>
           {slOnly && <span className="block text-[11px] text-muted-foreground mt-1">{slOnly}</span>}
         </label>
+        <label className="md:col-span-2">
+          {label("特別償却の制度", "（使うときだけ）")}
+          <select
+            value={f.measure}
+            onChange={(e) => {
+              const code = e.target.value;
+              const m = specialMeasure(code);
+              setF({
+                ...f,
+                measure: code,
+                // 制度を選ぶと、決まっている率と制度名を入れる（率は直せる）
+                special: m?.rate ? String(Math.round(m.rate * 1000) / 10) : code === "" ? "" : f.special,
+                specialNote: m ? `${m.group} ${m.label}` : code === "other" ? f.specialNote : "",
+              });
+            }}
+            className={fieldCls}
+          >
+            <option value="">使わない</option>
+            {[...new Set(SPECIAL_MEASURES.map((m) => m.group))].map((g) => (
+              <optgroup key={g} label={g}>
+                {SPECIAL_MEASURES.filter((m) => m.group === g).map((m) => (
+                  <option key={m.code} value={m.code}>
+                    {m.label}（{clauseText(m.clause)}）
+                  </option>
+                ))}
+              </optgroup>
+            ))}
+            <option value="other">一覧に無い制度（制度名を入力）</option>
+          </select>
+        </label>
         <label>
-          {label("特別償却率（%）", "（使う制度があるときだけ）")}
+          {label("特別償却率（%）", "（即時償却は 100）")}
           <input
             type="number"
             min={0}
             max={100}
             step="0.1"
             value={f.special}
+            disabled={!f.measure}
             onChange={(e) => setF({ ...f, special: e.target.value })}
             className={fieldCls}
-            placeholder="例: 30、即時償却なら 100"
+            placeholder="例: 30"
           />
         </label>
-        <label>
-          {label("特別償却の制度名")}
-          <input
-            value={f.specialNote}
-            disabled={!f.special}
-            onChange={(e) => setF({ ...f, specialNote: e.target.value })}
-            className={fieldCls}
-            placeholder="例: 中小企業投資促進税制"
-          />
-        </label>
+        {f.measure === "other" && (
+          <label className="md:col-span-3">
+            {label("特別償却の制度名")}
+            <input
+              value={f.specialNote}
+              onChange={(e) => setF({ ...f, specialNote: e.target.value })}
+              className={fieldCls}
+              placeholder="例: 〇〇の特別償却（措法〇条）"
+            />
+            <span className="block text-[11px] text-muted-foreground mt-1">
+              一覧に無い制度は、e-Tax 用ファイルの適用額明細書に載りません。申告書に手で書き足してください。
+            </span>
+          </label>
+        )}
         <label className="md:col-span-3">
           {label("メモ")}
           <input value={f.note} onChange={(e) => setF({ ...f, note: e.target.value })} className={fieldCls} />

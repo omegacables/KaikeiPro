@@ -30,6 +30,7 @@ import {
   type DepreciationRounding,
   type ScheduleRow,
 } from "@/lib/depreciation";
+import { specialMeasure } from "@/lib/special-measures";
 import { deleteJournalEntries } from "@/actions/journals";
 import type { Database } from "@/types/database";
 
@@ -74,6 +75,9 @@ export type DepreciationAsset = {
   rate: { rate: number; revised: number | null; guarantee: number | null } | null;
   specialRate: number | null;
   specialNote: string | null;
+  /** 使う租税特別措置の区分番号（src/lib/special-measures.ts）と、特別償却か税額控除か */
+  specialMeasureCode: string | null;
+  specialTreatment: "depreciation" | "tax_credit" | null;
   note: string | null;
   disposedAt: string | null;
   /** 選んだ期の計算（その期に償却しない資産は null） */
@@ -233,7 +237,8 @@ async function computeBook(clientId: string, periodKey?: string): Promise<Deprec
         acquisitionCost: Number(a.acquisition_cost),
         usefulLife: a.useful_life,
         method,
-        specialRate: a.special_depreciation_rate,
+        // 税額控除を選んだ資産は特別償却をしない（どちらか一方）
+        specialRate: a.special_treatment === "tax_credit" ? null : a.special_depreciation_rate,
         disposedAt: a.disposed_at,
       },
       periods,
@@ -277,8 +282,10 @@ async function computeBook(clientId: string, periodKey?: string): Promise<Deprec
       kind,
       kindLabel: KIND_LABELS[kind],
       rate: rateInfo(a.useful_life, kind),
-      specialRate: a.special_depreciation_rate,
+      specialRate: a.special_treatment === "tax_credit" ? null : a.special_depreciation_rate,
       specialNote: a.special_depreciation_note,
+      specialMeasureCode: a.special_measure_code ?? null,
+      specialTreatment: a.special_treatment ?? null,
       note: a.note,
       disposedAt: a.disposed_at,
       current,
@@ -424,6 +431,9 @@ export type AssetInput = {
   /** 特別償却率（%）。使わないなら null */
   specialRatePercent?: number | null;
   specialNote?: string | null;
+  /** 租税特別措置の区分番号（一覧に無い制度は null で、制度名を specialNote に） */
+  specialMeasureCode?: string | null;
+  specialTreatment?: "depreciation" | "tax_credit" | null;
   note?: string | null;
 };
 
@@ -440,6 +450,9 @@ function validateAsset(input: AssetInput) {
     throw new Error("償却方法を選んでください");
   const sr = input.specialRatePercent;
   if (sr != null && !(sr > 0 && sr <= 100)) throw new Error("特別償却率は0より大きく100%以下で入力してください");
+  if (input.specialMeasureCode && !specialMeasure(input.specialMeasureCode)) throw new Error("特別償却の制度を選び直してください");
+  if (input.specialMeasureCode && input.specialTreatment !== "tax_credit" && !sr)
+    throw new Error("特別償却率を入力してください");
 }
 
 export async function saveAsset(clientId: string, input: AssetInput, assetId?: string): Promise<void> {
@@ -460,7 +473,9 @@ export async function saveAsset(clientId: string, input: AssetInput, assetId?: s
     // 2007年4月以後の取得は残存価額なし（1円まで償却）
     salvage_value: 0,
     special_depreciation_rate: input.specialRatePercent ? input.specialRatePercent / 100 : null,
-    special_depreciation_note: input.specialRatePercent ? input.specialNote?.trim() || null : null,
+    special_depreciation_note: input.specialRatePercent || input.specialMeasureCode ? input.specialNote?.trim() || null : null,
+    special_measure_code: input.specialMeasureCode || null,
+    special_treatment: input.specialMeasureCode || input.specialRatePercent ? input.specialTreatment ?? "depreciation" : null,
     note: input.note?.trim() || null,
   };
   const { error } = assetId

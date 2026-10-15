@@ -1605,6 +1605,8 @@ export interface Database {
           service_start_date: string | null;
           special_depreciation_rate: number | null;
           special_depreciation_note: string | null;
+          special_measure_code: string | null;
+          special_treatment: "depreciation" | "tax_credit" | null;
           note: string | null;
         };
         Insert: {
@@ -1623,6 +1625,8 @@ export interface Database {
           service_start_date?: string | null;
           special_depreciation_rate?: number | null;
           special_depreciation_note?: string | null;
+          special_measure_code?: string | null;
+          special_treatment?: "depreciation" | "tax_credit" | null;
           note?: string | null;
         };
         Update: {
@@ -1640,6 +1644,8 @@ export interface Database {
           service_start_date?: string | null;
           special_depreciation_rate?: number | null;
           special_depreciation_note?: string | null;
+          special_measure_code?: string | null;
+          special_treatment?: "depreciation" | "tax_credit" | null;
           note?: string | null;
         };
         Relationships: [];

@@ -71,7 +71,8 @@ function relationKubun(tag: string, relation: string | null): string {
   return `<${tag}><kubun_CD>90</kubun_CD>${t ? `<kubun_NM>${[...t].slice(0, 30).join("").replace(/&/g, "&amp;").replace(/</g, "&lt;")}</kubun_NM>` : ""}</${tag}>`;
 }
 
-const TEKIYOU = {
+type Tekiyou = { jo: string; eda: string | null; ko: string; go: string | null; no: string };
+const TEKIYOU: Record<"reducedRate" | "smallAssets", Tekiyou> = {
   reducedRate: { jo: "42", eda: "の3の2", ko: "1", go: "1", no: "00380" },
   smallAssets: { jo: "67", eda: "の5", ko: "1", go: null, no: "00277" },
 };
@@ -130,9 +131,11 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
   warnings.push(...dep.warnings);
   const income1 = v("beppyo1", "1") ?? 0;
   const line74 = v("beppyo1", "74") ?? 0;
-  const tekiyou: { t: (typeof TEKIYOU)[keyof typeof TEKIYOU]; amount: number }[] = [];
+  const tekiyou: { t: Tekiyou; amount: number }[] = [];
   if (ret.isSme && income1 > 0 && line74 > 0) tekiyou.push({ t: TEKIYOU.reducedRate, amount: line74 });
   if (dep.smallAssetsTotal > 0) tekiyou.push({ t: TEKIYOU.smallAssets, amount: dep.smallAssetsTotal });
+  // 特別償却（中小企業投資促進税制・経営強化税制など）。適用額は別表十六「32」「36」の合計
+  for (const m of dep.specialMeasures) tekiyou.push({ t: { ...m.clause, no: m.code }, amount: m.amount });
 
   // ===================== 別表一 =====================
   const b1 = (no: string) => v("beppyo1", no);
