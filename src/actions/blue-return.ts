@@ -139,9 +139,9 @@ export async function getBlueReturn(clientId: string, year?: number): Promise<Bl
         ordinary: c.ordinaryLimit,
         special: Math.max(0, c.booked - c.ordinaryLimit),
         total: c.booked,
-        // 事業専用割合（家事と共用の資産の按分）はまだ持っていないので100%
-        businessRatio: 100,
-        expense: c.booked,
+        // 事業専用割合（家事と共用の資産）の分だけが必要経費
+        businessRatio: a.businessRatio,
+        expense: a.businessRatio < 100 ? Math.floor((c.booked * a.businessRatio) / 100) : c.booked,
         closingBook: c.closingBook,
       };
     });

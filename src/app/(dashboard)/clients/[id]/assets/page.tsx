@@ -708,6 +708,8 @@ function AssetForm({
     measure: asset?.specialMeasureCode ?? (asset?.specialRate ? "other" : ""),
     // 特別償却か税額控除か（税額控除のある制度だけ選べる）
     treatment: (asset?.specialTreatment ?? "depreciation") as "depreciation" | "tax_credit",
+    // 事業専用割合（個人事業主の家事と共用の資産）
+    businessRatio: asset ? String(asset.businessRatio) : "100",
     note: asset?.note ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -736,6 +738,7 @@ function AssetForm({
           specialNote: f.specialNote,
           specialMeasureCode: f.measure && f.measure !== "other" ? f.measure : null,
           specialTreatment: specialMeasure(f.measure)?.credit ? f.treatment : "depreciation",
+          businessRatio: book.entityType === "individual" && f.businessRatio ? Number(f.businessRatio) : 100,
           note: f.note,
         },
         asset?.id
@@ -814,6 +817,23 @@ function AssetForm({
           </select>
           {slOnly && <span className="block text-[11px] text-muted-foreground mt-1">{slOnly}</span>}
         </label>
+        {book.entityType === "individual" && (
+          <label>
+            {label("事業専用割合（%）", "（家事と共用なら事業に使う割合）")}
+            <input
+              type="number"
+              min={1}
+              max={100}
+              step="1"
+              value={f.businessRatio}
+              onChange={(e) => setF({ ...f, businessRatio: e.target.value })}
+              className={fieldCls}
+            />
+            <span className="block text-[11px] text-muted-foreground mt-1">
+              減価償却費のうちこの割合だけを経費にし、残りは事業主貸にします（仕訳を作るときに分けます）。
+            </span>
+          </label>
+        )}
         <label className="md:col-span-2">
           {label("特別償却の制度", "（使うときだけ）")}
           <select

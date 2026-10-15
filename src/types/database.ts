@@ -1610,6 +1610,7 @@ export interface Database {
           special_depreciation_note: string | null;
           special_measure_code: string | null;
           special_treatment: "depreciation" | "tax_credit" | null;
+          business_ratio: number;
           note: string | null;
         };
         Insert: {
@@ -1630,6 +1631,7 @@ export interface Database {
           special_depreciation_note?: string | null;
           special_measure_code?: string | null;
           special_treatment?: "depreciation" | "tax_credit" | null;
+          business_ratio?: number;
           note?: string | null;
         };
         Update: {
@@ -1649,6 +1651,7 @@ export interface Database {
           special_depreciation_note?: string | null;
           special_measure_code?: string | null;
           special_treatment?: "depreciation" | "tax_credit" | null;
+          business_ratio?: number;
           note?: string | null;
         };
         Relationships: [];

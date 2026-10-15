@@ -78,6 +78,8 @@ export type DepreciationAsset = {
   /** 使う租税特別措置の区分番号（src/lib/special-measures.ts）と、特別償却か税額控除か */
   specialMeasureCode: string | null;
   specialTreatment: "depreciation" | "tax_credit" | null;
+  /** 事業専用割合（%）。個人事業主の家事と共用の資産は、減価償却費のうちこの割合だけを経費にする */
+  businessRatio: number;
   note: string | null;
   disposedAt: string | null;
   /** 選んだ期の計算（その期に償却しない資産は null） */
@@ -286,6 +288,7 @@ async function computeBook(clientId: string, periodKey?: string): Promise<Deprec
       specialNote: a.special_depreciation_note,
       specialMeasureCode: a.special_measure_code ?? null,
       specialTreatment: a.special_treatment ?? null,
+      businessRatio: Number(a.business_ratio ?? 100),
       note: a.note,
       disposedAt: a.disposed_at,
       current,
@@ -434,6 +437,8 @@ export type AssetInput = {
   /** 租税特別措置の区分番号（一覧に無い制度は null で、制度名を specialNote に） */
   specialMeasureCode?: string | null;
   specialTreatment?: "depreciation" | "tax_credit" | null;
+  /** 事業専用割合（%）。個人事業主だけ。無ければ100 */
+  businessRatio?: number | null;
   note?: string | null;
 };
 
@@ -451,6 +456,8 @@ function validateAsset(input: AssetInput) {
   const sr = input.specialRatePercent;
   if (sr != null && !(sr > 0 && sr <= 100)) throw new Error("特別償却率は0より大きく100%以下で入力してください");
   if (input.specialMeasureCode && !specialMeasure(input.specialMeasureCode)) throw new Error("特別償却の制度を選び直してください");
+  const br = input.businessRatio;
+  if (br != null && !(br > 0 && br <= 100)) throw new Error("事業専用割合は0より大きく100%以下で入力してください");
   if (input.specialMeasureCode && input.specialTreatment !== "tax_credit" && !sr)
     throw new Error("特別償却率を入力してください");
 }
@@ -476,6 +483,7 @@ export async function saveAsset(clientId: string, input: AssetInput, assetId?: s
     special_depreciation_note: input.specialRatePercent || input.specialMeasureCode ? input.specialNote?.trim() || null : null,
     special_measure_code: input.specialMeasureCode || null,
     special_treatment: input.specialMeasureCode || input.specialRatePercent ? input.specialTreatment ?? "depreciation" : null,
+    business_ratio: input.businessRatio ?? 100,
     note: input.note?.trim() || null,
   };
   const { error } = assetId
@@ -628,6 +636,14 @@ export async function postDepreciationJournal(clientId: string, periodKey: strin
     credit.set(accountId, (credit.get(accountId) ?? 0) + a.current!.booked);
   }
   const amount = targets.reduce((s, a) => s + a.current!.booked, 0);
+  // 個人事業主の家事と共用の資産は、事業専用割合の分だけを減価償却費にし、残りは事業主貸（1円未満は切り捨て）
+  const individual = book.ctx.entityType === "individual";
+  const businessPart = (a: (typeof targets)[number]) =>
+    individual && a.businessRatio < 100 ? Math.floor((a.current!.booked * a.businessRatio) / 100) : a.current!.booked;
+  const expenseAmount = targets.reduce((s, a) => s + businessPart(a), 0);
+  const privateAmount = amount - expenseAmount;
+  const ownerDraw = privateAmount > 0 ? accounts.byName("事業主貸") : null;
+  if (privateAmount > 0 && !ownerDraw) throw new Error("勘定科目「事業主貸」が見つかりません（事業専用割合の私用分に使います）");
 
   const {
     data: { user },
@@ -651,18 +667,21 @@ export async function postDepreciationJournal(clientId: string, periodKey: strin
     {
       journal_entry_id: entry.id,
       account_id: expense.id,
-      debit_amount: amount,
+      debit_amount: expenseAmount,
       credit_amount: 0,
       tax_category: "purchase_out_of_scope",
       tax_rate: 0,
       sort_order: 0,
     },
+    ...(ownerDraw
+      ? [{ journal_entry_id: entry.id, account_id: ownerDraw.id, debit_amount: privateAmount, credit_amount: 0, sort_order: 1 }]
+      : []),
     ...[...credit].map(([accountId, v], i) => ({
       journal_entry_id: entry.id,
       account_id: accountId,
       debit_amount: 0,
       credit_amount: v,
-      sort_order: i + 1,
+      sort_order: i + 2,
     })),
   ];
   const { error: lErr } = await db.from("journal_entry_lines").insert(lines);
