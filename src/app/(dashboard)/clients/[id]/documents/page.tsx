@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   FileCheck,
@@ -276,6 +276,11 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
 export default function DocumentsPage() {
   const { id } = useParams<{ id: string }>();
   const [activeTab, setActiveTab] = useState<DocumentTab>("issued");
+  // 「機能を探す」などから ?tab=received のように直接開けるようにする
+  useEffect(() => {
+    const t = new URLSearchParams(window.location.search).get("tab");
+    if (t === "issued" || t === "received" || t === "orders" || t === "statements") setActiveTab(t);
+  }, []);
   // アップロード完了時にインクリメントし、タブ内容を再マウントして一覧を再取得させる
   const [refreshKey, setRefreshKey] = useState(0);
 

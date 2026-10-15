@@ -45,6 +45,11 @@ export function TaxCategoryView({
   const [filter, setFilter] = useState<Filter>("all");
   /** 税区分ごとの一覧か、科目別税区分表か、消費税の集計表か */
   const [view, setView] = useState<"category" | "account" | "table">("category");
+  // 「機能を探す」などから ?view=table のように直接開けるようにする
+  useEffect(() => {
+    const v = new URLSearchParams(window.location.search).get("view");
+    if (v === "category" || v === "account" || v === "table") setView(v);
+  }, []);
 
   useEffect(() => {
     let alive = true;

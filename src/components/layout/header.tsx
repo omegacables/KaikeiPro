@@ -9,6 +9,7 @@ import { cn, getInitials } from "@/lib/utils";
 import { getTheme, toggleTheme, type Theme } from "@/lib/theme";
 import { getClient } from "@/actions/clients";
 import { loadClients } from "@/lib/client-cache";
+import { FeatureSearch } from "@/components/layout/feature-search";
 import { useClientRole } from "@/lib/use-client-role";
 
 const pageTitles: Record<string, string> = {
@@ -236,6 +237,7 @@ export function Header() {
       <div className="flex items-center gap-2 sm:gap-6">
         {/* Action buttons */}
         <div className="flex gap-1 sm:gap-2">
+          <FeatureSearch />
           <button
             onClick={handleToggleTheme}
             className="p-2 rounded-lg bg-muted/30 text-muted-foreground hover:bg-muted/50 hover:text-foreground transition-colors cursor-pointer"
