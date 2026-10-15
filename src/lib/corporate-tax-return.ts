@@ -15,6 +15,8 @@
  *     足りない分は当期に損金経理（租税公課など）で納付したものとする。損金経理した法人税・住民税は別表四で加算する
  */
 
+import { computeInvestmentCredit, type CreditAsset, type InvestmentCredit } from "@/lib/investment-credit";
+
 export const SME_CAPITAL_LIMIT = 100_000_000;
 
 export type LossCarryforward = { periodEnd: string; amount: number };
@@ -94,6 +96,8 @@ export type CorporateInput = {
   /** 事務所が2つ以上の自治体にあるとき（無ければ1か所として計算） */
   offices?: Office[];
   carryback?: Carryback | null;
+  /** 税額控除を選んだ当期取得の固定資産（中小企業投資促進税制・経営強化税制） */
+  creditAssets?: CreditAsset[];
 };
 
 /**
@@ -135,6 +139,8 @@ export type CorporateTaxReturn = {
   months: number;
   lowRate: number;
   nextLosses: LossCarryforward[];
+  /** 設備投資の税額控除（法人税額の特別控除。別表一「3」・別表六） */
+  investmentCredit: InvestmentCredit;
   /** 別表五(一) の期末（翌期首）の利益積立金 */
   closingRetained: RetainedItem[];
   warnings: string[];
@@ -272,12 +278,17 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
   const line77 = mulRate(line74, lowRate);
   const line79 = mulRate(line76, 0.232);
   const line2 = line77 + line79;
-  const line9 = line2;
+  // 法人税額の特別控除（設備投資の税額控除）。地方法人税・住民税（法人税割）・防衛特別法人税は控除後の額から計算する
+  const investmentCredit = computeInvestmentCredit({ assets: i.creditAssets ?? [], capital: i.capital, adjustedTax: line2 });
+  warnings.push(...investmentCredit.warnings);
+  const line3 = investmentCredit.total;
+  const line9 = line2 - line3;
   const line12 = Math.min(line9, i.withholdingTax);
   const line13 = floor100(line9 - line12);
   const line15 = line13 - i.interim.corporate; // マイナスは中間納付額の還付「22」
   const line21 = i.withholdingTax - line12;
-  const line30 = floor1000(line2); // 課税標準法人税額（所得税額控除の前）
+  const line28 = line2 - line3; // 所得の金額に対する法人税額（地方法人税の基準）
+  const line30 = floor1000(line28); // 課税標準法人税額（所得税額控除の前）
   const line31 = mulRate(line30, 0.103);
   const line38 = floor100(line31);
   const line40 = line38 - i.interim.localCorporate;
@@ -286,9 +297,9 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
   let defense: { base: number; deduction: number; taxBase: number; tax: number; final: number } | null = null;
   if (defenseTaxApplies(i.period.start)) {
     const deduction = Math.floor((5_000_000 * m) / 12);
-    const taxBase = floor1000(pos(line2 - deduction));
+    const taxBase = floor1000(pos(line28 - deduction));
     const tax = mulRate(taxBase, 0.04);
-    defense = { base: line2, deduction, taxBase, tax, final: floor100(tax) };
+    defense = { base: line28, deduction, taxBase, tax, final: floor100(tax) };
   }
 
   // ===================== 地方税（第2段階） =====================
@@ -467,6 +478,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
       c1("77", `(74)の${lowRate === 0.17 ? "17" : "15"}%相当額`, line77),
       c1("79", "(76)の23.2%相当額", line79),
       c1("2", "法人税額（77）＋（79）", line2),
+      ...(line3 > 0 ? [c1("3", "法人税額の特別控除額", line3, "別表六(六)「5」（設備投資の税額控除）")] : []),
       c1("9", "法人税額計", line9),
       c1("12", "控除税額（所得税額）", line12, "別表六(一)"),
       c1("13", "差引所得に対する法人税額", line13, "100円未満切り捨て"),
@@ -481,7 +493,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
         : []),
       c1("26", "欠損金等の当期控除額", lossUsed, "別表七(一)"),
       c1("27", "翌期へ繰り越す欠損金額", nextLosses.reduce((s, l) => s + l.amount, 0)),
-      c1("28", "所得の金額に対する法人税額（地方法人税の基準）", line2),
+      c1("28", "所得の金額に対する法人税額（地方法人税の基準）", line28),
       c1("30", "課税標準法人税額", line30, "1,000円未満切り捨て"),
       c1("31", "地方法人税額（30）×10.3%", line31),
       c1("38", "差引地方法人税額", line38, "100円未満切り捨て"),
@@ -491,6 +503,37 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
       ...(carrybackUsed > 0 ? [c1("", "欠損金の繰戻しによる地方法人税の還付請求額", carrybackLocalRefund)] : []),
     ],
   });
+  const ic = investmentCredit;
+  if (ic.promotion || ic.strengthen) {
+    tables.push({
+      key: "beppyo6-credit",
+      title: "別表六(十五)(二十三)(六) 設備投資の税額控除（法人税額の特別控除）",
+      columns: ["金額"],
+      rows: [
+        ...(ic.promotion
+          ? [
+              c1("", `中小企業投資促進税制（措法42条の6第2項）: ${ic.promotion.assets.map((a) => a.name).join("・")}`, null),
+              c1("10", "基準取得価額の合計", ic.promotion.base, "船舶は取得価額の75%"),
+              c1("11", "税額控除限度額（10）× 7%", ic.promotion.limit),
+              c1("13", "当期税額基準額（調整前法人税額 × 20%）", ic.promotion.cap),
+              c1("16", "当期税額控除額", ic.promotion.credit, "別表六(十五)"),
+              ...(ic.promotion.carryover > 0 ? [c1("25", "翌期へ繰り越す税額控除限度超過額", ic.promotion.carryover)] : []),
+            ]
+          : []),
+        ...(ic.strengthen
+          ? [
+              c1("", `中小企業経営強化税制（措法42条の12の4第2項）: ${ic.strengthen.assets.map((a) => a.name).join("・")}`, null),
+              c1("11", "取得価額の合計", ic.strengthen.base),
+              c1("15", `税額控除限度額（取得価額 × ${Math.round(ic.strengthen.rate * 100)}%）`, ic.strengthen.limit),
+              c1("17", "当期税額基準額（20%から投資促進税制の控除額を引いた残り）", ic.strengthen.cap),
+              c1("20", "当期税額控除額", ic.strengthen.credit, "別表六(二十三)"),
+              ...(ic.strengthen.carryover > 0 ? [c1("29", "翌期へ繰り越す税額控除限度超過額", ic.strengthen.carryover)] : []),
+            ]
+          : []),
+        c1("5", "法人税額の特別控除額（別表一「3」へ）", ic.total, "別表六(六)"),
+      ],
+    });
+  }
   if (defense) {
     tables.push({
       key: "beppyo1-defense",
@@ -671,6 +714,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
     months: m,
     lowRate,
     nextLosses,
+    investmentCredit,
     closingRetained,
     warnings,
   };

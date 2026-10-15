@@ -181,6 +181,17 @@ async function loadBooks(clientId: string, p: { startDate: string; endDate: stri
       openingExcess: sumDep((a) => a.current?.openingExcess ?? 0),
       closingExcess: sumDep((a) => a.current?.closingExcess ?? 0),
     },
+    // 税額控除を選んだ資産のうち、この期に事業に使い始めたもの（税額控除は使い始めた期だけ）
+    creditAssets: dep.assets
+      .filter((a) => a.specialTreatment === "tax_credit" && a.specialMeasureCode && a.serviceStartDate >= p.startDate && a.serviceStartDate <= p.endDate)
+      .map((a) => ({
+        name: a.name,
+        code: a.specialMeasureCode!,
+        acquisitionCost: a.acquisitionCost,
+        accountName: a.accountName,
+        acquisitionDate: a.acquisitionDate,
+        serviceStartDate: a.serviceStartDate,
+      })),
   };
 }
 
@@ -196,6 +207,7 @@ async function compute(clientId: string, p: { startDate: string; endDate: string
     entertainment: books.entertainment,
     entertainmentDining: inputs.entertainmentDining,
     depreciation: books.depreciation,
+    creditAssets: books.creditAssets,
     withholdingTax: inputs.withholdingTax,
     adjustments: inputs.adjustments,
     losses: inputs.losses,

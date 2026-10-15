@@ -247,6 +247,7 @@ export default function AssetsPage() {
                           <td className="px-3 py-2">
                             {a.usefulLife}年 <Badge variant={a.kind === "sl" ? "default" : "accent"}>{a.kindLabel}</Badge>
                             {a.specialRate ? <Badge variant="info" className="ml-1">特別償却</Badge> : null}
+                            {a.specialTreatment === "tax_credit" ? <Badge variant="success" className="ml-1">税額控除</Badge> : null}
                           </td>
                           <td className="px-3 py-2 text-right font-mono">{c ? formatYen(c.openingBook) : "—"}</td>
                           <td className="px-3 py-2 text-right font-mono">{c?.limit != null ? formatYen(c.ordinaryLimit) : "—"}</td>
@@ -705,6 +706,8 @@ function AssetForm({
     specialNote: asset?.specialNote ?? "",
     // 特別償却の制度: "" 使わない / 区分番号 / "other" 一覧に無い制度（制度名を手入力）
     measure: asset?.specialMeasureCode ?? (asset?.specialRate ? "other" : ""),
+    // 特別償却か税額控除か（税額控除のある制度だけ選べる）
+    treatment: (asset?.specialTreatment ?? "depreciation") as "depreciation" | "tax_credit",
     note: asset?.note ?? "",
   });
   const [saving, setSaving] = useState(false);
@@ -732,6 +735,7 @@ function AssetForm({
           specialRatePercent: f.measure && f.special ? Number(f.special) : null,
           specialNote: f.specialNote,
           specialMeasureCode: f.measure && f.measure !== "other" ? f.measure : null,
+          specialTreatment: specialMeasure(f.measure)?.credit ? f.treatment : "depreciation",
           note: f.note,
         },
         asset?.id
@@ -840,6 +844,41 @@ function AssetForm({
             <option value="other">一覧に無い制度（制度名を入力）</option>
           </select>
         </label>
+        {specialMeasure(f.measure)?.credit && (
+          <div className="md:col-span-3">
+            {label("特別償却か税額控除か", "（同じ資産でどちらか一方）")}
+            {/* 2つを並べて選ばれている方を塗る（ボタン1つの切り替えは今の状態が分かりにくいため） */}
+            <div role="radiogroup" aria-label="特別償却か税額控除か" className="inline-flex rounded-lg border border-border bg-muted/30 p-0.5">
+              {(
+                [
+                  ["depreciation", "特別償却（経費を前倒し）"],
+                  ["tax_credit", "税額控除（法人税から直接引く）"],
+                ] as const
+              ).map(([v, text]) => (
+                <button
+                  key={v}
+                  type="button"
+                  role="radio"
+                  aria-checked={f.treatment === v}
+                  onClick={() => setF({ ...f, treatment: v })}
+                  className={cn(
+                    "rounded-md px-3 py-1.5 text-sm font-bold transition-colors",
+                    f.treatment === v ? "bg-primary text-primary-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+                  )}
+                >
+                  {text}
+                </button>
+              ))}
+            </div>
+            <span className="block text-[11px] text-muted-foreground mt-1">
+              {f.treatment === "tax_credit"
+                ? specialMeasure(f.measure)!.group.startsWith("中小企業投資促進")
+                  ? "取得価額の7%を法人税額から控除します（資本金3,000万円以下の会社だけ。法人税額の20%まで）。使い始めた期の法人税申告書に反映します。"
+                  : "取得価額の10%（資本金3,000万円超は7%）を法人税額から控除します（法人税額の20%まで）。使い始めた期の法人税申告書に反映します。"
+                : "使い始めた期に、普通償却に上乗せして償却できます。"}
+            </span>
+          </div>
+        )}
         <label>
           {label("特別償却率（%）", "（即時償却は 100）")}
           <input
@@ -848,7 +887,7 @@ function AssetForm({
             max={100}
             step="0.1"
             value={f.special}
-            disabled={!f.measure}
+            disabled={!f.measure || (f.treatment === "tax_credit" && Boolean(specialMeasure(f.measure)?.credit))}
             onChange={(e) => setF({ ...f, special: e.target.value })}
             className={fieldCls}
             placeholder="例: 30"

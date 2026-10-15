@@ -14,6 +14,7 @@
 
 import type { CorporateTaxReturn, TaxRow, TaxTable } from "@/lib/corporate-tax-return";
 import { depreciationForms, type DepAsset } from "@/lib/etax-hojin-depreciation";
+import { creditForms } from "@/lib/etax-hojin-credit";
 import type { FamilyCompanyResult } from "@/lib/family-company";
 import {
   amount,
@@ -136,6 +137,12 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
   if (dep.smallAssetsTotal > 0) tekiyou.push({ t: TEKIYOU.smallAssets, amount: dep.smallAssetsTotal });
   // 特別償却（中小企業投資促進税制・経営強化税制など）。適用額は別表十六「32」「36」の合計
   for (const m of dep.specialMeasures) tekiyou.push({ t: { ...m.clause, no: m.code }, amount: m.amount });
+  // 設備投資の税額控除（適用額は別表六(十五)「16」・別表六(二十三)「20」の類型ごとの額）
+  const ic = ret.investmentCredit;
+  if (ic.promotion && ic.promotion.credit > 0)
+    tekiyou.push({ t: { jo: "42", eda: "の6", ko: "2", go: null, no: "00043" }, amount: ic.promotion.credit });
+  for (const l of ic.strengthen?.lines ?? [])
+    if (l.credit > 0) tekiyou.push({ t: { jo: "42", eda: "の12の4", ko: "2", go: null, no: l.code }, amount: l.credit });
 
   // ===================== 別表一 =====================
   const b1 = (no: string) => v("beppyo1", no);
@@ -166,6 +173,7 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
       "BGB00000",
       amount("BGB00010", b1("1")),
       amount("BGB00020", b1("2")),
+      amount("BGB00030", ic.total), // 法人税額の特別控除額（別表六(六)「5」）
       group("BGB00120", amount("BGB00150", b1("9"))),
       amount("BGB00180", b1("12")),
       amount("BGB00190", b1("13")),
@@ -417,7 +425,7 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
       : null,
   ];
   if (free5.length > 19) throw new Error("別表五(一) の項目が19行を超えるため、e-Tax 用ファイルを作れません。");
-  forms.push({ id: "HOA511-1", xml: form("HOA511", "16.0", "HOA511-1", by, hoa511.filter(Boolean).join("")) });
+  forms.push({ id: "HOA511-1", xml: form("HOA511", "16.1", "HOA511-1", by, hoa511.filter(Boolean).join("")) });
 
   // ===================== 別表五(二) =====================
   // 表の列: ①期首未納 ②当期発生 ③充当金取崩し ⑤損金経理 ⑥期末未納
@@ -517,6 +525,13 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
     ),
   ];
   forms.push({ id: "HOA522-1", xml: form("HOA522", "10.0", "HOA522-1", by, hoa522.filter(Boolean).join("")) });
+
+  // ===================== 別表六(六)(十五)(二十三) 設備投資の税額控除 =====================
+  const seq: Record<string, number> = {};
+  for (const f of creditForms(ic, ref, i.businessDescription)) {
+    const n = (seq[f.tag] = (seq[f.tag] ?? 0) + 1);
+    forms.push({ id: `${f.tag}-${n}`, xml: form(f.tag, f.version, `${f.tag}-${n}`, by, f.body) });
+  }
 
   // ===================== 別表七(一) =====================
   const rows7 = table("beppyo7")?.rows ?? [];
@@ -626,6 +641,6 @@ export function corporateTaxXml(i: HojinXmlInput): { fileName: string; xml: stri
     warnings.push("適用額明細書の「業種番号」は入れていません。e-Taxソフトで入力してください。");
   }
 
-  const xml = procedureFile({ namespace: NS, procedureCode: "RHO0012", version: "26.0.0", it, forms });
+  const xml = procedureFile({ namespace: NS, procedureCode: "RHO0012", version: "26.0.1", it, forms });
   return { fileName: `RHO0012_${i.period.start.replaceAll("-", "")}_${i.period.end.replaceAll("-", "")}.xtx`, xml, warnings };
 }

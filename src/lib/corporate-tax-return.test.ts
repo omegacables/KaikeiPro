@@ -270,3 +270,32 @@ describe("欠損金の繰戻し還付", () => {
   });
 });
 
+
+describe("設備投資の税額控除（別表一「3」）", () => {
+  // 所得 10,000,000 → 法人税額「2」1,664,000（800万×15% ＋ 200万×23.2%）
+  const r = computeCorporateTaxReturn(
+    input({ netIncome: 10_000_000, creditAssets: [{ name: "工作機械", code: "00031", acquisitionCost: 3_000_000 }] })
+  );
+
+  it("投資促進税制 3,000,000 × 7% = 210,000 を法人税額から控除する（20% = 332,800 の範囲内）", () => {
+    expect(val(r, "beppyo1", "2")).toBe(1_664_000);
+    expect(val(r, "beppyo1", "3")).toBe(210_000);
+    expect(val(r, "beppyo1", "9")).toBe(1_454_000);
+  });
+
+  it("地方法人税は控除後の法人税額から計算する（1,454,000 × 10.3%）", () => {
+    expect(val(r, "beppyo1", "28")).toBe(1_454_000);
+    expect(val(r, "beppyo1", "30")).toBe(1_454_000);
+    expect(val(r, "beppyo1", "31")).toBe(149_762);
+  });
+
+  it("住民税の法人税割も控除後の法人税額から（道府県 1.0%・市町村 6.0%）", () => {
+    expect(val(r, "local-resident", "道府県", 1)).toBe(14_500);
+    expect(val(r, "local-resident", "市町村", 1)).toBe(87_200);
+  });
+
+  it("別表六の表に控除額と別表一への転記額を出す", () => {
+    expect(val(r, "beppyo6-credit", "16")).toBe(210_000);
+    expect(val(r, "beppyo6-credit", "5")).toBe(210_000);
+  });
+});

@@ -4,7 +4,7 @@ import { corporateTaxXml } from "./etax-hojin-xml";
 import type { Filer } from "./etax-xml";
 import { judgeFamilyCompany } from "./family-company";
 
-// 国税庁のスキーマ（hojin/RHO0012-260.xsd）での検証は開発時に xmllint で行った（利益・欠損・防衛特別法人税の3通り）。
+// 国税庁のスキーマ（hojin/RHO0012-260.xsd、26.0.1）での検証は開発時に xmllint で行った（利益・欠損・防衛特別法人税の3通り）。
 // ここでは、スキーマでは見つからない誤り（参照先の無い IDREF・空の要素・帳票間の数字の食い違い・符号）を確かめる。
 
 const input = (o: Partial<CorporateInput> = {}): CorporateInput => ({
@@ -50,7 +50,7 @@ describe("法人税申告書の e-Tax ファイル（.xtx）", () => {
 
   it("RHO0012（令和8年度版）。IT部・別表一・次葉一・次葉二・別表四・五(一)・五(二)・七(一)・十五 の順", () => {
     expect(r.fileName).toBe("RHO0012_20250901_20260831.xtx");
-    expect(r.xml).toContain('<RHO0012 VR="26.0.0" id="RHO0012">');
+    expect(r.xml).toContain('<RHO0012 VR="26.0.1" id="RHO0012">');
     const order = ["<IT ", "<HOA112 ", "<HOA114 ", "<HOA116 ", "<HOA420 ", "<HOA511 ", "<HOA522 ", "<HOB710 ", "<HOE200 "].map((t) => r.xml.indexOf(t));
     expect(order.every((p, k) => p > 0 && (k === 0 || p > order[k - 1]))).toBe(true);
     expect(r.xml).toContain("<SHINKOKU_KBN ID=\"SHINKOKU_KBN\"><kubun_CD>30</kubun_CD></SHINKOKU_KBN>"); // 確定／確定
@@ -209,6 +209,37 @@ describe("特別償却（別表十六の条項・前期繰越の不足額・適�
     expect(r.xml).toMatch(/<MAB00020>42<\/MAB00020><MAB00030>の6<\/MAB00030><MAB00040>1<\/MAB00040><MAB00050>1<\/MAB00050><\/MAB00010><MAB00070>00031<\/MAB00070><MAB00080>300000<\/MAB00080>/);
     expect(r.xml).toMatch(/<MAB00070>00712<\/MAB00070><MAB00080>299999<\/MAB00080>/);
     expect(r.warnings.some((w) => w.includes("特別償却の付表"))).toBe(true);
+  });
+});
+
+describe("設備投資の税額控除（別表六(六)(十五)(二十三)・別表一「3」・適用額明細書）", () => {
+  const assets = [
+    { name: "NC旋盤", code: "00031", acquisitionCost: 3_000_000, accountName: "機械装置", acquisitionDate: "2025-10-01", serviceStartDate: "2025-10-15" },
+    { name: "検査装置", code: "00714", acquisitionCost: 2_000_000, accountName: "機械装置", acquisitionDate: "2025-11-01", serviceStartDate: "2025-11-01" },
+  ];
+  const r = make(input({ netIncome: 10_000_000, creditAssets: assets }));
+  if (process.env.ETAX_CREDIT_OUT) require("node:fs").writeFileSync(process.env.ETAX_CREDIT_OUT, r.xml);
+
+  it("別表一「3」に特別控除額（投資促進 210,000 ＋ 経営強化 122,800 = 法人税額の20% 332,800 まで）", () => {
+    // 法人税額「2」1,664,000 × 20% = 332,800。投資促進 210,000 → 経営強化は残り 122,800（限度額 200,000）
+    expect(val(r.xml, "BGB00030")).toBe("332800");
+  });
+
+  it("別表六(六)→(十五)→(二十三) の順で、別表五(二)と別表七(一)の間に入る", () => {
+    const at = (t: string) => r.xml.indexOf(`<${t} `);
+    expect(at("HOA522")).toBeLessThan(at("HOB645"));
+    expect(at("HOB645")).toBeLessThan(at("HOB211"));
+    expect(at("HOB211")).toBeLessThan(at("HOB647"));
+    expect(at("HOB647")).toBeLessThan(at("HOB710"));
+    expect(val(r.xml, "ZTB00047")).toBe("332800");
+    expect(val(r.xml, "KXC00080")).toBe("210000");
+    expect(val(r.xml, "BLC00090")).toBe("122800");
+    expect(val(r.xml, "BLD00260")).toBe("77200");
+  });
+
+  it("適用額明細書: 00043（投資促進の税額控除）と 00721（経営強化 B類型の税額控除）", () => {
+    expect(r.xml).toMatch(/<MAB00070>00043<\/MAB00070><MAB00080>210000<\/MAB00080>/);
+    expect(r.xml).toMatch(/<MAB00070>00721<\/MAB00070><MAB00080>122800<\/MAB00080>/);
   });
 });
 
