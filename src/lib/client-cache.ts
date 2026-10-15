@@ -15,7 +15,7 @@ import { getStatutoryInterestRates } from "@/actions/loans";
  * 変更後に読み直したい場合は clearClientCache() を呼ぶ。
  */
 
-export type CachedClient = { id: string; name: string; fiscal_year_start_month?: number };
+export type CachedClient = { id: string; name: string; fiscal_year_start_month?: number; entity_type?: "individual" | "corporation" | null };
 
 let clientsCache: CachedClient[] | null = null;
 let clientsPromise: Promise<CachedClient[]> | null = null;
@@ -30,6 +30,7 @@ export function loadClients(): Promise<CachedClient[]> {
           name: c.name as string,
           fiscal_year_start_month: (c as { fiscal_year_start_month?: number })
             .fiscal_year_start_month,
+          entity_type: (c as { entity_type?: "individual" | "corporation" | null }).entity_type ?? null,
         }));
         return clientsCache;
       })

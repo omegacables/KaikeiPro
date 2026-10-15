@@ -40,13 +40,14 @@ import { scopedGetItem, scopedSetItem } from "@/lib/scoped-storage";
 import { loadClients } from "@/lib/client-cache";
 import { useMobileNav } from "@/components/layout/mobile-nav";
 
-type ClientOption = { id: string; name: string };
+type ClientOption = { id: string; name: string; entity_type?: "individual" | "corporation" | null };
 
-type NavItem = { href: string; label: string; icon: typeof Calculator };
+/** only: 個人事業主だけ／法人だけに出す項目（区分が分からないときは両方出す） */
+type NavItem = { href: string; label: string; icon: typeof Calculator; only?: "individual" | "corporation" };
 type NavGroup = { key: string; label: string; icon: typeof Calculator; items: NavItem[] };
 
 // 業務メニューはトグル式のグループにまとめる（開くとアコーディオンで項目を表示）
-const navGroups: NavGroup[] = [
+const NAV_GROUPS: NavGroup[] = [
   {
     key: "daily",
     label: "日常業務",
@@ -82,7 +83,8 @@ const navGroups: NavGroup[] = [
       { href: "/bad-debts", label: "貸倒れ・貸倒引当金", icon: ShieldAlert },
       { href: "/breakdown", label: "勘定科目内訳明細書", icon: ClipboardList },
       { href: "/tax-return", label: "消費税申告書", icon: Calculator },
-      { href: "/corporate-tax", label: "法人税申告書", icon: Landmark },
+      { href: "/corporate-tax", label: "法人税申告書", icon: Landmark, only: "corporation" },
+      { href: "/blue-return", label: "青色申告決算書", icon: FileText, only: "individual" },
     ],
   },
   {
@@ -123,8 +125,18 @@ function isNavActive(pathname: string, href: string): boolean {
  * 業務メニュー（アコーディオン）。
  * 現在ページを含むグループは自動で開き、開閉状態はユーザーごとに保存する。
  */
-function ClientNavAccordion({ basePath, userId }: { basePath: string; userId: string | null }) {
+function ClientNavAccordion({
+  basePath,
+  userId,
+  entityType,
+}: {
+  basePath: string;
+  userId: string | null;
+  entityType?: "individual" | "corporation" | null;
+}) {
   const pathname = usePathname();
+  // 個人事業主には法人税申告書を、法人には青色申告決算書を出さない
+  const navGroups = NAV_GROUPS.map((g) => ({ ...g, items: g.items.filter((i) => !i.only || !entityType || i.only === entityType) }));
 
   // 現在ページが属するグループ
   const activeGroupKey = navGroups.find((g) =>
@@ -234,7 +246,7 @@ export function Sidebar() {
     // ヘッダーと同じキャッシュを使う（同じ一覧を2回取りに行かない）
     loadClients()
       .then((data) => {
-        const opts = data.map((c) => ({ id: c.id, name: c.name }));
+        const opts = data.map((c) => ({ id: c.id, name: c.name, entity_type: c.entity_type }));
         setClients(opts);
 
         // Initialize selected client (user-scoped)
@@ -378,7 +390,7 @@ export function Sidebar() {
                   業務メニュー
                 </p>
               </div>
-              <ClientNavAccordion basePath={`/clients/${user.clientId}`} userId={user?.id ?? null} />
+              <ClientNavAccordion basePath={`/clients/${user.clientId}`} userId={user?.id ?? null} entityType={clients.find((c) => c.id === user.clientId)?.entity_type} />
             </>
           ) : (
             /* Regular users: show client selector and sub-nav */
@@ -458,7 +470,7 @@ export function Sidebar() {
                   {/* Client sub-navigation - always visible when a client is selected */}
                   {activeClientId && (
                     <div className="mt-2">
-                      <ClientNavAccordion basePath={`/clients/${activeClientId}`} userId={user?.id ?? null} />
+                      <ClientNavAccordion basePath={`/clients/${activeClientId}`} userId={user?.id ?? null} entityType={selectedClient?.entity_type} />
                     </div>
                   )}
                 </>

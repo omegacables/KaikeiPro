@@ -148,6 +148,7 @@ export interface Database {
           representative_kana: string | null;
           issued_shares: number | null;
           treasury_shares: number | null;
+          blue_return_deduction: 650000 | 550000 | 100000 | null;
           ai_share_company_info: boolean;
           ai_share_personal_info: boolean;
           is_active: boolean;
@@ -181,6 +182,7 @@ export interface Database {
           representative_kana?: string | null;
           issued_shares?: number | null;
           treasury_shares?: number | null;
+          blue_return_deduction?: 650000 | 550000 | 100000 | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
@@ -214,6 +216,7 @@ export interface Database {
           representative_kana?: string | null;
           issued_shares?: number | null;
           treasury_shares?: number | null;
+          blue_return_deduction?: 650000 | 550000 | 100000 | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
           is_active?: boolean;
