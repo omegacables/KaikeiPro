@@ -1,5 +1,5 @@
 import { handleApi } from "@/lib/external-api/http";
-import { ApiError, registerReceiptFromApi } from "@/lib/external-api/core";
+import { ApiError, RECEIPT_FIELD_NAMES, registerReceiptFromApi } from "@/lib/external-api/core";
 
 // 証憑の受け口（multipart/form-data）。同じファイルが登録済みならその id を返す
 export const dynamic = "force-dynamic";
@@ -24,6 +24,8 @@ export function POST(req: Request) {
       paymentMethod: str(form.get("payment_method")),
       direction: str(form.get("direction")),
       originalFilename: str(form.get("original_filename")),
+      // 取引先・日付・金額など（任意）。証憑の読み取り結果に入れる
+      fields: Object.fromEntries(RECEIPT_FIELD_NAMES.map((k) => [k, str(form.get(k))])),
     });
   });
 }

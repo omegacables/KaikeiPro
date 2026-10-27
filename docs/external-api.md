@@ -58,9 +58,27 @@
 | `payment_method` | `cash`・`card`・`e_money`・`bank_transfer`（省略可） |
 | `direction` | `received`（受け取った・既定）/ `issued`（発行した） |
 | `original_filename` | 元のファイル名（省略すると `file` の名前） |
+| `vendor_name` | 取引先（200文字まで） |
+| `date` | 取引の日付 `YYYY-MM-DD` |
+| `amount_total` | 合計金額（円の0以上の整数・カンマなし。外貨なら円換算額） |
+| `document_type` | `qualified_invoice`（適格請求書・`invoice_number` が要る）・`category_invoice`・`receipt`・`statement`・`delivery_note`・`purchase_order`・`goods_receipt`・`estimate`・`contract`・`other` |
+| `document_number` | 請求書番号・領収書No など（100文字まで） |
+| `invoice_number` | 適格請求書発行事業者の登録番号（T+13桁だけ。ハイフン・空白は外して保存） |
+| `currency` | 通貨コード3文字（省略すると `JPY`） |
+| `original_amount` | 外貨の金額（`currency` が JPY 以外のときだけ） |
+| `memo` | メモ（1000文字まで） |
 
-返す: `{ "receipt_id": "…", "duplicate": false, "mime_type": "image/jpeg" }`（新しく作ったら 201）。
+返す: `{ "receipt_id": "…", "duplicate": false, "mime_type": "image/jpeg", "ocr_saved": true }`（新しく作ったら 201）。
 **同じ内容のファイルがその会社に登録済みなら、その `receipt_id` を返す**（200・`duplicate: true`）。
+
+`vendor_name` から `memo` までの欄（どれも任意）が1つでもあれば、画面のAI読み取りと同じ形で
+証憑の読み取り結果（`receipts.ocr_result`。`source: "api"`・`confidence: 1`・`items: []`）と `receipts.document_type` に入れ、
+証憑を読み取り済み（`ocr_done`）にする。証憑管理の一覧（取引先・日付・金額）と電帳法の検索がそのまま使える。
+形が違う欄があれば 400 `validation_failed`（証憑は作らない）。
+
+- 登録済みのファイルで、読み取り結果が空（取引先・日付・金額・書類種別のどれも無い）なら、送られた値で埋める（`ocr_saved: true`）。
+  中身があるときは上書きしない（`ocr_saved: false`）。仕訳済みなどの状態は変えない
+- 欄が1つも無ければ今までどおり（読み取り結果は空・`ocr_saved: false`）
 
 ### `POST /api/v1/journals`（JSON）
 
@@ -98,7 +116,7 @@
 
 | status | code | いつ |
 |---|---|---|
-| 400 | `invalid_json` `invalid_body` `validation_failed` `invalid_external_id` `receipt_not_found` `file_missing` `file_type` `invalid_payment_method` `invalid_direction` `invalid_multipart` | 入力の誤り（直して送り直す） |
+| 400 | `invalid_json` `invalid_body` `validation_failed`（仕訳・証憑の項目） `invalid_external_id` `receipt_not_found` `file_missing` `file_type` `invalid_payment_method` `invalid_direction` `invalid_multipart` | 入力の誤り（直して送り直す） |
 | 401 | `unauthorized` `invalid_key` `revoked_key` | キーが無い・違う・無効 |
 | 403 | `insufficient_scope` `user_cannot_write` | 権限が無い |
 | 404 | `not_found` | その external_id の仕訳が無い |
