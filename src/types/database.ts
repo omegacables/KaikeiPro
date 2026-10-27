@@ -1236,9 +1236,10 @@ export interface Database {
           entry_date: string;
           description: string | null;
           status: "draft" | "confirmed" | "locked";
-          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan";
+          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api";
           receipt_id: string | null;
           raqto_source_id: string | null;
+          external_id: string | null;
           metadata: Json | null;
           needs_review: boolean;
           review_status: "unreviewed" | "confirmed" | "needs_fix" | "question";
@@ -1255,9 +1256,10 @@ export interface Database {
           entry_date: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
+          external_id?: string | null;
           metadata?: Json | null;
           needs_review?: boolean;
           review_status?: "unreviewed" | "confirmed" | "needs_fix" | "question";
@@ -1274,9 +1276,10 @@ export interface Database {
           entry_date?: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
+          external_id?: string | null;
           metadata?: Json | null;
           needs_review?: boolean;
           review_status?: "unreviewed" | "confirmed" | "needs_fix" | "question";
@@ -2482,9 +2485,68 @@ export interface Database {
           }
         ];
       };
+      api_keys: {
+        Row: {
+          id: string;
+          client_id: string;
+          user_id: string;
+          name: string;
+          key_prefix: string;
+          key_hash: string;
+          scopes: string[];
+          last_used_at: string | null;
+          revoked_at: string | null;
+          created_at: string;
+          created_by: string | null;
+          rate_window_start: string | null;
+          rate_count: number;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          user_id: string;
+          name: string;
+          key_prefix: string;
+          key_hash: string;
+          scopes?: string[];
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          rate_window_start?: string | null;
+          rate_count?: number;
+        };
+        Update: {
+          id?: string;
+          client_id?: string;
+          user_id?: string;
+          name?: string;
+          key_prefix?: string;
+          key_hash?: string;
+          scopes?: string[];
+          last_used_at?: string | null;
+          revoked_at?: string | null;
+          created_at?: string;
+          created_by?: string | null;
+          rate_window_start?: string | null;
+          rate_count?: number;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "api_keys_client_id_fkey";
+            columns: ["client_id"];
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
     };
     Views: {};
     Functions: {
+      api_key_hit: {
+        Args: { p_key_id: string; p_limit: number };
+        Returns: boolean;
+      };
       is_super_admin: {
         Args: Record<string, never>;
         Returns: boolean;

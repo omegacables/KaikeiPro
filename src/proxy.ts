@@ -1,7 +1,8 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_ROUTES = ["/auth/login", "/auth/signup", "/auth/callback", "/api/version"];
+// /api/v1 は外部連携の受け口。ログインの代わりに APIキー（Authorization: Bearer）で確かめる
+const PUBLIC_ROUTES = ["/auth/login", "/auth/signup", "/auth/callback", "/api/version", "/api/v1/"];
 
 function isPublicRoute(pathname: string) {
   if (PUBLIC_ROUTES.some((r) => pathname.startsWith(r))) return true;
