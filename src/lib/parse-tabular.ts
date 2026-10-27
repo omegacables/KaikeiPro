@@ -3,8 +3,8 @@
 
 export type ParsedTable = { header: string[]; rows: string[][] };
 
-// RFC 4180 準拠のCSV行分割（引用符内のカンマ・改行・"" エスケープに対応）
-function parseCsv(text: string): string[][] {
+// RFC 4180 準拠のCSV行分割（引用符内のカンマ・改行・"" エスケープに対応）。delimiter にタブを渡すと TSV
+export function parseCsv(text: string, delimiter = ","): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
@@ -24,7 +24,7 @@ function parseCsv(text: string): string[][] {
       }
     } else if (ch === '"') {
       inQuotes = true;
-    } else if (ch === ",") {
+    } else if (ch === delimiter) {
       row.push(field.trim());
       field = "";
     } else if (ch === "\n" || ch === "\r") {
@@ -43,7 +43,7 @@ function parseCsv(text: string): string[][] {
 }
 
 // ExcelJS のセル値を表示文字列へ変換（リッチテキスト・数式・ハイパーリンク対応）
-function excelCellToString(x: unknown): string {
+export function excelCellToString(x: unknown): string {
   if (x == null) return "";
   if (x instanceof Date) return x.toISOString().slice(0, 10);
   if (typeof x === "object") {
