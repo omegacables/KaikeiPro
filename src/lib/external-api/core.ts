@@ -12,7 +12,7 @@
  */
 
 import type { Database, Json } from "@/types/database";
-import { sanitizeTaxCategory, taxCategoryAllowed, taxCategoryInfo } from "@/lib/tax-category";
+import { sanitizeTaxCategory, taxCategoriesFor, taxCategoryAllowed, taxCategoryInfo } from "@/lib/tax-category";
 import {
   ReceiptInputError,
   normalizePaymentMethod,
@@ -317,6 +317,45 @@ export async function getJournalFromApi(store: ExternalApiStore, ctx: ApiContext
   const j = await store.findJournalByExternalId(ctx.clientId, id);
   if (!j) throw new ApiError(404, "not_found", "その external_id の仕訳はありません（取り消された可能性があります）");
   return { status: 200, body: journalResponse(j, false) };
+}
+
+// ---------------------------------------------------------------------------
+// 科目
+// ---------------------------------------------------------------------------
+
+const ACCOUNT_TYPE_LABEL: Record<string, string> = {
+  assets: "資産",
+  liabilities: "負債",
+  equity: "純資産",
+  revenue: "収益",
+  expenses: "費用",
+};
+
+/**
+ * GET /api/v1/accounts
+ * キーの会社で使える科目（使われていない科目は除く）。送る前に科目があるかを確かめるため。
+ * tax_category_allowed は POST journals と同じ判定（収益・費用の行と、仮払消費税の行の輸入の消費税だけ）
+ */
+export async function listAccountsFromApi(store: ExternalApiStore, ctx: ApiContext): Promise<ApiResult> {
+  const accounts = (await store.listAccounts(ctx.clientId))
+    .filter((a) => a.is_active)
+    .sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true }));
+  return {
+    status: 200,
+    body: {
+      accounts: accounts.map((a) => {
+        const codes = taxCategoriesFor(a.type, a.name).map((c) => c.code);
+        return {
+          code: a.code,
+          name: a.name,
+          type: a.type,
+          type_label: ACCOUNT_TYPE_LABEL[a.type] ?? a.type,
+          tax_category_allowed: codes.length > 0,
+          tax_categories: codes,
+        };
+      }),
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------

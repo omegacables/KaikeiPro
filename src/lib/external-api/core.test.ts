@@ -4,6 +4,7 @@ import {
   authenticate,
   createJournalFromApi,
   getJournalFromApi,
+  listAccountsFromApi,
   registerReceiptFromApi,
   RATE_LIMIT_PER_MINUTE,
   type ApiContext,
@@ -42,6 +43,7 @@ function memoryStore() {
         { id: "a-comm", code: "720", name: "通信費", type: "expenses", is_active: true },
         { id: "a-sales", code: "500", name: "売上高", type: "revenue", is_active: true },
         { id: "a-old", code: "999", name: "旧科目", type: "expenses", is_active: false },
+        { id: "a-ptax", code: "190", name: "仮払消費税", type: "assets", is_active: true },
       ],
     ],
     [COMPANY_B, [{ id: "b-comm", code: "720", name: "通信費", type: "expenses", is_active: true }]],
@@ -439,5 +441,31 @@ describe("証憑の受け口", () => {
       "invalid_payment_method"
     );
     expect(m.receipts).toHaveLength(0);
+  });
+});
+
+describe("科目の受け口", () => {
+  it("キーの会社の使える科目だけを、区分と税区分を付けられるかと一緒に返す", async () => {
+    const m = memoryStore();
+    const ctxA = await authenticate(m.store, bearer(m.issueKey(COMPANY_A, USER_A)), "journals:write");
+    const r = await listAccountsFromApi(m.store, ctxA);
+    type Row = { code: string; name: string; type: string; type_label: string; tax_category_allowed: boolean; tax_categories: string[] };
+    const rows = (r.body as { accounts: Row[] }).accounts;
+    // 使われていない科目（旧科目）は出さない。コード順
+    expect(rows.map((a) => a.code)).toEqual(["100", "110", "190", "500", "720"]);
+    const by = new Map(rows.map((a) => [a.name, a]));
+    expect(by.get("通信費")).toMatchObject({ type: "expenses", type_label: "費用", tax_category_allowed: true });
+    expect(by.get("通信費")!.tax_categories).toContain("purchase_10");
+    expect(by.get("売上高")).toMatchObject({ type_label: "収益", tax_category_allowed: true });
+    expect(by.get("普通預金")).toMatchObject({ type_label: "資産", tax_category_allowed: false, tax_categories: [] });
+    // 仮払消費税は輸入の消費税だけ
+    expect(by.get("仮払消費税")!.tax_categories.every((c) => c.startsWith("purchase_import"))).toBe(true);
+  });
+
+  it("別の会社のキーでは、その会社の科目だけ", async () => {
+    const m = memoryStore();
+    const ctxB = await authenticate(m.store, bearer(m.issueKey(COMPANY_B, USER_B)), "journals:write");
+    const rows = ((await listAccountsFromApi(m.store, ctxB)).body as { accounts: { name: string }[] }).accounts;
+    expect(rows.map((a) => a.name)).toEqual(["通信費"]);
   });
 });

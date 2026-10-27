@@ -4,7 +4,7 @@
 送られた仕訳は**確定済み**（`status=confirmed`・`needs_review=false`・`source=api`）で登録される。
 
 - 中身: `src/lib/external-api/`（`core.ts` が確かめと登録、`supabase-store.ts` が読み書き、`http.ts` が入口）
-- 受け口: `src/app/api/v1/`（`ping`・`receipts`・`journals`）
+- 受け口: `src/app/api/v1/`（`ping`・`accounts`・`receipts`・`journals`）
 - キーの画面: 顧問先の「設定」→「外部連携（APIキー）」（`src/app/(dashboard)/clients/[id]/settings/api-keys-settings.tsx`）
 - データベース: `supabase/migrations/078_api_keys_and_external_ids.sql`
 - テスト: `src/lib/external-api/core.test.ts`
@@ -29,6 +29,24 @@
 ```json
 { "ok": true, "client": { "id": "…", "name": "株式会社…" }, "scopes": ["journals:write", "receipts:write"] }
 ```
+
+### `GET /api/v1/accounts`
+
+キーの会社で**使える科目**（使われていない科目は除く・コード順）。仕訳を送る前に、使う科目がその会社にあるかを確かめる。
+権限は `journals:write`。
+
+```json
+{ "accounts": [
+  { "code": "720", "name": "通信費", "type": "expenses", "type_label": "費用",
+    "tax_category_allowed": true, "tax_categories": ["purchase_10", "purchase_08_reduced", "…"] },
+  { "code": "110", "name": "普通預金", "type": "assets", "type_label": "資産",
+    "tax_category_allowed": false, "tax_categories": [] }
+] }
+```
+
+- `type` は `assets`（資産）・`liabilities`（負債）・`equity`（純資産）・`revenue`（収益）・`expenses`（費用）
+- `tax_category_allowed` は POST journals と同じ判定（収益・費用の行。仮払消費税の行は輸入の消費税の区分だけ）。
+  `tax_categories` はその行に付けられるコード
 
 ### `POST /api/v1/receipts`（multipart/form-data）
 
