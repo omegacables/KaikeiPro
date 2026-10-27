@@ -32,18 +32,20 @@
 
 ### `GET /api/v1/accounts`
 
-キーの会社で**使える科目**（使われていない科目は除く・コード順）。仕訳を送る前に、使う科目がその会社にあるかを確かめる。
+キーの会社で**使える科目**＝その会社の科目＋標準科目（使われていない科目は除く・コード順）。
+同じコード・同じ名前の科目が会社にあれば、標準科目の方は出さない。仕訳を送る前に、使う科目がその会社にあるかを確かめる。
 権限は `journals:write`。
 
 ```json
 { "accounts": [
-  { "code": "720", "name": "通信費", "type": "expenses", "type_label": "費用",
+  { "code": "720", "name": "通信費", "type": "expenses", "type_label": "費用", "scope": "standard",
     "tax_category_allowed": true, "tax_categories": ["purchase_10", "purchase_08_reduced", "…"] },
-  { "code": "110", "name": "普通預金", "type": "assets", "type_label": "資産",
+  { "code": "110", "name": "普通預金", "type": "assets", "type_label": "資産", "scope": "standard",
     "tax_category_allowed": false, "tax_categories": [] }
 ] }
 ```
 
+- `scope` は `company`（その会社の科目）か `standard`（全社共通の標準科目）
 - `type` は `assets`（資産）・`liabilities`（負債）・`equity`（純資産）・`revenue`（収益）・`expenses`（費用）
 - `tax_category_allowed` は POST journals と同じ判定（収益・費用の行。仮払消費税の行は輸入の消費税の区分だけ）。
   `tax_categories` はその行に付けられるコード
@@ -76,7 +78,8 @@
 }
 ```
 
-- `account` は**科目コード、無ければ科目名**でその会社の科目から引く。使われていない科目は不可
+- `account` は**科目コード、無ければ科目名**で引く。引く先は**その会社の科目＋標準科目**（`client_id IS NULL`・画面の科目一覧と同じ）。
+  同じコード・同じ名前の科目が会社にあれば会社の科目を使う。使われていない科目は不可
 - 金額は0以上の整数。各行は借方か貸方の**どちらか一方だけ**。借方と貸方の合計が同じこと
 - `tax_category` は `src/lib/tax-category.ts` のコード。**収益・費用の行にだけ**付けられる（資産・負債の行に付けると 400）
 - **締めた（ロック済みの）会計年度の日付は 409**

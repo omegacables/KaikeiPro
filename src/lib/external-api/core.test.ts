@@ -19,8 +19,11 @@ import type { ReceiptInsert } from "@/lib/receipt-upload";
 // テスト用の会社・利用者（実在しない値）
 const COMPANY_A = "00000000-0000-4000-8000-00000000000a";
 const COMPANY_B = "00000000-0000-4000-8000-00000000000b";
+// 自社の科目を持たず、標準科目だけを使う会社
+const COMPANY_C = "00000000-0000-4000-8000-00000000000c";
 const USER_A = "00000000-0000-4000-8000-0000000000a1";
 const USER_B = "00000000-0000-4000-8000-0000000000b1";
+const USER_C = "00000000-0000-4000-8000-0000000000c1";
 
 type StoredJournal = JournalSummary & { client_id: string; created_by: string; source: string; lines: NewJournalLine[] };
 type StoredReceipt = ReceiptInsert & { id: string };
@@ -34,19 +37,28 @@ function memoryStore() {
   const receipts: StoredReceipt[] = [];
   const uploads = new Map<string, Uint8Array>();
   const lockedYears: { client_id: string; start: string; end: string }[] = [];
-  const accounts = new Map<string, { id: string; code: string; name: string; type: string; is_active: boolean }[]>([
+  type Acct = { id: string; code: string; name: string; type: string; is_active: boolean };
+  const own = (list: Acct[]) => list.map((a) => ({ ...a, standard: false }));
+  // 全社共通の標準科目（client_id IS NULL）
+  const standard = [
+    { id: "s-ar", code: "1150", name: "売掛金", type: "assets", is_active: true },
+    { id: "s-sales", code: "4100", name: "売上高", type: "revenue", is_active: true },
+    { id: "s-comm", code: "720", name: "通信費（標準）", type: "expenses", is_active: true },
+    { id: "s-old", code: "9990", name: "標準の旧科目", type: "expenses", is_active: false },
+  ].map((a) => ({ ...a, standard: true }));
+  const accounts = new Map<string, ReturnType<typeof own>>([
     [
       COMPANY_A,
-      [
+      own([
         { id: "a-cash", code: "100", name: "現金", type: "assets", is_active: true },
         { id: "a-bank", code: "110", name: "普通預金", type: "assets", is_active: true },
         { id: "a-comm", code: "720", name: "通信費", type: "expenses", is_active: true },
         { id: "a-sales", code: "500", name: "売上高", type: "revenue", is_active: true },
         { id: "a-old", code: "999", name: "旧科目", type: "expenses", is_active: false },
         { id: "a-ptax", code: "190", name: "仮払消費税", type: "assets", is_active: true },
-      ],
+      ]),
     ],
-    [COMPANY_B, [{ id: "b-comm", code: "720", name: "通信費", type: "expenses", is_active: true }]],
+    [COMPANY_B, own([{ id: "b-comm", code: "720", name: "通信費", type: "expenses", is_active: true }])],
   ]);
 
   const store: ExternalApiStore = {
@@ -63,7 +75,7 @@ function memoryStore() {
       return clientId === COMPANY_A ? "A社" : "B社";
     },
     async listAccounts(clientId) {
-      return accounts.get(clientId) ?? [];
+      return [...(accounts.get(clientId) ?? []), ...standard];
     },
     async isDateLocked(clientId, date) {
       return lockedYears.some((y) => y.client_id === clientId && y.start <= date && date <= y.end);
@@ -449,10 +461,21 @@ describe("科目の受け口", () => {
     const m = memoryStore();
     const ctxA = await authenticate(m.store, bearer(m.issueKey(COMPANY_A, USER_A)), "journals:write");
     const r = await listAccountsFromApi(m.store, ctxA);
-    type Row = { code: string; name: string; type: string; type_label: string; tax_category_allowed: boolean; tax_categories: string[] };
+    type Row = {
+      code: string;
+      name: string;
+      type: string;
+      type_label: string;
+      scope: string;
+      tax_category_allowed: boolean;
+      tax_categories: string[];
+    };
     const rows = (r.body as { accounts: Row[] }).accounts;
     // 使われていない科目（旧科目）は出さない。コード順
-    expect(rows.map((a) => a.code)).toEqual(["100", "110", "190", "500", "720"]);
+    // 標準科目は、同じコード（720）・同じ名前（売上高）の会社の科目があれば外す
+    expect(rows.map((a) => a.code)).toEqual(["100", "110", "190", "500", "720", "1150"]);
+    expect(rows.find((a) => a.code === "1150")).toMatchObject({ name: "売掛金", scope: "standard" });
+    expect(rows.find((a) => a.code === "720")).toMatchObject({ name: "通信費", scope: "company" });
     const by = new Map(rows.map((a) => [a.name, a]));
     expect(by.get("通信費")).toMatchObject({ type: "expenses", type_label: "費用", tax_category_allowed: true });
     expect(by.get("通信費")!.tax_categories).toContain("purchase_10");
@@ -462,10 +485,67 @@ describe("科目の受け口", () => {
     expect(by.get("仮払消費税")!.tax_categories.every((c) => c.startsWith("purchase_import"))).toBe(true);
   });
 
-  it("別の会社のキーでは、その会社の科目だけ", async () => {
+  it("別の会社のキーでは、その会社の科目と標準科目だけ", async () => {
     const m = memoryStore();
     const ctxB = await authenticate(m.store, bearer(m.issueKey(COMPANY_B, USER_B)), "journals:write");
     const rows = ((await listAccountsFromApi(m.store, ctxB)).body as { accounts: { name: string }[] }).accounts;
-    expect(rows.map((a) => a.name)).toEqual(["通信費"]);
+    expect(rows.map((a) => a.name)).toEqual(["通信費", "売掛金", "売上高"]);
+  });
+
+  it("自社の科目が0件の会社は、標準科目（使われているものだけ）を返す", async () => {
+    const m = memoryStore();
+    const ctxC = await authenticate(m.store, bearer(m.issueKey(COMPANY_C, USER_C)), "journals:write");
+    const rows = ((await listAccountsFromApi(m.store, ctxC)).body as { accounts: { code: string; scope: string }[] }).accounts;
+    expect(rows.map((a) => a.code)).toEqual(["720", "1150", "4100"]);
+    expect(rows.every((a) => a.scope === "standard")).toBe(true);
+  });
+});
+
+describe("標準科目だけの会社への仕訳", () => {
+  it("標準科目をコードでも名前でも引いて登録する", async () => {
+    const m = memoryStore();
+    const ctxC = await authenticate(m.store, bearer(m.issueKey(COMPANY_C, USER_C)), "journals:write");
+    const r = await createJournalFromApi(m.store, ctxC, {
+      external_id: "sha256:c1",
+      entry_date: "2026-07-01",
+      lines: [
+        { account: "1150", debit: 33000, credit: 0 },
+        { account: "売上高", debit: 0, credit: 33000, tax_category: "sales_10" },
+      ],
+    });
+    expect(r.status).toBe(201);
+    expect(m.journals[0].client_id).toBe(COMPANY_C);
+    expect(m.journals[0].lines.map((l) => [l.account_id, l.tax_category])).toEqual([
+      ["s-ar", null],
+      ["s-sales", "sales_10"],
+    ]);
+    // 使われていない標準科目は使えない
+    await expectApiError(
+      createJournalFromApi(m.store, ctxC, {
+        external_id: "sha256:c2",
+        entry_date: "2026-07-01",
+        lines: [
+          { account: "標準の旧科目", debit: 100, credit: 0 },
+          { account: "1150", debit: 0, credit: 100 },
+        ],
+      }),
+      400,
+      "validation_failed"
+    );
+  });
+
+  it("会社に同じ名前の科目があれば、標準科目より会社の科目を使う", async () => {
+    const m = memoryStore();
+    const ctxA = await authenticate(m.store, bearer(m.issueKey(COMPANY_A, USER_A)), "journals:write");
+    await createJournalFromApi(m.store, ctxA, {
+      external_id: "sha256:a-sales",
+      entry_date: "2026-07-01",
+      lines: [
+        { account: "売掛金", debit: 1100, credit: 0 },
+        { account: "売上高", debit: 0, credit: 1100 },
+      ],
+    });
+    // 売掛金は A社に無いので標準科目、売上高は A社の科目
+    expect(m.journals[0].lines.map((l) => l.account_id)).toEqual(["s-ar", "a-sales"]);
   });
 });

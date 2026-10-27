@@ -54,19 +54,29 @@ export function createSupabaseStore(ctx: ApiContext): ExternalApiStore {
       const { data } = await db.from("clients").select("name").eq("id", clientId).maybeSingle();
       return (data?.name as string | undefined) ?? null;
     },
+    // 画面の getAccounts と同じく、会社の科目＋標準科目（client_id IS NULL）。
+    // clientId はキーから決めた UUID なので、or() の文字列に入れてよい
     async listAccounts(clientId) {
       const { data, error } = await db
         .from("accounts")
-        .select("id, code, name, is_active, account_categories:category_id ( type )")
-        .eq("client_id", clientId);
+        .select("id, client_id, code, name, is_active, account_categories:category_id ( type )")
+        .or(`client_id.eq.${clientId},client_id.is.null`);
       if (error) dbError(error, "勘定科目の読み込み");
-      type Row = { id: string; code: string; name: string; is_active: boolean; account_categories: { type: string } | null };
+      type Row = {
+        id: string;
+        client_id: string | null;
+        code: string;
+        name: string;
+        is_active: boolean;
+        account_categories: { type: string } | null;
+      };
       return ((data ?? []) as unknown as Row[]).map((a) => ({
         id: a.id,
         code: String(a.code ?? ""),
         name: a.name,
         type: a.account_categories?.type ?? "",
         is_active: a.is_active,
+        standard: a.client_id === null,
       }));
     },
     async isDateLocked(clientId, date) {

@@ -51,7 +51,21 @@ export type ApiKeyRecord = {
 
 export type ApiContext = { keyId: string; clientId: string; userId: string; scopes: string[] };
 
-export type AccountRef = { id: string; code: string; name: string; type: string; is_active: boolean };
+/** standard=true は全社共通の標準科目（accounts.client_id IS NULL） */
+export type AccountRef = { id: string; code: string; name: string; type: string; is_active: boolean; standard: boolean };
+
+/**
+ * 使える科目＝その会社の科目＋標準科目（画面の getAccounts と同じ）。
+ * 同じコード・同じ名前の科目が会社にあれば、会社の科目を優先して標準科目は外す
+ * （名前で引いたときに「同じ名前が複数」にならないように）。
+ */
+export function mergeStandardAccounts(accounts: AccountRef[]): AccountRef[] {
+  const own = accounts.filter((a) => !a.standard);
+  const ownCodes = new Set(own.map((a) => a.code.trim()));
+  const ownNames = new Set(own.map((a) => a.name.trim()));
+  const standard = accounts.filter((a) => a.standard && !ownCodes.has(a.code.trim()) && !ownNames.has(a.name.trim()));
+  return [...own, ...standard];
+}
 
 export type JournalSummary = {
   id: string;
@@ -73,6 +87,7 @@ export interface ExternalApiStore {
   /** 回数を1つ数え、上限以内なら true（最終利用日時も更新する） */
   hitRateLimit(keyId: string, limit: number): Promise<boolean>;
   getClientName(clientId: string): Promise<string | null>;
+  /** その会社の科目と標準科目（client_id IS NULL）。使われていない科目も含む */
   listAccounts(clientId: string): Promise<AccountRef[]>;
   /** その日付がロック済みの会計年度に入っているか */
   isDateLocked(clientId: string, date: string): Promise<boolean>;
@@ -197,8 +212,9 @@ export async function createJournalFromApi(store: ExternalApiStore, ctx: ApiCont
   if (!rawLines || rawLines.length < 2) errors.push("lines（明細）を2行以上送ってください");
   else if (rawLines.length > MAX_LINES) errors.push(`lines（明細）は${MAX_LINES}行までです`);
 
-  // 科目はその会社の科目から、コード → 名前の順に引く
-  const accounts = rawLines && rawLines.length <= MAX_LINES ? await store.listAccounts(ctx.clientId) : [];
+  // 科目はその会社の科目＋標準科目から、コード → 名前の順に引く
+  const accounts =
+    rawLines && rawLines.length <= MAX_LINES ? mergeStandardAccounts(await store.listAccounts(ctx.clientId)) : [];
   const byCode = new Map(accounts.map((a) => [a.code.trim(), a]));
   const byName = new Map<string, AccountRef[]>();
   for (const a of accounts) byName.set(a.name.trim(), [...(byName.get(a.name.trim()) ?? []), a]);
@@ -333,11 +349,11 @@ const ACCOUNT_TYPE_LABEL: Record<string, string> = {
 
 /**
  * GET /api/v1/accounts
- * キーの会社で使える科目（使われていない科目は除く）。送る前に科目があるかを確かめるため。
+ * キーの会社で使える科目（会社の科目＋標準科目。使われていない科目は除く）。送る前に科目があるかを確かめるため。
  * tax_category_allowed は POST journals と同じ判定（収益・費用の行と、仮払消費税の行の輸入の消費税だけ）
  */
 export async function listAccountsFromApi(store: ExternalApiStore, ctx: ApiContext): Promise<ApiResult> {
-  const accounts = (await store.listAccounts(ctx.clientId))
+  const accounts = mergeStandardAccounts(await store.listAccounts(ctx.clientId))
     .filter((a) => a.is_active)
     .sort((a, b) => a.code.localeCompare(b.code, "ja", { numeric: true }));
   return {
@@ -350,6 +366,7 @@ export async function listAccountsFromApi(store: ExternalApiStore, ctx: ApiConte
           name: a.name,
           type: a.type,
           type_label: ACCOUNT_TYPE_LABEL[a.type] ?? a.type,
+          scope: a.standard ? "standard" : "company",
           tax_category_allowed: codes.length > 0,
           tax_categories: codes,
         };
