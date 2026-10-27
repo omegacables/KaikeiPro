@@ -4,7 +4,8 @@ import {
   createServerSupabaseClient,
   createAdminSupabaseClient,
 } from "@/lib/supabase";
-import { resolveClientIdForRecord } from "@/lib/authz";
+import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
+import { getGeminiModel, callGemini, extractJson, INJECTION_GUARD } from "@/lib/gemini";
 import type { PayrollRecord, PayrollInput } from "@/types/index";
 
 type DbRow = Record<string, unknown>;
@@ -337,4 +338,156 @@ export async function unjournalizePayroll(id: string): Promise<void> {
     .update({ journal_entry_id: null, status: "pending" })
     .eq("id", id);
   if (error) throw new Error(error.message);
+}
+
+// ---------------------------------------------------------------------------
+// 給与台帳・給与明細の取り込み
+//
+// CSV・Excel・文字の入ったPDFはブラウザで表に直して読む（src/lib/payroll-import.ts）。
+// 画像・スキャンしたPDFだけ、AIに「表を見たまま書き写す」ことを頼み、同じ読み取りに通す
+// （AIには計算・推測をさせない）。
+// ---------------------------------------------------------------------------
+
+export type PayrollImportRow = {
+  employee_name: string;
+  employee_type: "employee" | "officer";
+  pay_month: string;
+  pay_date: string | null;
+  gross_salary: number;
+  income_tax: number;
+  resident_tax: number;
+  health_insurance: number;
+  pension_insurance: number;
+  employment_insurance: number;
+  other_deduction: number;
+};
+
+export type PayrollImportResult = {
+  created: number;
+  skipped: { employee_name: string; pay_month: string; reason: string }[];
+};
+
+const AMOUNT_KEYS = [
+  "gross_salary",
+  "income_tax",
+  "resident_tax",
+  "health_insurance",
+  "pension_insurance",
+  "employment_insurance",
+  "other_deduction",
+] as const;
+
+/**
+ * 取り込んだ給与をまとめて登録する。
+ * 同じ月・同じ氏名の給与が登録済みなら、二重にせず飛ばして知らせる。
+ */
+export async function importPayrollRecords(clientId: string, rows: PayrollImportRow[]): Promise<PayrollImportResult> {
+  await assertClientAccess(clientId);
+  if (rows.length === 0) return { created: 0, skipped: [] };
+  if (rows.length > 500) throw new Error("一度に登録できるのは500件までです");
+
+  const skipped: PayrollImportResult["skipped"] = [];
+  const valid: (PayrollImportRow & { pay_month: string })[] = [];
+  for (const r of rows) {
+    const name = (r.employee_name ?? "").trim();
+    const month = /^\d{4}-\d{2}$/.test(r.pay_month ?? "") ? r.pay_month : null;
+    const label = { employee_name: name || "（氏名なし）", pay_month: r.pay_month ?? "" };
+    if (!name || name.length > 100) {
+      skipped.push({ ...label, reason: "氏名がありません" });
+      continue;
+    }
+    if (!month) {
+      skipped.push({ ...label, reason: "対象月がありません" });
+      continue;
+    }
+    if (r.pay_date && !/^\d{4}-\d{2}-\d{2}$/.test(r.pay_date)) {
+      skipped.push({ ...label, reason: "支給日の形が正しくありません" });
+      continue;
+    }
+    if (AMOUNT_KEYS.some((k) => !Number.isInteger(r[k]) || r[k] < 0 || r[k] > 1e10)) {
+      skipped.push({ ...label, reason: "金額は0以上の整数にしてください" });
+      continue;
+    }
+    valid.push({ ...r, employee_name: name, pay_month: month });
+  }
+
+  // 登録済みの同じ月・同じ氏名は飛ばす（同じファイルを2回入れても二重にならない）
+  const supabase = await createServerSupabaseClient();
+  const months = [...new Set(valid.map((r) => normalizeMonth(r.pay_month)))];
+  const { data: existing, error: exErr } = months.length
+    ? await supabase
+        .from("payroll_records")
+        .select("pay_month, employee_name")
+        .eq("client_id", clientId)
+        .in("pay_month", months)
+    : { data: [], error: null };
+  if (exErr) throw new Error(exErr.message);
+  const key = (m: string, n: string) => `${m.slice(0, 7)}|${n.replace(/\s+/g, "")}`;
+  const seen = new Set((existing ?? []).map((e) => key(e.pay_month as string, e.employee_name as string)));
+
+  const inserts = [];
+  for (const r of valid) {
+    const k = key(r.pay_month, r.employee_name);
+    if (seen.has(k)) {
+      skipped.push({ employee_name: r.employee_name, pay_month: r.pay_month, reason: "同じ月の給与が登録済みです" });
+      continue;
+    }
+    seen.add(k);
+    inserts.push({
+      client_id: clientId,
+      pay_month: normalizeMonth(r.pay_month),
+      pay_date: r.pay_date || null,
+      employee_name: r.employee_name,
+      employee_type: r.employee_type === "officer" ? ("officer" as const) : ("employee" as const),
+      gross_salary: r.gross_salary,
+      income_tax: r.income_tax,
+      resident_tax: r.resident_tax,
+      health_insurance: r.health_insurance,
+      pension_insurance: r.pension_insurance,
+      employment_insurance: r.employment_insurance,
+      other_deduction: r.other_deduction,
+      net_pay: r.gross_salary - deductionTotal(r),
+      status: "pending" as const,
+    });
+  }
+  if (inserts.length) {
+    const { error } = await supabase.from("payroll_records").insert(inserts);
+    if (error) throw new Error(error.message);
+  }
+  return { created: inserts.length, skipped };
+}
+
+const AI_TYPES = ["image/jpeg", "image/png", "image/webp", "application/pdf"];
+
+/**
+ * 画像・スキャンしたPDFの給与明細／給与台帳を、AIに表として書き写してもらう。
+ * 返すのは「行×セルの文字」だけ。金額の意味の見分け・計算は parsePayrollGrid が行う。
+ */
+export async function transcribePayrollWithAi(clientId: string, formData: FormData): Promise<string[][]> {
+  await assertClientAccess(clientId);
+  const file = formData.get("file");
+  if (!file || typeof file === "string") throw new Error("ファイルがありません");
+  if (file.size > 10 * 1024 * 1024) throw new Error("ファイルサイズが10MBを超えています");
+  if (!AI_TYPES.includes(file.type)) throw new Error("AIで読めるのは JPG・PNG・WEBP・PDF です");
+
+  const model = getGeminiModel("vision");
+  const data = Buffer.from(await file.arrayBuffer()).toString("base64");
+  const result = await callGemini(() =>
+    model.generateContent([
+      { inlineData: { mimeType: file.type, data } },
+      {
+        text: `これは給与明細または給与台帳（賃金台帳）です。書かれている表を、見たままの「行×セル」の文字として書き写してください。
+- 1行は配列1つ、セルは左から順に文字列で入れる。項目名と金額は書いてあるとおり（カンマ・円・△もそのまま）
+- 計算・合計・推測はしない。読めないセルは "" にする。表以外の見出し（対象月・支給日・氏名など）も1行ずつ入れる
+- JSONだけを返す: {"rows":[["項目","値",...],...]}
+${INJECTION_GUARD}`,
+      },
+    ])
+  );
+  const parsed = extractJson<{ rows?: unknown }>(result.response.text(), "給与の読み取り");
+  if (!Array.isArray(parsed.rows)) throw new Error("給与の表を読み取れませんでした");
+  return parsed.rows
+    .slice(0, 500)
+    .filter(Array.isArray)
+    .map((row) => (row as unknown[]).slice(0, 60).map((c) => (c == null ? "" : String(c).slice(0, 200))));
 }

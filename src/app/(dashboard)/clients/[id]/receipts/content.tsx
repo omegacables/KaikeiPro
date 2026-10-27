@@ -62,6 +62,7 @@ import { getJournalEntriesForReceipt, type ReceiptJournalRef } from "@/actions/l
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
 import { hiddenMonthsOutside, monthLabel, monthRange } from "@/lib/receipt-period";
+import { ReceiptThumbnail } from "@/components/receipt-thumbnail";
 import { handleBarKeyNav } from "@/lib/key-nav";
 
 // ---------------------------------------------------------------------------
@@ -99,7 +100,8 @@ interface ReceiptData {
   vendor: string;
   date: string;
   amount: number;
-  paymentMethod: PaymentMethod;
+  /** 記録が無いときは null（「現金」とは決めつけない） */
+  paymentMethod: PaymentMethod | null;
   status: ReceiptStatus;
   direction: "issued" | "received";
   category?: string;
@@ -156,7 +158,8 @@ const paymentMethodConfig: Record<
   e_money: { label: "電子マネー", icon: Smartphone },
 };
 
-const defaultPaymentConfig = { label: "不明", icon: Banknote };
+// 支払方法が記録されていない証憑（以前は「現金」と表示していた。振込で払ったものまで現金に見えていた）
+const defaultPaymentConfig = { label: "未設定", icon: Banknote };
 
 // インボイス検証・「要確認」判定は共通ロジック（src/lib/receipt-review.ts）を利用。
 const invoiceCheckConfig: Record<
@@ -256,7 +259,7 @@ export function ReceiptsPageContent({
             vendor: ocr?.vendor_name ?? "不明",
             date: ocr?.date ?? ocr?.issued_date ?? r.uploaded_at.split("T")[0],
             amount: ocr?.amount_total ?? ocr?.total_amount ?? 0,
-            paymentMethod: (r.payment_method ?? "cash") as PaymentMethod,
+            paymentMethod: (r.payment_method ?? null) as PaymentMethod | null,
             status: r.status as ReceiptStatus,
             direction: ((r as { direction?: "issued" | "received" }).direction ?? "received"),
             category: undefined as string | undefined,
@@ -524,7 +527,25 @@ export function ReceiptsPageContent({
   const [invoiceFilter, setInvoiceFilter] = useState<"all" | "registered" | "unregistered">("all");
   // 年度の選択肢（決算月を変えた年の変則期間も記録どおり）
   const { options: fiscalOptions } = useFiscalPeriods(id);
+  // カード／リストの表示は、次に開いたときも同じにする（このブラウザに覚えておく）
+  const VIEW_MODE_KEY = "receipts-view-mode";
   const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
+  useEffect(() => {
+    try {
+      const v = localStorage.getItem(VIEW_MODE_KEY);
+      if (v === "grid" || v === "list") setViewMode(v);
+    } catch {
+      // 読めなければカード表示のまま
+    }
+  }, []);
+  const chooseViewMode = (v: "grid" | "list") => {
+    setViewMode(v);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, v);
+    } catch {
+      // 覚えられなくても切り替えはできる
+    }
+  };
   const [searchQuery, setSearchQuery] = useState("");
   // デフォルトは今月分を表示（月セレクタを空にすると全期間）
   const initialPeriod = (() => {
@@ -555,7 +576,6 @@ export function ReceiptsPageContent({
         setDocumentTypeFilter(saved.documentTypeFilter);
         setDirectionFilter(saved.directionFilter);
         setInvoiceFilter(saved.invoiceFilter);
-        setViewMode(saved.viewMode);
         setSearchQuery(saved.searchQuery);
         setPeriodMode(saved.periodMode);
         setFiscalYear(saved.fiscalYear);
@@ -572,12 +592,12 @@ export function ReceiptsPageContent({
     try {
       sessionStorage.setItem(
         filterKey,
-        JSON.stringify({ documentTypeFilter, directionFilter, invoiceFilter, viewMode, searchQuery, periodMode, fiscalYear, dateFrom, dateTo })
+        JSON.stringify({ documentTypeFilter, directionFilter, invoiceFilter, searchQuery, periodMode, fiscalYear, dateFrom, dateTo })
       );
     } catch {
       // 保存できなくても一覧は使える
     }
-  }, [filtersRestored, filterKey, documentTypeFilter, directionFilter, invoiceFilter, viewMode, searchQuery, periodMode, fiscalYear, dateFrom, dateTo]);
+  }, [filtersRestored, filterKey, documentTypeFilter, directionFilter, invoiceFilter, searchQuery, periodMode, fiscalYear, dateFrom, dateTo]);
 
   // 画像URL管理（詳細パネル用）
   const [detailImageUrl, setDetailImageUrl] = useState<string | null>(null);
@@ -663,14 +683,14 @@ export function ReceiptsPageContent({
     // テキスト検索（取引先、会社名、支払い方法、金額、メモ等）
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const paymentLabel = (paymentMethodConfig[r.paymentMethod]?.label ?? "").toLowerCase();
+      const paymentLabel = ((r.paymentMethod && paymentMethodConfig[r.paymentMethod]?.label) ?? defaultPaymentConfig.label).toLowerCase();
       if (
         !r.vendor.toLowerCase().includes(q) &&
         !r.id.toLowerCase().includes(q) &&
         !r.date.includes(q) &&
         !String(r.amount).includes(q) &&
         !paymentLabel.includes(q) &&
-        !r.paymentMethod.toLowerCase().includes(q) &&
+        !(r.paymentMethod ?? "").toLowerCase().includes(q) &&
         !(r.invoiceNumber || "").toLowerCase().includes(q) &&
         !(r.category || "").toLowerCase().includes(q) &&
         !(r.memo || "").toLowerCase().includes(q)
@@ -855,7 +875,7 @@ export function ReceiptsPageContent({
           </div>
           <div className="flex items-center border border-border rounded-lg overflow-hidden">
             <button
-              onClick={() => setViewMode("grid")}
+              onClick={() => chooseViewMode("grid")}
               className={cn(
                 "p-2 transition-colors cursor-pointer",
                 viewMode === "grid"
@@ -866,7 +886,7 @@ export function ReceiptsPageContent({
               <Grid3X3 className="size-4" />
             </button>
             <button
-              onClick={() => setViewMode("list")}
+              onClick={() => chooseViewMode("list")}
               className={cn(
                 "p-2 transition-colors cursor-pointer",
                 viewMode === "list"
@@ -1011,7 +1031,7 @@ export function ReceiptsPageContent({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {filtered.map((receipt) => {
             const sCfg = statusConfig[receipt.status];
-            const pCfg = paymentMethodConfig[receipt.paymentMethod] ?? defaultPaymentConfig;
+            const pCfg = (receipt.paymentMethod && paymentMethodConfig[receipt.paymentMethod]) || defaultPaymentConfig;
             const SIcon = sCfg.icon;
             const PIcon = pCfg.icon;
 
@@ -1041,9 +1061,27 @@ export function ReceiptsPageContent({
                       <span className="text-sm font-bold text-foreground mt-1 truncate max-w-full">{receipt.vendor}</span>
                       <span className="text-lg font-bold font-mono text-primary mt-0.5">{formatCurrency(receipt.amount)}</span>
                     </>
+                  ) : receipt.imagePath && receipt.mimeType?.startsWith("image/") ? (
+                    <>
+                      {/* 画像の証憑は、カードの段階で中身が分かるよう見本を出す（見えたカードの分だけ読む） */}
+                      <ReceiptThumbnail clientId={id} receiptId={receipt.id} alt={receipt.vendor} />
+                      <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/75 via-black/40 to-transparent px-3 pb-2 pt-8 text-left">
+                        <div className="text-sm font-bold text-white truncate">{receipt.vendor}</div>
+                        {receipt.amount > 0 && (
+                          <div className="text-base font-bold font-mono text-white">{formatCurrency(receipt.amount)}</div>
+                        )}
+                      </div>
+                    </>
                   ) : (
                     <>
-                      <Receipt className="size-8 text-muted-foreground/30 mb-1" />
+                      {receipt.mimeType === "application/pdf" ? (
+                        <span className="mb-1 inline-flex flex-col items-center text-muted-foreground/50">
+                          <FileText className="size-8" />
+                          <span className="text-[10px] font-bold">PDF</span>
+                        </span>
+                      ) : (
+                        <Receipt className="size-8 text-muted-foreground/30 mb-1" />
+                      )}
                       <span className="text-sm font-bold text-foreground mt-1 truncate max-w-full">{receipt.vendor}</span>
                       {receipt.amount > 0 && (
                         <span className="text-lg font-bold font-mono text-primary mt-0.5">{formatCurrency(receipt.amount)}</span>
@@ -1161,7 +1199,7 @@ export function ReceiptsPageContent({
               <tbody>
                 {filtered.map((receipt) => {
                   const sCfg = statusConfig[receipt.status];
-                  const pCfg = paymentMethodConfig[receipt.paymentMethod] ?? defaultPaymentConfig;
+                  const pCfg = (receipt.paymentMethod && paymentMethodConfig[receipt.paymentMethod]) || defaultPaymentConfig;
                   const SIcon = sCfg.icon;
                   const PIcon = pCfg.icon;
 
@@ -1629,7 +1667,7 @@ export function ReceiptsPageContent({
                   <div>
                     <span className="text-xs text-muted-foreground">{payLabel}</span>
                     <p className="text-sm text-foreground">
-                      {(paymentMethodConfig[selectedData.paymentMethod] ?? defaultPaymentConfig).label}
+                      {((selectedData.paymentMethod && paymentMethodConfig[selectedData.paymentMethod]) || defaultPaymentConfig).label}
                     </p>
                   </div>
                   {selectedData.category && (

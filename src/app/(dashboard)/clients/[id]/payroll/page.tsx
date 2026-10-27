@@ -32,6 +32,7 @@ import { paydayOf } from "@/lib/payday";
 import { getClient } from "@/actions/clients";
 import { MonthInput } from "@/components/ui/month-input";
 import { handleBarKeyNav } from "@/lib/key-nav";
+import { PayrollImport } from "./payroll-import";
 
 function currentMonth(): string {
   const d = new Date();
@@ -311,6 +312,15 @@ export default function PayrollPage({
           {error}
         </div>
       )}
+
+      {/* 給与台帳・給与明細の取り込み。登録したら、その月を表示する */}
+      <PayrollImport
+        clientId={id}
+        onImported={(m) => {
+          if (m === month) fetchData();
+          else setMonth(m);
+        }}
+      />
 
       {/* 集計カード */}
       <div className="grid gap-4 sm:grid-cols-3">

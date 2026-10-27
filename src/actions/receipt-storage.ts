@@ -251,3 +251,48 @@ export async function deleteReceiptImage(imagePath: string): Promise<void> {
     console.error(`画像削除エラー: ${error.message}`);
   }
 }
+
+/**
+ * 証憑管理のカードに出す画像の署名付きURL（1時間有効）をまとめて取得する。
+ * 画像（JPG・PNG）だけ。PDF・Raqto連携の証憑は対象外（カードには種類だけを出す）。
+ * 所有権チェック: RLS バウンドのクライアントで、この顧問先の証憑として見えるものだけ
+ */
+export async function getReceiptThumbnailUrls(
+  clientId: string,
+  receiptIds: string[]
+): Promise<Record<string, string>> {
+  const ids = [...new Set(receiptIds)].slice(0, 100);
+  if (ids.length === 0) return {};
+  await assertClientAccess(clientId);
+  const supabase = await createServerSupabaseClient();
+  const { data, error } = await supabase
+    .from("receipts")
+    .select("id, image_path, mime_type")
+    .eq("client_id", clientId)
+    .in("id", ids);
+  if (error) throw new Error(error.message);
+
+  const targets = (data ?? []).filter(
+    (r) => r.image_path?.startsWith(`${clientId}/`) && (r.mime_type ?? "").startsWith("image/")
+  );
+  if (targets.length === 0) return {};
+
+  const adminSupabase = createAdminSupabaseClient();
+  const { data: signed, error: signErr } = await adminSupabase.storage
+    .from(BUCKET_NAME)
+    .createSignedUrls(
+      targets.map((t) => t.image_path),
+      3600
+    );
+  if (signErr) {
+    console.error(`サムネイルURL取得エラー: ${signErr.message}`);
+    return {};
+  }
+  const urlByPath = new Map((signed ?? []).filter((s) => s.signedUrl).map((s) => [s.path, s.signedUrl]));
+  const out: Record<string, string> = {};
+  for (const t of targets) {
+    const url = urlByPath.get(t.image_path);
+    if (url) out[t.id] = url;
+  }
+  return out;
+}

@@ -193,7 +193,7 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
         onDrop={handleDrop}
         onClick={() => !uploading && inputRef.current?.click()}
         className={cn(
-          "flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed px-6 py-8 text-center transition-colors cursor-pointer",
+          "flex flex-wrap items-center justify-center gap-x-3 gap-y-1 rounded-xl border-2 border-dashed px-4 py-3 text-center transition-colors cursor-pointer",
           dragOver
             ? "border-primary bg-primary/5"
             : "border-border bg-card hover:border-primary/40"
@@ -211,18 +211,21 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
           }}
         />
         {uploading ? (
-          <Loader2 className="size-8 text-primary animate-spin" />
+          <Loader2 className="size-6 shrink-0 text-primary animate-spin" />
         ) : (
-          <UploadCloud className={cn("size-8", dragOver ? "text-primary" : "text-muted-foreground")} />
+          <UploadCloud className={cn("size-6 shrink-0", dragOver ? "text-primary" : "text-muted-foreground")} />
         )}
-        <div className="text-sm font-bold text-foreground">
-          証憑をドラッグ&ドロップ、またはクリックして選択
+        {/* 高さを抑えるため、見出しと説明を横に並べる（狭い画面では折り返す） */}
+        <div className="text-left">
+          <div className="text-sm font-bold text-foreground">
+            証憑をドラッグ&ドロップ、またはクリックして選択
+          </div>
+          <p className="text-xs text-muted-foreground">
+            領収書・請求書・受領書・発注書などをAIが自動判別して各タブに振り分けます（JPG / PNG / PDF、10MBまで・複数可）
+          </p>
         </div>
-        <p className="text-xs text-muted-foreground">
-          領収書・請求書・受領書・発注書などをAIが自動判別して各タブに振り分けます（JPG / PNG / PDF、10MBまで・複数可）
-        </p>
         {activeItems.length > 0 && (
-          <div className="text-xs text-muted-foreground">
+          <div className="w-full text-xs text-muted-foreground">
             アップロード中... 残り{activeItems.length}件
           </div>
         )}

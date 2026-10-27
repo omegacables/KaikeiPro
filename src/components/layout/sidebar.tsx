@@ -123,7 +123,7 @@ function isNavActive(pathname: string, href: string): boolean {
 
 /**
  * 業務メニュー（アコーディオン）。
- * 現在ページを含むグループは自動で開き、開閉状態はユーザーごとに保存する。
+ * 開くのは1つのグループだけ。現在ページを含むグループを開き、開閉状態はユーザーごとに保存する。
  */
 function ClientNavAccordion({
   basePath,
@@ -143,26 +143,25 @@ function ClientNavAccordion({
     g.items.some((item) => isNavActive(pathname, `${basePath}${item.href}`))
   )?.key;
 
+  // 開いておくメニューのまとまりは1つだけ（別のを開くと前のは閉じる）
   const [openGroups, setOpenGroups] = useState<Set<string>>(() => {
+    if (activeGroupKey) return new Set([activeGroupKey]);
     const saved = typeof window !== "undefined" ? scopedGetItem(userId, "sidebar_open_groups") : null;
-    const initial = new Set<string>(saved ? (JSON.parse(saved) as string[]) : ["daily"]);
-    if (activeGroupKey) initial.add(activeGroupKey);
-    return initial;
+    const first = saved ? (JSON.parse(saved) as string[])[0] : "daily";
+    return new Set(first ? [first] : []);
   });
 
-  // ページ遷移で別グループに移動したら、そのグループを自動で開く
+  // ページ遷移で別グループに移動したら、そのグループだけを開く
   useEffect(() => {
     if (activeGroupKey && !openGroups.has(activeGroupKey)) {
-      setOpenGroups((prev) => new Set(prev).add(activeGroupKey));
+      setOpenGroups(new Set([activeGroupKey]));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeGroupKey]);
 
   const toggleGroup = (key: string) => {
     setOpenGroups((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
+      const next = prev.has(key) ? new Set<string>() : new Set([key]);
       scopedSetItem(userId, "sidebar_open_groups", JSON.stringify([...next]));
       return next;
     });
