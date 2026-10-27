@@ -6,6 +6,7 @@ import {
   getJournalFromApi,
   listAccountsFromApi,
   registerReceiptFromApi,
+  parseReceiptFields,
   RATE_LIMIT_PER_MINUTE,
   type ApiContext,
   type ApiKeyRecord,
@@ -110,7 +111,16 @@ function memoryStore() {
       async findByHash(clientId, fileHash) {
         const r = receipts.find((x) => x.client_id === clientId && x.file_hash === fileHash);
         return r
-          ? { id: r.id, image_path: r.image_path, mime_type: r.mime_type ?? null, original_filename: r.original_filename ?? null, uploaded_at: "2026-10-27T00:00:00Z" }
+          ? {
+              id: r.id,
+              image_path: r.image_path,
+              mime_type: r.mime_type ?? null,
+              original_filename: r.original_filename ?? null,
+              uploaded_at: "2026-10-27T00:00:00Z",
+              ocr_result: r.ocr_result ?? null,
+              document_type: r.document_type ?? null,
+              status: r.status ?? "uploaded",
+            }
           : null;
       },
       async upload(path, bytes) {
@@ -119,6 +129,10 @@ function memoryStore() {
       async insert(row) {
         receipts.push(row as StoredReceipt);
         return { id: row.id! };
+      },
+      async update(clientId, id, patch) {
+        const r = receipts.find((x) => x.client_id === clientId && x.id === id);
+        if (r) Object.assign(r, patch);
       },
       async removeUpload(path) {
         uploads.delete(path);
@@ -547,5 +561,119 @@ describe("標準科目だけの会社への仕訳", () => {
     });
     // 売掛金は A社に無いので標準科目、売上高は A社の科目
     expect(m.journals[0].lines.map((l) => l.account_id)).toEqual(["s-ar", "a-sales"]);
+  });
+});
+
+describe("証憑の項目（取引先・日付・金額など）", () => {
+  let m: ReturnType<typeof memoryStore>;
+  let ctxA: ApiContext;
+  const png = (bytes: number[]) => ({ bytes: new Uint8Array(bytes), type: "image/png", size: bytes.length, name: "r.png" });
+  const base = { paymentMethod: "card", direction: null, originalFilename: null };
+  beforeEach(async () => {
+    m = memoryStore();
+    ctxA = await authenticate(m.store, bearer(m.issueKey(COMPANY_A, USER_A)), "receipts:write");
+  });
+
+  it("項目があれば、画面の読み取りと同じ形で ocr_result と document_type に入れ、読み取り済みにする", async () => {
+    const r = await registerReceiptFromApi(m.store, ctxA, {
+      ...base,
+      file: png([1, 2, 3]),
+      fields: {
+        vendor_name: " NTT東日本 ",
+        date: "2026-06-10",
+        amount_total: "5500",
+        document_type: "qualified_invoice",
+        invoice_number: "T1234-5678-90123",
+        document_number: "INV-001",
+        memo: "6月分",
+      },
+    });
+    expect(r.status).toBe(201);
+    expect((r.body as { ocr_saved: boolean }).ocr_saved).toBe(true);
+    const rec = m.receipts[0];
+    expect(rec.status).toBe("ocr_done");
+    expect(rec.document_type).toBe("qualified_invoice");
+    expect(rec.ocr_result).toEqual({
+      source: "api",
+      confidence: 1,
+      items: [],
+      payment_method: "card",
+      vendor_name: "NTT東日本",
+      date: "2026-06-10",
+      amount_total: 5500,
+      document_type: "qualified_invoice",
+      invoice_number: "T1234567890123",
+      document_number: "INV-001",
+      currency: "JPY",
+      memo: "6月分",
+    });
+  });
+
+  it("外貨は原通貨の金額と、円換算額・為替レートも持つ", () => {
+    const { ocr, errors } = parseReceiptFields({ amount_total: "1500", currency: "usd", original_amount: "10.00" }, null);
+    expect(errors).toEqual([]);
+    expect(ocr).toMatchObject({ currency: "USD", original_amount: 10, amount_total: 1500, amount_jpy: 1500, exchange_rate: 150 });
+  });
+
+  it("項目が無ければ今までどおり（ocr_result は空・読み取り待ち）", async () => {
+    await registerReceiptFromApi(m.store, ctxA, { ...base, file: png([4, 5]), fields: { vendor_name: " ", memo: null } });
+    expect(m.receipts[0].ocr_result).toBeUndefined();
+    expect(m.receipts[0].status).toBe("uploaded");
+    expect(parseReceiptFields(undefined, "card")).toEqual({ ocr: null, errors: [] });
+  });
+
+  it("形の誤りは 400 で返し、証憑を作らない", async () => {
+    const e = await expectApiError(
+      registerReceiptFromApi(m.store, ctxA, {
+        ...base,
+        file: png([6]),
+        fields: {
+          date: "2026/06/10",
+          amount_total: "5,500",
+          document_type: "invoice",
+          invoice_number: "INV-001",
+          currency: "円",
+        },
+      }),
+      400,
+      "validation_failed"
+    );
+    const all = e.details!.join("\n");
+    expect(all).toContain("date");
+    expect(all).toContain("amount_total");
+    expect(all).toContain("document_type");
+    expect(all).toContain("invoice_number");
+    expect(all).toContain("currency");
+    expect(m.receipts).toHaveLength(0);
+    // 適格請求書なのに登録番号が無い・円なのに原通貨の金額
+    const { errors } = parseReceiptFields({ document_type: "qualified_invoice", original_amount: "10" }, null);
+    expect(errors.join("\n")).toContain("qualified_invoice");
+    expect(errors.join("\n")).toContain("original_amount");
+  });
+
+  it("登録済みのファイルで読み取り結果が空なら、送られた値で埋める", async () => {
+    const file = png([8, 8, 8]);
+    await registerReceiptFromApi(m.store, ctxA, { ...base, file });
+    m.receipts[0].status = "journalized";
+    const r = await registerReceiptFromApi(m.store, ctxA, {
+      ...base,
+      file,
+      fields: { vendor_name: "さくらインターネット", date: "2026-07-01", amount_total: "1100", document_type: "receipt" },
+    });
+    expect(r.status).toBe(200);
+    expect(r.body).toMatchObject({ duplicate: true, ocr_saved: true });
+    expect(m.receipts).toHaveLength(1);
+    expect(m.receipts[0].ocr_result).toMatchObject({ vendor_name: "さくらインターネット", amount_total: 1100 });
+    expect(m.receipts[0].document_type).toBe("receipt");
+    // 仕訳済みの状態は変えない
+    expect(m.receipts[0].status).toBe("journalized");
+  });
+
+  it("登録済みのファイルで読み取り結果に中身があれば上書きしない", async () => {
+    const file = png([9, 9]);
+    await registerReceiptFromApi(m.store, ctxA, { ...base, file, fields: { vendor_name: "元の取引先", amount_total: "100" } });
+    const r = await registerReceiptFromApi(m.store, ctxA, { ...base, file, fields: { vendor_name: "別の取引先", amount_total: "999" } });
+    expect(r.body).toMatchObject({ duplicate: true, ocr_saved: false });
+    expect(m.receipts[0].ocr_result).toMatchObject({ vendor_name: "元の取引先", amount_total: 100 });
   });
 });

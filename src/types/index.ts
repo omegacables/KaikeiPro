@@ -185,6 +185,10 @@ export interface OcrResult {
   possible_duplicate?: boolean;
   // 明細書(statement)の種別: 銀行明細 / クレカ明細 / その他。相手勘定（普通預金 or 未払金）の自動推定に使用。
   statement_subtype?: "bank" | "card" | "other";
+  // 読み取り結果の出どころ（外部連携の受け口から送られた値なら "api"）
+  source?: string;
+  // 送り手のメモ（外部連携の受け口）
+  memo?: string;
 }
 
 // ===== 明細書の行データ =====

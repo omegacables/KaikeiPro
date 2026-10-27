@@ -20,6 +20,7 @@ import {
   type ReceiptUploadIO,
 } from "@/lib/receipt-upload";
 import { hashApiKey, parseBearer, type ApiScope } from "./keys";
+import { DOCUMENT_TYPES, type OcrResult, type ReceiptDocumentType } from "@/types";
 
 /** キーごとの1分あたりの呼び出し回数の上限 */
 export const RATE_LIMIT_PER_MINUTE = 60;
@@ -384,7 +385,101 @@ export type ReceiptApiInput = {
   paymentMethod: string | null;
   direction: string | null;
   originalFilename: string | null;
+  /** 送り手が読み取り済みの値（どれも任意）。証憑管理の表示・検索（日付・金額・取引先）に使う */
+  fields?: ReceiptFieldsInput;
 };
+
+export const RECEIPT_FIELD_NAMES = [
+  "vendor_name",
+  "date",
+  "amount_total",
+  "document_type",
+  "document_number",
+  "invoice_number",
+  "currency",
+  "original_amount",
+  "memo",
+] as const;
+export type ReceiptFieldsInput = Partial<Record<(typeof RECEIPT_FIELD_NAMES)[number], string | null>>;
+
+/**
+ * 送られた証憑の項目を、画面の読み取り（OCR）と同じ形の ocr_result にする。
+ * どれも無ければ null。形が違うものは誤りとして返す（推測で直さない）。
+ */
+export function parseReceiptFields(
+  fields: ReceiptFieldsInput | undefined,
+  paymentMethod: OcrResult["payment_method"]
+): { ocr: OcrResult | null; errors: string[] } {
+  const v = (k: (typeof RECEIPT_FIELD_NAMES)[number]) => fields?.[k]?.trim() || "";
+  if (RECEIPT_FIELD_NAMES.every((k) => !v(k))) return { ocr: null, errors: [] };
+
+  const errors: string[] = [];
+  const ocr: OcrResult = { source: "api", confidence: 1, items: [] };
+  if (paymentMethod) ocr.payment_method = paymentMethod;
+
+  const text = (k: "vendor_name" | "document_number" | "memo", max: number) => {
+    const s = v(k);
+    if (!s) return undefined;
+    if (s.length > max) {
+      errors.push(`${k} は${max}文字までです`);
+      return undefined;
+    }
+    return s;
+  };
+  ocr.vendor_name = text("vendor_name", 200);
+  ocr.document_number = text("document_number", 100);
+  ocr.memo = text("memo", 1000);
+
+  if (v("date")) {
+    if (isRealDate(v("date"))) ocr.date = v("date");
+    else errors.push(`date が正しい日付（YYYY-MM-DD）ではありません: "${v("date")}"`);
+  }
+
+  if (v("amount_total")) {
+    if (/^\d{1,13}$/.test(v("amount_total"))) ocr.amount_total = Number(v("amount_total"));
+    else errors.push(`amount_total は円の0以上の整数で送ってください（カンマなし）: "${v("amount_total")}"`);
+  }
+
+  if (v("invoice_number")) {
+    // 適格請求書発行事業者の登録番号（T+13桁）だけ。一般の請求書番号は document_number へ
+    const normalized = v("invoice_number").replace(/[\s-]/g, "").toUpperCase();
+    if (/^T\d{13}$/.test(normalized)) ocr.invoice_number = normalized;
+    else errors.push(`invoice_number は登録番号（T+13桁）だけです。請求書番号は document_number に入れてください: "${v("invoice_number")}"`);
+  }
+
+  if (v("document_type")) {
+    const dt = v("document_type");
+    if (!(DOCUMENT_TYPES as readonly string[]).includes(dt)) {
+      errors.push(`document_type は ${DOCUMENT_TYPES.join("・")} のどれかです: "${dt}"`);
+    } else if (dt === "qualified_invoice" && !ocr.invoice_number) {
+      // 適格請求書は登録番号が必須（画面の読み取りと同じ決まり）
+      errors.push("document_type が qualified_invoice（適格請求書）なら invoice_number（T+13桁）が要ります。無ければ category_invoice にしてください");
+    } else ocr.document_type = dt as ReceiptDocumentType;
+  }
+
+  const currency = v("currency").toUpperCase() || "JPY";
+  if (!/^[A-Z]{3}$/.test(currency)) errors.push(`currency は通貨コード3文字（JPY・USD など）です: "${v("currency")}"`);
+  else ocr.currency = currency;
+
+  if (v("original_amount")) {
+    const n = Number(v("original_amount"));
+    if (currency === "JPY") errors.push("original_amount は外貨（currency が JPY 以外）のときだけ送ってください");
+    else if (!/^\d+(\.\d+)?$/.test(v("original_amount")) || !Number.isFinite(n)) {
+      errors.push(`original_amount は0以上の数で送ってください: "${v("original_amount")}"`);
+    } else {
+      ocr.original_amount = n;
+      // 画面の読み取りと同じく、外貨は円換算額（amount_jpy）と為替レートも持つ
+      if (ocr.amount_total != null) {
+        ocr.amount_jpy = ocr.amount_total;
+        if (n > 0) ocr.exchange_rate = Math.round((ocr.amount_total / n) * 10000) / 10000;
+      }
+    }
+  }
+
+  // 値の無い欄は持たない（画面の読み取り結果と同じ形にする）
+  for (const k of Object.keys(ocr) as (keyof OcrResult)[]) if (ocr[k] === undefined) delete ocr[k];
+  return { ocr: errors.length ? null : ocr, errors };
+}
 
 /** POST /api/v1/receipts（multipart）。同じファイルが登録済みならその id を返す */
 export async function registerReceiptFromApi(
@@ -403,6 +498,8 @@ export async function registerReceiptFromApi(
     throw new ApiError(400, "invalid_direction", "direction は received（受け取った）か issued（発行した）です");
   }
   const name = (input.originalFilename?.trim() || input.file.name || "receipt").slice(0, 255);
+  const { ocr, errors } = parseReceiptFields(input.fields, paymentMethod);
+  if (errors.length) throw new ApiError(400, "validation_failed", "証憑の項目に誤りがあります", errors);
 
   try {
     const saved = await storeReceiptFile(store.receiptIO, {
@@ -412,10 +509,11 @@ export async function registerReceiptFromApi(
       paymentMethod,
       direction: dir,
       onDuplicate: "return",
+      ocr,
     });
     return {
       status: saved.duplicate ? 200 : 201,
-      body: { receipt_id: saved.id, duplicate: saved.duplicate, mime_type: saved.mime_type },
+      body: { receipt_id: saved.id, duplicate: saved.duplicate, mime_type: saved.mime_type, ocr_saved: saved.ocrSaved },
     };
   } catch (e) {
     if (e instanceof ReceiptInputError) {

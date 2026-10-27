@@ -11,7 +11,8 @@
 
 import { createHash } from "crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
-import type { Database } from "@/types/database";
+import type { Database, Json } from "@/types/database";
+import type { OcrResult } from "@/types";
 
 export const RECEIPT_BUCKET = "receipts";
 export const RECEIPT_MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
@@ -51,14 +52,29 @@ export class ReceiptInputError extends Error {
 
 export type ReceiptRow = Database["public"]["Tables"]["receipts"]["Row"];
 export type ReceiptInsert = Database["public"]["Tables"]["receipts"]["Insert"];
+export type ReceiptUpdate = Database["public"]["Tables"]["receipts"]["Update"];
+
+/**
+ * 読み取り結果が空か（取引先・日付・金額・書類種別のどれも無い）。
+ * 空なら、外部連携で送られた値で埋めてよい
+ */
+export function isEmptyOcrResult(v: unknown): boolean {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return true;
+  const o = v as Record<string, unknown>;
+  return ["vendor_name", "date", "amount_total", "document_type"].every((k) => o[k] == null || o[k] === "");
+}
 
 export type ReceiptUploadIO = {
   findByHash(
     clientId: string,
     fileHash: string
-  ): Promise<Pick<ReceiptRow, "id" | "image_path" | "mime_type" | "original_filename" | "uploaded_at"> | null>;
+  ): Promise<Pick<
+    ReceiptRow,
+    "id" | "image_path" | "mime_type" | "original_filename" | "uploaded_at" | "ocr_result" | "document_type" | "status"
+  > | null>;
   upload(path: string, bytes: Uint8Array, contentType: string): Promise<void>;
   insert(row: ReceiptInsert): Promise<{ id: string }>;
+  update(clientId: string, id: string, patch: ReceiptUpdate): Promise<void>;
   removeUpload(path: string): Promise<void>;
 };
 
@@ -70,6 +86,11 @@ export type StoreReceiptInput = {
   direction: "issued" | "received";
   /** 同じファイルが登録済みのとき: throw=止めて知らせる（画面） / return=登録済みの id を返す（受け口） */
   onDuplicate: "throw" | "return";
+  /**
+   * 送り手が読み取り済みの値（外部連携の受け口）。あれば ocr_result・document_type に入れ、読み取り済みにする。
+   * 登録済みのファイルなら、読み取り結果が空のときだけ埋める（中身がある場合は上書きしない）
+   */
+  ocr?: OcrResult | null;
 };
 
 export type StoreReceiptResult = {
@@ -77,6 +98,8 @@ export type StoreReceiptResult = {
   image_path: string;
   mime_type: string;
   duplicate: boolean;
+  /** 送られた読み取り結果を保存したか（登録済みで中身があったときは false） */
+  ocrSaved: boolean;
 };
 
 export async function storeReceiptFile(io: ReceiptUploadIO, input: StoreReceiptInput): Promise<StoreReceiptResult> {
@@ -93,7 +116,16 @@ export async function storeReceiptFile(io: ReceiptUploadIO, input: StoreReceiptI
   const dup = await io.findByHash(clientId, fileHash);
   if (dup) {
     if (input.onDuplicate === "return") {
-      return { id: dup.id, image_path: dup.image_path, mime_type: dup.mime_type ?? file.type, duplicate: true };
+      let ocrSaved = false;
+      if (input.ocr && isEmptyOcrResult(dup.ocr_result)) {
+        await io.update(clientId, dup.id, {
+          ocr_result: input.ocr as unknown as Json,
+          ...(dup.document_type ? {} : { document_type: input.ocr.document_type ?? null }),
+          ...(dup.status === "uploaded" || dup.status === "processing" ? { status: "ocr_done" as const } : {}),
+        });
+        ocrSaved = true;
+      }
+      return { id: dup.id, image_path: dup.image_path, mime_type: dup.mime_type ?? file.type, duplicate: true, ocrSaved };
     }
     const when = dup.uploaded_at ? dup.uploaded_at.slice(0, 10) : "";
     throw new Error(
@@ -114,7 +146,11 @@ export async function storeReceiptFile(io: ReceiptUploadIO, input: StoreReceiptI
       uploaded_by: input.userId,
       image_path: storagePath,
       payment_method: input.paymentMethod,
-      status: "uploaded",
+      // 読み取り済みの値が一緒に来たら、そのまま読み取り済みにする（AIの読み取りを待たない）
+      status: input.ocr ? "ocr_done" : "uploaded",
+      ...(input.ocr
+        ? { ocr_result: input.ocr as unknown as Json, document_type: input.ocr.document_type ?? null }
+        : {}),
       direction: input.direction,
       original_filename: file.name,
       file_size: file.size,
@@ -122,7 +158,7 @@ export async function storeReceiptFile(io: ReceiptUploadIO, input: StoreReceiptI
       file_hash: fileHash,
       hash_algorithm: "SHA-256",
     });
-    return { id: row.id, image_path: storagePath, mime_type: file.type, duplicate: false };
+    return { id: row.id, image_path: storagePath, mime_type: file.type, duplicate: false, ocrSaved: Boolean(input.ocr) };
   } catch (e) {
     // ロールバック: アップロード済みファイルを削除
     await io.removeUpload(storagePath);
@@ -164,7 +200,7 @@ export function supabaseReceiptIO(db: Db, admin: Db): ReceiptUploadIO {
     async findByHash(clientId, fileHash) {
       const { data } = await db
         .from("receipts")
-        .select("id, image_path, mime_type, original_filename, uploaded_at")
+        .select("id, image_path, mime_type, original_filename, uploaded_at, ocr_result, document_type, status")
         .eq("client_id", clientId)
         .eq("file_hash", fileHash)
         .limit(1)
@@ -180,6 +216,10 @@ export function supabaseReceiptIO(db: Db, admin: Db): ReceiptUploadIO {
       const { data, error } = await db.from("receipts").insert(row).select("id").single();
       if (error || !data) throw new Error(`レコード作成エラー: ${error?.message ?? "unknown"}`);
       return data;
+    },
+    async update(clientId, id, patch) {
+      const { error } = await db.from("receipts").update(patch).eq("id", id).eq("client_id", clientId);
+      if (error) throw new Error(`レコード更新エラー: ${error.message}`);
     },
     async removeUpload(path) {
       await admin.storage.from(RECEIPT_BUCKET).remove([path]);
