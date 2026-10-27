@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange, Bot, Users, FileCheck2 } from "lucide-react";
+import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange, Bot, Users, FileCheck2, KeyRound } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaxPageContent } from "../tax/content";
 import { CompanyDocumentsPageContent } from "../company-documents/content";
@@ -11,8 +11,9 @@ import { FiscalMonthSettingsContent } from "./fiscal-month-settings";
 import { AiSettingsContent } from "./ai-settings";
 import { MembersSettingsContent } from "./members-settings";
 import { EtaxSettingsContent } from "./etax-settings";
+import { ApiKeysSettingsContent } from "./api-keys-settings";
 
-type SettingsTab = "fiscal" | "tax" | "etax" | "payroll" | "company_documents" | "members" | "ai" | "audit";
+type SettingsTab = "fiscal" | "tax" | "etax" | "payroll" | "company_documents" | "members" | "ai" | "api_keys" | "audit";
 
 const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: "fiscal", label: "決算月", icon: CalendarRange },
@@ -22,6 +23,7 @@ const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: "company_documents", label: "会社書類", icon: FolderArchive },
   { key: "members", label: "メンバー・権限", icon: Users },
   { key: "ai", label: "AIの利用", icon: Bot },
+  { key: "api_keys", label: "外部連携（APIキー）", icon: KeyRound },
   { key: "audit", label: "監査ログ", icon: Shield },
 ];
 
@@ -44,7 +46,7 @@ export default function ClientSettingsPage() {
             設定
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            決算月・消費税計算・e-Tax の提出情報・給与・会社書類（定款・議事録・台帳など）・メンバーと権限・AIの利用・監査ログをまとめて管理します。
+            決算月・消費税計算・e-Tax の提出情報・給与・会社書類（定款・議事録・台帳など）・メンバーと権限・AIの利用・外部連携（APIキー）・監査ログをまとめて管理します。
           </p>
         </div>
       </div>
@@ -78,6 +80,7 @@ export default function ClientSettingsPage() {
       {activeTab === "company_documents" && <CompanyDocumentsPageContent hideHeader />}
       {activeTab === "members" && <MembersSettingsContent />}
       {activeTab === "ai" && <AiSettingsContent />}
+      {activeTab === "api_keys" && <ApiKeysSettingsContent />}
       {activeTab === "audit" && <AuditLogPageContent hideHeader />}
     </>
   );

@@ -27,7 +27,8 @@ const currentActorId = cache(async (): Promise<string | null> => {
 });
 
 // Admin client (for service-role operations like creating users)
-export function createAdminSupabaseClient() {
+// actorId を渡すと、ログインの代わりにその利用者を操作者として付ける（APIキーで呼ばれる外部連携の口など）
+export function createAdminSupabaseClient(opts: { actorId?: string } = {}) {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) {
@@ -40,7 +41,7 @@ export function createAdminSupabaseClient() {
       fetch: async (input, init) => {
         const target = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
         if (!target.includes("/rest/v1/")) return fetch(input, init);
-        const actor = await currentActorId();
+        const actor = opts.actorId ?? (await currentActorId());
         if (!actor) return fetch(input, init);
         const headers = new Headers(init?.headers);
         headers.set("x-actor-id", actor);

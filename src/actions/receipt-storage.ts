@@ -7,74 +7,27 @@ import {
 import { createRaqtoSupabaseClient } from "@/lib/supabase-raqto";
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 
-import { createHash } from "crypto";
-
-const BUCKET_NAME = "receipts";
-const MAX_FILE_SIZE = 10 * 1024 * 1024; // 10MB
-const ALLOWED_TYPES = ["image/jpeg", "image/png", "application/pdf"];
-
-/**
- * バイナリデータのSHA-256ハッシュを計算
- */
-function computeSHA256(data: ArrayBuffer): string {
-  const hash = createHash("sha256");
-  hash.update(Buffer.from(data));
-  return hash.digest("hex");
-}
-
-// バケット作成済みフラグ（プロセス内キャッシュ）
-let bucketEnsured = false;
-
-/**
- * Storageバケットが存在しなければ自動作成（初回のみ実行）
- */
-async function ensureBucket() {
-  if (bucketEnsured) return;
-
-  const adminSupabase = createAdminSupabaseClient();
-
-  // バケット存在確認
-  const { data: buckets } = await adminSupabase.storage.listBuckets();
-  const exists = buckets?.some((b) => b.name === BUCKET_NAME);
-
-  if (!exists) {
-    const { error } = await adminSupabase.storage.createBucket(BUCKET_NAME, {
-      public: false,
-      fileSizeLimit: MAX_FILE_SIZE,
-      allowedMimeTypes: ALLOWED_TYPES,
-    });
-    if (error && !error.message.includes("already exists")) {
-      throw new Error(`バケット作成エラー: ${error.message}`);
-    }
-    console.log(`Storage bucket "${BUCKET_NAME}" を自動作成しました`);
-  }
-
-  bucketEnsured = true;
-}
+import {
+  RECEIPT_BUCKET as BUCKET_NAME,
+  computeSHA256,
+  normalizePaymentMethod,
+  storeReceiptFile,
+  supabaseReceiptIO,
+} from "@/lib/receipt-upload";
 
 /**
  * レシート画像をアップロードしてrecordsレコードを作成
+ * （保存の処理は外部連携の受け口と共用: src/lib/receipt-upload.ts）
  */
 export async function uploadReceipt(formData: FormData) {
   const file = formData.get("file") as File;
   const clientId = formData.get("client_id") as string;
   const paymentMethod = formData.get("payment_method") as string | null;
-  const memo = (formData.get("memo") as string | null)?.trim() || null;
   const directionRaw = (formData.get("direction") as string | null) || "received";
   const direction: "issued" | "received" = directionRaw === "issued" ? "issued" : "received";
 
-  // バケット自動作成（初回のみ）
-  await ensureBucket();
-
-  // バリデーション
   if (!file || file.size === 0) {
     throw new Error("ファイルが選択されていません");
-  }
-  if (file.size > MAX_FILE_SIZE) {
-    throw new Error("ファイルサイズが10MBを超えています");
-  }
-  if (!ALLOWED_TYPES.includes(file.type)) {
-    throw new Error("対応ファイル形式: JPG, PNG, PDF");
   }
   if (!clientId) {
     throw new Error("クライアントIDが指定されていません");
@@ -90,80 +43,18 @@ export async function uploadReceipt(formData: FormData) {
   if (!user) throw new Error("認証が必要です");
   await assertClientAccess(clientId);
 
-  // 拡張子は MIME から導出（ファイル名由来のパストラバーサルを防止）。
-  // ALLOWED_TYPES で file.type は3種に制限済み。
-  const extByMime: Record<string, string> = {
-    "image/jpeg": "jpg",
-    "image/png": "png",
-    "application/pdf": "pdf",
-  };
-  const ext = extByMime[file.type] ?? "bin";
-  const receiptId = crypto.randomUUID();
-  const storagePath = `${clientId}/${receiptId}.${ext}`;
+  // 照合と行の作成は RLS バウンドのクライアントで（所有権を二重に担保）、ストレージは管理用で
+  const io = supabaseReceiptIO(supabase, createAdminSupabaseClient());
+  const saved = await storeReceiptFile(io, {
+    clientId,
+    userId: user.id,
+    file: { bytes: new Uint8Array(await file.arrayBuffer()), type: file.type, size: file.size, name: file.name },
+    paymentMethod: normalizePaymentMethod(paymentMethod),
+    direction,
+    onDuplicate: "throw",
+  });
 
-  // adminクライアントでStorage操作（RLS回避）
-  const adminSupabase = createAdminSupabaseClient();
-
-  const arrayBuffer = await file.arrayBuffer();
-
-  // SHA-256ハッシュを計算（電子帳簿保存法: 真実性の確保）
-  const fileHash = computeSHA256(arrayBuffer);
-
-  // 重複ガード: 同じ顧問先に同一内容のファイルが登録済みならブロックする。
-  // 証憑管理・仕訳入力・ポータルのどの経路から上げても同じ証憑・仕訳が
-  // 二重に作られるのを防ぐ（RLSバウンドで自クライアント分のみ照合）。
-  const { data: dup } = await supabase
-    .from("receipts")
-    .select("id, original_filename, uploaded_at")
-    .eq("client_id", clientId)
-    .eq("file_hash", fileHash)
-    .limit(1)
-    .maybeSingle();
-  if (dup) {
-    const when = dup.uploaded_at ? dup.uploaded_at.slice(0, 10) : "";
-    throw new Error(
-      `同じファイルが既に登録されています（${dup.original_filename ?? "登録済み証憑"}${when ? ` / ${when}` : ""}）`
-    );
-  }
-
-  const { error: uploadError } = await adminSupabase.storage
-    .from(BUCKET_NAME)
-    .upload(storagePath, new Uint8Array(arrayBuffer), {
-      contentType: file.type,
-      upsert: false,
-    });
-
-  if (uploadError) {
-    throw new Error(`アップロードエラー: ${uploadError.message}`);
-  }
-
-  // receiptsレコード作成（RLS バウンドのクライアントで作成 → 所有権を二重に担保）
-  const { data, error } = await supabase
-    .from("receipts")
-    .insert({
-      id: receiptId,
-      client_id: clientId,
-      uploaded_by: user.id,
-      image_path: storagePath,
-      payment_method: (paymentMethod || null) as "cash" | "card" | "e_money" | "bank_transfer" | null,
-      status: "uploaded",
-      direction,
-      original_filename: file.name,
-      file_size: file.size,
-      mime_type: file.type,
-      file_hash: fileHash,
-      hash_algorithm: "SHA-256",
-    })
-    .select()
-    .single();
-
-  if (error) {
-    // ロールバック: アップロード済みファイルを削除
-    await adminSupabase.storage.from(BUCKET_NAME).remove([storagePath]);
-    throw new Error(`レコード作成エラー: ${error.message}`);
-  }
-
-  return { id: data.id, image_path: storagePath, mime_type: file.type };
+  return { id: saved.id, image_path: saved.image_path, mime_type: saved.mime_type };
 }
 
 /**
