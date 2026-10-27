@@ -31,6 +31,7 @@ import {
   Check,
   Ban,
   AlertTriangle,
+  CalendarRange,
 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { AmountInput } from "@/components/ui/amount-input";
@@ -60,6 +61,7 @@ import Link from "next/link";
 import { getJournalEntriesForReceipt, type ReceiptJournalRef } from "@/actions/ledgers";
 import { DateInput } from "@/components/ui/date-input";
 import { MonthInput } from "@/components/ui/month-input";
+import { hiddenMonthsOutside, monthLabel, monthRange } from "@/lib/receipt-period";
 import { handleBarKeyNav } from "@/lib/key-nav";
 
 // ---------------------------------------------------------------------------
@@ -645,7 +647,8 @@ export function ReceiptsPageContent({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [filtersRestored, receiptsLoading]);
 
-  const filtered = classifiedReceipts.filter((r) => {
+  // 期間以外の絞り込み（区分・書類種別・登録番号・検索）。期間で隠れている件数を数えるためにも使う
+  const matchesExceptPeriod = (r: ReceiptData) => {
     if (effectiveDirection !== "all" && r.direction !== effectiveDirection) return false;
     // 書類種別フィルター
     if (documentTypeFilter !== "all") {
@@ -657,9 +660,6 @@ export function ReceiptsPageContent({
       if (invoiceFilter === "registered" && ic !== "valid") return false;
       if (invoiceFilter === "unregistered" && ic === "valid") return false;
     }
-    // 日付範囲フィルター
-    if (dateFrom && r.date < dateFrom) return false;
-    if (dateTo && r.date > dateTo) return false;
     // テキスト検索（取引先、会社名、支払い方法、金額、メモ等）
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -678,7 +678,31 @@ export function ReceiptsPageContent({
         return false;
     }
     return true;
-  });
+  };
+  const inPeriod = (r: ReceiptData) => (!dateFrom || r.date >= dateFrom) && (!dateTo || r.date <= dateTo);
+  const filtered = classifiedReceipts.filter((r) => matchesExceptPeriod(r) && inPeriod(r));
+  // 期間の絞り込みで見えていない証憑（ほかの月にあるもの）。「無い」と見えないよう、件数と移る先を出す
+  const hiddenMonths = hiddenMonthsOutside(
+    classifiedReceipts.filter(matchesExceptPeriod).map((r) => r.date),
+    dateFrom,
+    dateTo
+  );
+  const hiddenCount = hiddenMonths.reduce((n, m) => n + m.count, 0);
+  const showMonth = (ym: string) => {
+    const { from, to } = monthRange(ym);
+    setPeriodMode("month");
+    setFiscalYear("");
+    setDateFrom(from);
+    setDateTo(to);
+    setAutoMonthNote(null);
+  };
+  const showAllPeriods = () => {
+    setPeriodMode("none");
+    setFiscalYear("");
+    setDateFrom("");
+    setDateTo("");
+    setAutoMonthNote(null);
+  };
 
   return (
     <>
@@ -859,6 +883,29 @@ export function ReceiptsPageContent({
 
       {autoMonthNote && !processingOnly && (
         <p className="mb-3 text-xs text-muted-foreground">{autoMonthNote}</p>
+      )}
+
+      {/* 期間の絞り込みで見えていない証憑がある */}
+      {!processingOnly && !receiptsLoading && hiddenCount > 0 && (
+        <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-xs text-info">
+          <CalendarRange className="size-4 shrink-0" />
+          <span className="font-bold">
+            {periodMode === "year" ? "この年度" : "この月"}のほかに{hiddenCount}件あります:
+          </span>
+          {hiddenMonths.slice(0, 6).map((m) => (
+            <button
+              key={m.ym}
+              onClick={() => showMonth(m.ym)}
+              className="rounded-md border border-info/40 bg-card px-2 py-0.5 font-bold text-info hover:bg-info/10 cursor-pointer"
+            >
+              {monthLabel(m.ym)}（{m.count}件）
+            </button>
+          ))}
+          {hiddenMonths.length > 6 && <span>ほか{hiddenMonths.length - 6}か月</span>}
+          <button onClick={showAllPeriods} className="underline underline-offset-2 font-bold hover:opacity-80 cursor-pointer">
+            全期間を表示
+          </button>
+        </div>
       )}
 
       {/* Bulk action bar */}
