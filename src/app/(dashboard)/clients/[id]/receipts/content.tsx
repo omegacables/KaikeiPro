@@ -130,6 +130,9 @@ interface ReceiptData {
   folderId?: string | null;
   /** アップロードした日時（読み取りが止まっているかの判断に使う） */
   uploadedAt?: string;
+  /** 1枚の写真に複数のレシートが写っていたとき: 写真の中の位置（[上, 左, 下, 右]、0〜1000）と何件目か */
+  box?: [number, number, number, number];
+  photoIndex?: number;
 }
 
 
@@ -253,6 +256,9 @@ export function ReceiptsPageContent({
             confidence?: number;
             statement_subtype?: "bank" | "card" | "other";
             possible_duplicate?: boolean;
+            box?: [number, number, number, number];
+            photo_index?: number;
+            photo_count?: number;
           } | null;
           return {
             id: r.id,
@@ -298,6 +304,8 @@ export function ReceiptsPageContent({
             ocrConfidence: typeof ocr?.confidence === "number" ? ocr.confidence : undefined,
             folderId: (r as { folder_id?: string | null }).folder_id ?? null,
             uploadedAt: r.uploaded_at,
+            box: ocr?.box,
+            photoIndex: ocr?.photo_index,
           };
         })
       ),
@@ -622,6 +630,20 @@ export function ReceiptsPageContent({
   const processingReceipts = receipts.filter(
     (r) => r.status === "uploaded" || r.status === "processing"
   );
+  // 1枚の写真から分けた証憑のまとまり（写真ごとに、何件目かの順）。2件以上のときだけ
+  const photoGroups = new Map<string, ReceiptData[]>();
+  for (const r of receipts) {
+    if (!r.imagePath) continue;
+    photoGroups.set(r.imagePath, [...(photoGroups.get(r.imagePath) ?? []), r]);
+  }
+  for (const [k, g] of photoGroups) {
+    if (g.length < 2) photoGroups.delete(k);
+    else g.sort((a, b) => (a.photoIndex ?? 999) - (b.photoIndex ?? 999) || (a.uploadedAt ?? "").localeCompare(b.uploadedAt ?? ""));
+  }
+  const photoPosition = (r: ReceiptData) => {
+    const g = r.imagePath ? photoGroups.get(r.imagePath) : undefined;
+    return g ? { index: g.findIndex((x) => x.id === r.id) + 1, count: g.length, group: g } : null;
+  };
   /** アップロードから10分たっても読み取りが終わっていない（AIの利用枠切れなどで止まっている） */
   const isStuck = (r: ReceiptData) => !!r.uploadedAt && Date.now() - new Date(r.uploadedAt).getTime() > 10 * 60 * 1000;
   // 処理中を除いた確定済みの証憑（一覧・件数集計の対象）
@@ -1101,6 +1123,14 @@ export function ReceiptsPageContent({
                     <Badge variant={receipt.direction === "issued" ? "accent" : "muted"} className="text-[10px]">
                       {receipt.direction === "issued" ? "発行" : "受領"}
                     </Badge>
+                    {(() => {
+                      const pos = photoPosition(receipt);
+                      return pos ? (
+                        <Badge variant="info" className="text-[10px]" title="1枚の写真から分けた証憑です">
+                          写真 {pos.index}/{pos.count}
+                        </Badge>
+                      ) : null;
+                    })()}
                     {showInvoiceCheck && (() => {
                       const ic = checkInvoiceNumber(receipt.invoiceNumber);
                       // 形式不正は下の「要確認」バッジに集約するため、ここでは適格／番号なしのみ表示
@@ -1355,11 +1385,23 @@ export function ReceiptsPageContent({
                         className="w-full h-96 border-0"
                       />
                     ) : (
-                      <img
-                        src={detailImageUrl}
-                        alt="領収書画像"
-                        className="w-full max-h-72 object-contain"
-                      />
+                      // 1枚の写真に複数のレシートがあるときは、いま見ているレシートを枠で示す（まわりを暗くする）
+                      <div className="relative mx-auto w-fit overflow-hidden">
+                        <img src={detailImageUrl} alt="領収書画像" className="block max-h-72 max-w-full" />
+                        {selectedData.box && photoPosition(selectedData) && (
+                          <div
+                            aria-label="このレシートの位置"
+                            className="pointer-events-none absolute rounded border-[3px] border-primary"
+                            style={{
+                              top: `${selectedData.box[0] / 10}%`,
+                              left: `${selectedData.box[1] / 10}%`,
+                              height: `${(selectedData.box[2] - selectedData.box[0]) / 10}%`,
+                              width: `${(selectedData.box[3] - selectedData.box[1]) / 10}%`,
+                              boxShadow: "0 0 0 9999px rgba(0,0,0,0.45)",
+                            }}
+                          />
+                        )}
+                      </div>
                     )
                   ) : (
                     <div className="h-32 flex items-center justify-center">
@@ -1368,6 +1410,39 @@ export function ReceiptsPageContent({
                   )}
                 </div>
               )}
+
+              {/* 同じ写真から分けた証憑 */}
+              {(() => {
+                const pos = photoPosition(selectedData);
+                if (!pos) return null;
+                return (
+                  <div className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 space-y-2">
+                    <p className="text-sm font-bold text-foreground">
+                      この写真から分けた証憑：{pos.count}件中 {pos.index}件目
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {pos.group.map((g, k) => (
+                        <button
+                          key={g.id}
+                          onClick={() => setSelectedReceipt(g.id)}
+                          className={cn(
+                            "rounded-md border px-2 py-1 text-xs transition-colors",
+                            g.id === selectedData.id ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:border-primary/50"
+                          )}
+                        >
+                          {k + 1}. {g.vendor && g.vendor !== "不明" ? g.vendor : "読み取り前"}
+                          {g.amount ? ` ${formatCurrency(g.amount)}` : ""}
+                        </button>
+                      ))}
+                    </div>
+                    {!selectedData.box && (
+                      <p className="text-[11px] text-muted-foreground">
+                        写真の中の位置は、これから読み取る写真から枠で表示します（この写真は位置を記録する前に読み取りました）。
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {/* Status badge */}
               {(() => {

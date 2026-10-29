@@ -68,6 +68,8 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
   const [uploading, setUploading] = useState(false);
   const [summary, setSummary] = useState<{ done: number; failed: number } | null>(null);
   const [ocrError, setOcrError] = useState<string | null>(null);
+  // 読み取りが終わった写真ごとの件数（1枚の写真に何枚のレシートがあったか、合っているかを確かめてもらう）
+  const [readCounts, setReadCounts] = useState<{ file: string; count: number }[]>([]);
   const inputRef = useRef<HTMLInputElement>(null);
   // 連続ドロップの同時実行防止は state ではなく ref で判定する
   //（state はクロージャに古い値が残り、再レンダー前の2回目ドロップをすり抜けるため）
@@ -78,6 +80,7 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
       if (files.length === 0 || uploadingRef.current) return;
       uploadingRef.current = true;
       setSummary(null);
+      setReadCounts([]);
       setOcrError(null);
 
       const newItems: UploadItem[] = files.map((f) => ({
@@ -136,11 +139,16 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
 
           // OCR・自動分類はバックグラウンド（await しない）。
           // 完了すると一覧の自動リフレッシュで該当タブに表示される。
-          processReceiptOcr(result.id).catch((err) => {
-            const msg = err instanceof Error ? err.message : "OCR処理に失敗しました";
-            console.error("OCR/分類エラー:", msg);
-            setOcrError(msg);
-          });
+          processReceiptOcr(result.id)
+            .then((r) => {
+              setReadCounts((prev) => [...prev, { file: file.name, count: r.photo_count ?? 1 }]);
+              onUploaded();
+            })
+            .catch((err) => {
+              const msg = err instanceof Error ? err.message : "OCR処理に失敗しました";
+              console.error("OCR/分類エラー:", msg);
+              setOcrError(msg);
+            });
 
           setItems((prev) => prev.filter((p) => p.id !== item.id));
           done++;
@@ -241,6 +249,17 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
           {summary.failed > 0 && (
             <span className="text-destructive ml-2">{summary.failed}件が失敗しました。</span>
           )}
+        </div>
+      )}
+
+      {readCounts.length > 0 && (
+        <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs text-foreground space-y-0.5">
+          {readCounts.map((r, k) => (
+            <p key={k}>
+              「{r.file}」から <b>{r.count}件</b> のレシート・書類を読み取りました。
+              {r.count > 1 && " 写っている枚数と合っているか確かめてください（各証憑の詳細で、写真のどこかを枠で示します）。"}
+            </p>
+          ))}
         </div>
       )}
 

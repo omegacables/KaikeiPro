@@ -55,6 +55,20 @@ export async function processReceiptOcr(
 
   if (fetchError || !receipt) throw new Error("領収書が見つかりません");
 
+  // 1枚の写真から分けた証憑のうち、後から作った方を読み取り直すときは、最初の証憑から読み直す
+  // （写真の中の何件目かを最初からそろえて付け直すため）
+  if (receipt.image_path) {
+    const { data: first } = await supabase
+      .from("receipts")
+      .select("id")
+      .eq("client_id", receipt.client_id)
+      .eq("image_path", receipt.image_path)
+      .lt("uploaded_at", receipt.uploaded_at)
+      .order("uploaded_at", { ascending: true })
+      .limit(1);
+    if (first && first.length > 0) return processReceiptOcr(first[0].id as string, memo);
+  }
+
   // 自社名（発行/受領の判定に使用）。顧問先の設定で会社情報をAIに渡さないときは添えない
   const { data: clientRow } = await supabase
     .from("clients")
@@ -106,7 +120,7 @@ export async function processReceiptOcr(
       {
         text: `${isPdf ? "このPDF" : "この画像"}に含まれる領収書・書類を全て読み取り、以下のJSON形式で返してください。値が不明な場合はnullにしてください。JSONのみ返し、説明文は不要です。
 
-{"receipts":[{"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"適格請求書発行事業者の登録番号 T+13桁のみ。無ければnull","document_number":"請求書番号・領収書No等の一般書類番号（登録番号以外）。無ければnull","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|purchase_order|goods_receipt|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","confidence":0.0-1.0}]}
+{"receipts":[{"box":[上,左,下,右],"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"適格請求書発行事業者の登録番号 T+13桁のみ。無ければnull","document_number":"請求書番号・領収書No等の一般書類番号（登録番号以外）。無ければnull","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|purchase_order|goods_receipt|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","confidence":0.0-1.0}]}
 
 document_typeの判定基準:
 - qualified_invoice: T+13桁の登録番号がある請求書
@@ -133,7 +147,8 @@ direction（自社「${clientName || "名称不明"}」基準）:
 
 payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e_money=電子マネー/QR決済、bank_transfer=振込
 
-複数のレシートが写っている場合はreceipts配列を複数要素にしてください。`,
+複数のレシートが写っている場合はreceipts配列を複数要素にしてください（写真の左上から右下へ、読む順に並べる）。
+box: そのレシートが${isPdf ? "ページ" : "画像"}のどこに写っているか。全体を縦横0〜1000とした [上端, 左端, 下端, 右端] の整数。1件だけで全体に写っているなら [0,0,1000,1000]。`,
       },
     ]));
 
@@ -245,18 +260,41 @@ payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e
         exchange_rate: exchangeRate,
         amount_jpy: amountJpy,
         document_type: documentType,
+        box: parseBox(parsed.box),
       };
       return { ocrResult, detectedPayment, documentType };
     };
 
-    // 8. 1件目は元レコード更新、2件目以降はsibling行作成
+    // 8. 1件目は元レコード更新、2件目以降はsibling行作成。
+    // 読み取り直しのときは、前に同じ写真から作った証憑を順に使い回す（同じレシートが増え続けないように）。
+    // 仕訳を作り終えた証憑は、読み取り結果を書き換えず、写真の中の位置と順番だけを入れ直す
+    const { data: groupRows } = await supabase
+      .from("receipts")
+      .select("id, status, ocr_result, uploaded_at")
+      .eq("client_id", receipt.client_id)
+      .eq("image_path", receipt.image_path)
+      .neq("id", receiptId)
+      .order("uploaded_at", { ascending: true });
+    const existingSiblings = (groupRows ?? []) as { id: string; status: string; ocr_result: OcrResult | null }[];
     for (let i = 0; i < receiptsArray.length; i++) {
       const parsed = (receiptsArray[i] as Record<string, unknown>) ?? {};
       const { ocrResult, detectedPayment, documentType } = await buildOcrFromParsed(parsed);
+      ocrResult.photo_index = i + 1;
+      ocrResult.photo_count = receiptsArray.length;
 
       let currentId: string;
+      const reuse = i > 0 ? existingSiblings[i - 1] : undefined;
+      if (reuse && reuse.status === "journalized") {
+        await supabase
+          .from("receipts")
+          .update({ ocr_result: { ...(reuse.ocr_result ?? {}), box: ocrResult.box, photo_index: i + 1, photo_count: receiptsArray.length } as unknown as import("@/types/database").Json })
+          .eq("id", reuse.id);
+        continue;
+      }
       if (i === 0) {
         currentId = receiptId;
+      } else if (reuse) {
+        currentId = reuse.id;
       } else {
         // 兄弟レコード作成（同じimage_path・file_hash・payment_method等を継承）
         const { data: sibling, error: createErr } = await supabase
@@ -397,6 +435,14 @@ export async function updateOcrResult(
     .eq("id", receiptId);
 
   return merged;
+}
+
+/** AIが返したレシートの位置 [上, 左, 下, 右]（0〜1000）を確かめる。おかしければ持たない */
+function parseBox(v: unknown): [number, number, number, number] | undefined {
+  if (!Array.isArray(v) || v.length !== 4 || !v.every((x) => typeof x === "number" && x >= 0 && x <= 1000)) return undefined;
+  const [t, l, b, r] = v as number[];
+  if (b <= t || r <= l) return undefined;
+  return [Math.round(t), Math.round(l), Math.round(b), Math.round(r)];
 }
 
 /**

@@ -94,6 +94,8 @@ export default function JournalsPage() {
   const [receiptUploading, setReceiptUploading] = useState(false);
   const [receiptDragOver, setReceiptDragOver] = useState(false);
   const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number } | null>(null);
+  // 読み取りが終わった写真ごとの件数（1枚の写真に何枚のレシートがあったか）
+  const [readCounts, setReadCounts] = useState<{ file: string; count: number }[]>([]);
   const [ocrError, setOcrError] = useState<string | null>(null);
   const receiptInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -102,6 +104,7 @@ export default function JournalsPage() {
     const arr = Array.from(files);
     if (arr.length === 0) return;
     setReceiptSummary(null);
+    setReadCounts([]);
     setReceiptItems((prev) => [
       ...prev,
       ...arr.map((file) => ({
@@ -430,11 +433,14 @@ export default function JournalsPage() {
 
         // OCR/仕訳はバックグラウンド（await しない）
         if (item.file.type.startsWith("image/") || item.file.type === "application/pdf") {
-          processReceiptOcr(result.id).catch((err) => {
-            const msg = err instanceof Error ? err.message : "OCR処理に失敗しました";
-            console.error("OCR/仕訳エラー:", msg);
-            setOcrError(msg);
-          });
+          const fileName = item.file.name;
+          processReceiptOcr(result.id)
+            .then((r) => setReadCounts((prev) => [...prev, { file: fileName, count: r.photo_count ?? 1 }]))
+            .catch((err) => {
+              const msg = err instanceof Error ? err.message : "OCR処理に失敗しました";
+              console.error("OCR/仕訳エラー:", msg);
+              setOcrError(msg);
+            });
         }
 
         // アップロード成功 → 欄に残してローディング表示せず即時に消す。
@@ -1062,6 +1068,16 @@ export default function JournalsPage() {
               >
                 領収書管理で確認 →
               </Link>
+            </div>
+          )}
+          {readCounts.length > 0 && (
+            <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs text-foreground space-y-0.5">
+              {readCounts.map((r, k) => (
+                <p key={k}>
+                  「{r.file}」から <b>{r.count}件</b> のレシート・書類を読み取りました。
+                  {r.count > 1 && " 写っている枚数と合っているか確かめてください。"}
+                </p>
+              ))}
             </div>
           )}
         </CardContent>

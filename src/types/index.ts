@@ -189,6 +189,11 @@ export interface OcrResult {
   source?: string;
   // 送り手のメモ（外部連携の受け口）
   memo?: string;
+  /** 1枚の写真に複数のレシートが写っていたとき: 写真の中での位置（[上, 左, 下, 右]、写真全体を0〜1000とした値） */
+  box?: [number, number, number, number];
+  /** 同じ写真から読み取ったうちの何件目か・全部で何件か */
+  photo_index?: number;
+  photo_count?: number;
 }
 
 // ===== 明細書の行データ =====
