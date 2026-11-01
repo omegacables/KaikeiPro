@@ -811,7 +811,7 @@ export function ReceiptsPageContent({
 
       {/* Filter Bar */}
       {!processingOnly && (
-      <div className="flex items-center justify-between mb-4 gap-4">
+      <div className="flex flex-wrap items-center justify-between mb-4 gap-4">
         {/* 左側フィルター群（発行/受領・インボイス） */}
         <div className="flex items-center gap-2 flex-wrap">
         {/* 発行/受領フィルター（区分固定時・書類種別固定時は非表示） */}
@@ -852,7 +852,7 @@ export function ReceiptsPageContent({
         </div>
 
         {/* Period filter + search + view toggle */}
-        <div className="flex items-center gap-2" onKeyDown={handleBarKeyNav}>
+        <div className="flex flex-wrap items-center gap-2" onKeyDown={handleBarKeyNav}>
           <select
             value={periodMode === "year" ? fiscalYear : ""}
             onChange={(e) => {
@@ -885,14 +885,14 @@ export function ReceiptsPageContent({
             }}
             className="px-2 py-1.5 rounded-lg border border-border bg-card text-foreground text-xs w-full pr-7"
           />
-          <div className="relative">
+          <div className="relative flex-1 sm:flex-none min-w-40">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted-foreground" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder={`${partnerLabel}・${payLabel}で検索...`}
-              className="pl-9 pr-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm placeholder:text-muted-foreground w-56"
+              className="pl-9 pr-3 py-1.5 rounded-lg border border-border bg-card text-foreground text-sm placeholder:text-muted-foreground w-full sm:w-56"
             />
           </div>
           <div className="flex items-center border border-border rounded-lg overflow-hidden">
@@ -1157,7 +1157,7 @@ export function ReceiptsPageContent({
                   <p className="text-lg font-bold font-mono text-foreground mt-2">
                     {formatCurrency(receipt.amount)}
                   </p>
-                  <div className="flex items-center justify-between mt-3">
+                  <div className="flex flex-wrap items-center justify-between mt-3 gap-2">
                     <Badge variant="muted" className="text-[10px]">
                       <PIcon className="size-3 mr-1" />
                       {pCfg.label}
@@ -1357,7 +1357,7 @@ export function ReceiptsPageContent({
             selectedData.documentType === "statement" ? "max-w-3xl" : "max-w-md"
           )}>
             {/* Header */}
-            <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex items-center justify-between">
+            <div className="sticky top-0 bg-card border-b border-border px-6 py-4 flex flex-wrap items-center justify-between gap-2">
               <h3 className="text-lg font-bold text-foreground">
                 {selectedData.documentType === "statement" ? "明細書詳細" : "領収書詳細"}
               </h3>
@@ -1522,7 +1522,7 @@ export function ReceiptsPageContent({
               {/* Details — 表示モード / 編集モード */}
               {editingOcr ? (
                 <div className="space-y-3 bg-muted/10 rounded-lg p-4 border border-primary/20" onKeyDown={handleBarKeyNav}>
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
                     <h4 className="text-sm font-bold text-primary flex items-center gap-1"><Pencil className="size-3.5" /> OCR結果を編集</h4>
                     <button onClick={() => setEditingOcr(false)} className="text-muted-foreground hover:text-foreground"><X className="size-4" /></button>
                   </div>
@@ -1642,7 +1642,7 @@ export function ReceiptsPageContent({
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <span className="text-xs text-muted-foreground">ID</span>
                     {selectedData.status !== "journalized" && selectedData.ocrRaw?.source !== "raqto" && (
                       <button onClick={startEditOcr} className="text-xs text-primary hover:underline flex items-center gap-0.5">
@@ -1710,7 +1710,7 @@ export function ReceiptsPageContent({
                           : "text-muted-foreground";
                       return (
                         <div className={cn("rounded-lg border p-3", boxClass)}>
-                          <div className="flex items-center justify-between mb-1">
+                          <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
                             <span className="text-xs text-muted-foreground">インボイス登録番号</span>
                             <Badge variant={invoiceCheckConfig[ic].variant} className="text-[10px]">
                               {invoiceCheckConfig[ic].label}
@@ -2142,7 +2142,7 @@ function StatementLinesSection({
 
   return (
     <div className="border-t border-border pt-4">
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
         <h4 className="text-sm font-bold text-foreground flex items-center gap-1.5">
           <FileSpreadsheet className="size-4 text-primary" />
           明細から取引を抽出・仕訳化

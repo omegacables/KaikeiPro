@@ -64,7 +64,7 @@ export default function InvoicePrintPage({
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
       {/* 操作バー（印刷時は非表示） */}
-      <div className="no-print flex items-center justify-between gap-2">
+      <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <button
           onClick={() => router.push(`/clients/${id}/documents`)}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

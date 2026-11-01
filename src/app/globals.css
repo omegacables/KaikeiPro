@@ -289,3 +289,19 @@ input[type="month"]::-webkit-calendar-picker-indicator:hover {
     background: none;
   }
 }
+
+/* スマホ幅の表。狭い画面で表を縮めると、日本語が1文字ずつ縦に並んで読めなくなる。
+   表そのものを横にスクロールできる箱にして、文字は折り返さない（隠さず、横に流す）。
+   横スクロールの箱に入れていない表（約25か所）にも効くよう、ここでまとめて決める */
+@media screen and (max-width: 767px) {
+  main table {
+    display: block;
+    max-width: 100%;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  main table th,
+  main table td {
+    white-space: nowrap;
+  }
+}

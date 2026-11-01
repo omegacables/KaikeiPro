@@ -195,7 +195,7 @@ function BSSection({
           <div
             key={item.name}
             className={cn(
-              "flex items-center justify-between py-1.5 border-b border-border/30",
+              "flex flex-wrap items-center justify-between py-1.5 border-b border-border/30 gap-2",
               depth === 0 && "font-bold text-foreground",
               depth === 1 && "font-medium text-foreground",
               depth >= 2 && "text-muted-foreground",
@@ -259,14 +259,14 @@ function BalanceSheet({ trialData, clientId }: { trialData: TrialBalanceRow[]; c
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       <Card>
         <CardHeader>
-          <CardTitle className="text-base flex items-center justify-between">
+          <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
             <span>資産の部</span>
             <span className="font-mono text-primary">{formatCurrency(totalAssets)}</span>
           </CardTitle>
         </CardHeader>
         <CardContent>
           <BSSection items={bsAssets} onAccountClick={handleAccountClick} />
-          <div className="flex items-center justify-between pt-3 mt-3 border-t-2 border-border font-bold text-foreground">
+          <div className="flex flex-wrap items-center justify-between pt-3 mt-3 border-t-2 border-border font-bold text-foreground gap-2">
             <span>資産合計</span>
             <span className="font-mono text-lg">{formatCurrency(totalAssets)}</span>
           </div>
@@ -276,14 +276,14 @@ function BalanceSheet({ trialData, clientId }: { trialData: TrialBalanceRow[]; c
       <div className="space-y-6">
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
+            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
               <span>負債の部</span>
               <span className="font-mono text-destructive">{formatCurrency(totalLiabilities)}</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <BSSection items={bsLiabilities} onAccountClick={handleAccountClick} />
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border font-bold text-foreground text-sm">
+            <div className="flex flex-wrap items-center justify-between pt-3 mt-3 border-t border-border font-bold text-foreground text-sm gap-2">
               <span>負債合計</span>
               <span className="font-mono">{formatCurrency(totalLiabilities)}</span>
             </div>
@@ -292,14 +292,14 @@ function BalanceSheet({ trialData, clientId }: { trialData: TrialBalanceRow[]; c
 
         <Card>
           <CardHeader>
-            <CardTitle className="text-base flex items-center justify-between">
+            <CardTitle className="text-base flex flex-wrap items-center justify-between gap-2">
               <span>純資産の部</span>
               <span className="font-mono text-primary">{formatCurrency(totalEquityWithProfit)}</span>
             </CardTitle>
           </CardHeader>
           <CardContent>
             <BSSection items={equityWithProfit} onAccountClick={handleAccountClick} />
-            <div className="flex items-center justify-between pt-3 mt-3 border-t border-border font-bold text-foreground text-sm">
+            <div className="flex flex-wrap items-center justify-between pt-3 mt-3 border-t border-border font-bold text-foreground text-sm gap-2">
               <span>純資産合計</span>
               <span className="font-mono">{formatCurrency(totalEquityWithProfit)}</span>
             </div>
@@ -308,7 +308,7 @@ function BalanceSheet({ trialData, clientId }: { trialData: TrialBalanceRow[]; c
 
         <Card className="bg-muted/10">
           <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between font-bold text-foreground">
+            <div className="flex flex-wrap items-center justify-between font-bold text-foreground gap-2">
               <span>負債及び純資産合計</span>
               <span className="font-mono text-lg">{formatCurrency(totalLE)}</span>
             </div>
@@ -344,14 +344,14 @@ function PLSectionRows({
 }) {
   return (
     <>
-      <div className="flex items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border">
+      <div className="flex flex-wrap items-center justify-between gap-8 py-1 px-2 font-bold text-foreground border-b border-border">
         <span>{numeral ? `${numeral} ` : ""}{title}</span>
         <span className="font-mono">{formatCurrency(total)}</span>
       </div>
       {items.map((it) => (
         <div
           key={it.code}
-          className="flex items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground"
+          className="flex flex-wrap items-center justify-between gap-8 py-0.5 border-b border-border/30 text-muted-foreground"
           style={{ paddingLeft: "24px", paddingRight: "8px" }}
         >
           <span>{it.name}</span>
@@ -375,7 +375,7 @@ function PLProfitRow({
   return (
     <div
       className={cn(
-        "flex items-center justify-between gap-8 px-2 font-bold text-foreground",
+        "flex flex-wrap items-center justify-between gap-8 px-2 font-bold text-foreground",
         emphasize
           ? "py-1.5 my-1 bg-primary/10 border-y-2 border-primary/30 rounded"
           : "py-1 mt-1 border-y border-border bg-muted/30"
@@ -1279,7 +1279,7 @@ export default function StatementsPage() {
   return (
     <>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between mb-6 gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <BarChart3 className="size-6 text-primary" />

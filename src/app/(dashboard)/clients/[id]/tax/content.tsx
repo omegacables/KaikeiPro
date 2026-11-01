@@ -574,7 +574,7 @@ export function TaxPageContent({ hideHeader = false }: { hideHeader?: boolean })
                   current ? "bg-primary/5 border-primary/30" : "bg-muted/20"
                 )}
               >
-                <div className="flex items-center justify-between mb-2">
+                <div className="flex flex-wrap items-center justify-between mb-2 gap-2">
                   <span className="text-xs text-muted-foreground">{item.period}</span>
                   {current && <Badge variant="default">現在適用中</Badge>}
                 </div>

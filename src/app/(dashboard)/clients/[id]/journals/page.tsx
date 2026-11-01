@@ -659,7 +659,7 @@ export default function JournalsPage() {
       {(importFile || importResult) && (
       <Card className="mb-6 border-dashed border-primary/40">
         <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <CardTitle className="text-base flex items-center gap-2">
               <FileSpreadsheet className="size-5 text-primary" />
               CSV / Excel から仕訳を一括登録

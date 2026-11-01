@@ -435,7 +435,7 @@ export default function PaymentsPage() {
       {/* ファイルから入金登録（CSV / Excel / PDF） */}
       {showImport && (
         <Card className="mb-6 p-6 border-dashed border-primary/40">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
             <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
               <FileSpreadsheet className="size-4 text-primary" />
               ファイルから入金登録
@@ -916,7 +916,7 @@ export default function PaymentsPage() {
       {/* Manual allocation button */}
       {selectedPayment !== null && selectedInvoice !== null && (
         <Card className="mb-6 p-4 border-primary/30">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-2">
             <div className="flex items-center gap-4">
               <div>
                 <p className="text-xs text-muted-foreground">選択中の入金</p>

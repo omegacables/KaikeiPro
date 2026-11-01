@@ -376,7 +376,7 @@ function AllowanceSection({ clientId, ctx, onDone }: { clientId: string; ctx: Ba
             <p className="text-sm text-muted-foreground">期末に残高のある債権はありません。</p>
           ) : (
             ctx.receivables.map((r) => (
-              <label key={r.id} className="flex items-center justify-between gap-3 text-sm">
+              <label key={r.id} className="flex flex-wrap items-center justify-between gap-3 text-sm">
                 <span className="flex items-center gap-2">
                   <input
                     type="checkbox"

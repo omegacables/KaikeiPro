@@ -248,7 +248,7 @@ export function JournalEntryPanel({
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/30" onClick={onClose} />
       <div className="relative w-full max-w-2xl bg-card border-l border-border shadow-xl overflow-y-auto">
-        <div className="sticky top-0 z-10 bg-card border-b border-border px-5 py-3 flex items-center justify-between">
+        <div className="sticky top-0 z-10 bg-card border-b border-border px-5 py-3 flex flex-wrap items-center justify-between gap-2">
           <h3 className="text-lg font-bold">{editing ? "仕訳の修正" : "仕訳の詳細"}</h3>
           <div className="flex items-center gap-3">
             {entry && !editing && role?.canWrite !== false && (
@@ -413,7 +413,7 @@ export function JournalEntryPanel({
               </div>
 
               <div className="space-y-2">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <span className="text-xs text-muted-foreground font-bold">仕訳明細</span>
                   <button
                     onClick={() =>

@@ -248,7 +248,7 @@ export default function ClosingPage() {
 
       {/* Steps display */}
       <Card className="mb-6 p-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-2">
           {steps.map((step, idx) => (
             <div key={step.label} className="flex items-center">
               <div className="flex flex-col items-center text-center">
@@ -356,7 +356,7 @@ export default function ClosingPage() {
           </p>
           <div className="space-y-2">
             {depreciation.items.map((item) => (
-              <div key={item.category} className="flex items-center justify-between text-sm">
+              <div key={item.category} className="flex flex-wrap items-center justify-between text-sm gap-2">
                 <span className="text-muted-foreground">{item.category}</span>
                 <span className="font-mono font-medium text-foreground">
                   {formatCurrency(item.amount)}
@@ -382,15 +382,15 @@ export default function ClosingPage() {
             {adjustmentEntries.length}件
           </p>
           <div className="space-y-2">
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex flex-wrap items-center justify-between text-sm gap-2">
               <span className="text-muted-foreground">確認済</span>
               <Badge variant="success">{confirmedEntries}件</Badge>
             </div>
-            <div className="flex items-center justify-between text-sm">
+            <div className="flex flex-wrap items-center justify-between text-sm gap-2">
               <span className="text-muted-foreground">下書き</span>
               <Badge variant="warning">{draftEntries}件</Badge>
             </div>
-            <div className="flex items-center justify-between text-sm border-t border-border pt-2 mt-2">
+            <div className="flex flex-wrap items-center justify-between text-sm border-t border-border pt-2 mt-2 gap-2">
               <span className="text-muted-foreground">合計金額</span>
               <span className="font-mono font-bold text-foreground">
                 {formatCurrency(totalAdjustment)}
@@ -412,7 +412,7 @@ export default function ClosingPage() {
         <CardContent>
           {showAddForm && (
             <div className="mb-4 p-4 rounded-lg border border-primary/30 bg-primary/5">
-              <div className="flex items-center justify-between mb-3">
+              <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
                 <h4 className="font-bold text-foreground">決算整理仕訳追加</h4>
                 <button onClick={() => setShowAddForm(false)} className="text-muted-foreground hover:text-foreground">
                   <X className="size-4" />

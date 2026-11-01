@@ -240,7 +240,7 @@ export default function DashboardPage() {
             要確認の仕訳は決算書の集計から外れているため、放置すると
             決算書が不完全なまま進む。最初に出す */}
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
             <div className="flex items-center gap-1.5">
               <ListChecks className="size-5 text-warning" />
               <h2 className="text-lg font-bold text-foreground">未処理の作業</h2>
@@ -269,7 +269,7 @@ export default function DashboardPage() {
                 const sum = rows.reduce((n, w) => n + kind.count(w), 0);
                 return (
                   <div key={kind.key}>
-                    <div className="flex items-center justify-between">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-xs font-bold text-foreground">{kind.label}</p>
                       <span className="text-xs font-bold tabular-nums text-warning">{sum}件</span>
                     </div>
@@ -281,7 +281,7 @@ export default function DashboardPage() {
                           <Link
                             key={w.client_id}
                             href={kind.href(w.client_id)}
-                            className="flex items-center justify-between gap-2 px-2 py-1 rounded hover:bg-muted/30 transition-colors"
+                            className="flex flex-wrap items-center justify-between gap-2 px-2 py-1 rounded hover:bg-muted/30 transition-colors"
                           >
                             <span className="text-xs text-foreground truncate">{w.client_name}</span>
                             <span className="flex items-center gap-0.5 shrink-0 text-xs tabular-nums text-muted-foreground">
@@ -300,7 +300,7 @@ export default function DashboardPage() {
 
         {/* 要確認の証憑 */}
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
             <div className="flex items-center gap-1.5">
               <AlertTriangle className="size-5 text-warning" />
               <h2 className="text-lg font-bold text-foreground">要確認の証憑</h2>
@@ -327,7 +327,7 @@ export default function DashboardPage() {
                 <Link
                   key={c.client_id}
                   href={`/clients/${c.client_id}/documents`}
-                  className="flex items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors"
+                  className="flex flex-wrap items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
                 >
                   <span className="text-sm font-medium text-foreground truncate">{c.client_name}</span>
                   <div className="flex items-center gap-1.5 shrink-0">
@@ -344,7 +344,7 @@ export default function DashboardPage() {
 
         {/* 税務カレンダー */}
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
             <div className="flex items-center gap-1.5">
               <CalendarClock className="size-5 text-warning" />
               <h2 className="text-lg font-bold text-foreground">税務カレンダー</h2>
@@ -398,14 +398,14 @@ export default function DashboardPage() {
                   <Link
                     key={item.id}
                     href={`/clients/${item.client_id}/closing`}
-                    className="flex items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
+                    className="flex flex-wrap items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
                   >
                     {inner}
                   </Link>
                 ) : (
                   <div
                     key={item.id}
-                    className="flex items-center justify-between py-2 px-1 gap-2"
+                    className="flex flex-wrap items-center justify-between py-2 px-1 gap-2"
                   >
                     {inner}
                   </div>
@@ -417,7 +417,7 @@ export default function DashboardPage() {
 
         {/* 請求書状況（未入金・期限超過） */}
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
             <div className="flex items-center gap-1.5">
               <Receipt className="size-5 text-warning" />
               <h2 className="text-lg font-bold text-foreground">請求書状況</h2>
@@ -440,7 +440,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between mb-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between mb-2 text-xs gap-2">
                 <span className="text-muted-foreground">
                   未入金 <span className="font-bold text-foreground tabular-nums">{formatCurrency(totalUnpaidAmount)}</span>
                 </span>
@@ -455,7 +455,7 @@ export default function DashboardPage() {
                   <Link
                     key={c.client_id}
                     href={`/clients/${c.client_id}/invoices`}
-                    className="flex items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
+                    className="flex flex-wrap items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{c.client_name}</p>
@@ -484,7 +484,7 @@ export default function DashboardPage() {
 
         {/* 支払状況（未払・期限超過） */}
         <Card className="p-4">
-          <div className="flex items-center justify-between mb-3">
+          <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
             <div className="flex items-center gap-1.5">
               <CreditCard className="size-5 text-warning" />
               <h2 className="text-lg font-bold text-foreground">支払状況</h2>
@@ -507,7 +507,7 @@ export default function DashboardPage() {
             </div>
           ) : (
             <>
-              <div className="flex items-center justify-between mb-2 text-xs">
+              <div className="flex flex-wrap items-center justify-between mb-2 text-xs gap-2">
                 <span className="text-muted-foreground">
                   未払 <span className="font-bold text-foreground tabular-nums">{formatCurrency(totalPayableAmount)}</span>
                 </span>
@@ -522,7 +522,7 @@ export default function DashboardPage() {
                   <Link
                     key={c.client_id}
                     href={`/clients/${c.client_id}/invoices`}
-                    className="flex items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
+                    className="flex flex-wrap items-center justify-between py-2 px-1 -mx-1 rounded-md hover:bg-muted/40 transition-colors gap-2"
                   >
                     <div className="min-w-0">
                       <p className="text-sm font-medium text-foreground truncate">{c.client_name}</p>
@@ -585,7 +585,7 @@ export default function DashboardPage() {
               className="block rounded-lg -mx-1 px-1 hover:bg-muted/20 transition-colors"
               title="クリックで月次推移表を開く"
             >
-              <div className="flex items-center justify-between mb-1 text-xs">
+              <div className="flex flex-wrap items-center justify-between mb-1 text-xs gap-2">
                 <div className="flex items-center gap-3">
                   <span className="flex items-center gap-1 text-muted-foreground">
                     <span className="inline-block size-2 rounded-full bg-primary" />
@@ -644,7 +644,7 @@ export default function DashboardPage() {
             <div className="space-y-4">
               {/* 口座残高 */}
               <div>
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
                   <span className="text-xs font-bold text-muted-foreground">口座残高</span>
                   <span className="text-sm font-bold text-foreground tabular-nums">
                     {formatCurrency(Math.abs(balance.cashTotal))}
@@ -660,7 +660,7 @@ export default function DashboardPage() {
                 ) : (
                   <div className="divide-y divide-border">
                     {balance.accountBalances.map((a) => (
-                      <div key={a.account_id} className="flex items-center justify-between py-1.5">
+                      <div key={a.account_id} className="flex flex-wrap items-center justify-between py-1.5 gap-2">
                         <span className="text-sm text-foreground truncate">{a.name}</span>
                         <BalanceAmount balance={a.balance} debitNormal={a.debitNormal} />
                       </div>
@@ -671,7 +671,7 @@ export default function DashboardPage() {
 
               {/* 補助科目別残高 */}
               <div>
-                <div className="flex items-center justify-between mb-1">
+                <div className="flex flex-wrap items-center justify-between mb-1 gap-2">
                   <span className="flex items-center gap-1 text-xs font-bold text-muted-foreground">
                     <Layers className="size-3" />
                     補助科目別残高
@@ -687,7 +687,7 @@ export default function DashboardPage() {
                 ) : (
                   <div className="max-h-56 overflow-y-auto divide-y divide-border">
                     {balance.subAccountBalances.map((s) => (
-                      <div key={s.sub_account_id} className="flex items-center justify-between py-1.5 gap-2">
+                      <div key={s.sub_account_id} className="flex flex-wrap items-center justify-between py-1.5 gap-2">
                         <div className="min-w-0">
                           <p className="text-sm text-foreground truncate">{s.sub_name}</p>
                           <p className="text-[10px] text-muted-foreground truncate">{s.account_name}</p>

@@ -397,7 +397,7 @@ export function Sidebar() {
             /* Regular users: show client selector and sub-nav */
             <>
               {/* Client Selector */}
-              <div className="mt-4 mb-2 px-3 flex items-center justify-between">
+              <div className="mt-4 mb-2 px-3 flex flex-wrap items-center justify-between gap-2">
                 <p className="text-white text-[10px] font-bold uppercase tracking-widest">
                   顧問先
                 </p>

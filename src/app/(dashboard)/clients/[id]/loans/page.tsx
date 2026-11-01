@@ -900,7 +900,7 @@ export default function LoansPage({ params }: { params: Promise<{ id: string }> 
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   placeholder="相手先を検索"
-                  className={inputCls + " w-56 pl-8"}
+                  className={inputCls + " w-full sm:w-56 pl-8"}
                 />
                 {search && (
                   <button
@@ -2018,7 +2018,7 @@ function LoanFormModal(props: {
         className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex flex-wrap items-center justify-between px-5 py-4 border-b border-border gap-2">
           <h2 className="font-bold text-[17px]">
             {props.isEditing ? "相手先を編集" : "相手先を追加"}
           </h2>
@@ -2296,7 +2296,7 @@ function AttachReceiptModal(props: {
         className="bg-card border border-border rounded-xl shadow-xl w-full max-w-2xl max-h-[90vh] overflow-y-auto"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+        <div className="flex flex-wrap items-center justify-between px-5 py-4 border-b border-border gap-2">
           <h2 className="font-bold text-[17px]">証憑を添付</h2>
           <button onClick={props.onClose} className="p-1 rounded hover:bg-muted">
             <X className="size-5" />

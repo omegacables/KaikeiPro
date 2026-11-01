@@ -177,7 +177,7 @@ export default async function ClientDetailPage({
           <Clock className="size-4 text-primary-light" />
           今月の月次進捗
         </h3>
-        <div className="grid grid-cols-5 gap-4">
+        <div className="grid grid-cols-3 sm:grid-cols-5 gap-4">
           {[
             { label: "領収書提出", progress: 0, status: "pending" },
             { label: "OCR処理", progress: 0, status: "pending" },

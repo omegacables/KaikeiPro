@@ -88,7 +88,7 @@ export function SubAccountManager({
   return (
     <div className="space-y-3 py-1">
       <div className="flex flex-wrap items-end gap-2">
-        <div className="w-72">
+        <div className="w-full sm:w-72">
           <label className="block text-xs font-bold text-muted-foreground mb-1">
             「{account.name}」に補助科目を追加
           </label>

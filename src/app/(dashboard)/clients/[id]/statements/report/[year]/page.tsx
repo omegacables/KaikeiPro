@@ -489,7 +489,7 @@ export default function SettlementReportPage({
       <style dangerouslySetInnerHTML={{ __html: PRINT_CSS }} />
 
       {/* 操作バー */}
-      <div className="no-print flex items-center justify-between gap-2">
+      <div className="no-print flex flex-wrap items-center justify-between gap-2">
         <button
           onClick={() => router.push(`/clients/${id}/statements`)}
           className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground"

@@ -60,7 +60,7 @@ export function BankSelectModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="bg-card rounded-xl shadow-2xl border border-border w-full max-w-lg max-h-[90vh] flex flex-col">
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border shrink-0">
+        <div className="flex flex-wrap items-center justify-between px-6 py-4 border-b border-border shrink-0 gap-2">
           <h3 className="text-base font-bold text-foreground flex items-center gap-2">
             <Landmark className="size-4 text-primary" />
             明細アップロード用の口座作成

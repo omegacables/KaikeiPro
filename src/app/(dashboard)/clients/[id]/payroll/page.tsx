@@ -470,7 +470,7 @@ export default function PayrollPage({
             className="bg-card border border-border rounded-xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-4 border-b border-border">
+            <div className="flex flex-wrap items-center justify-between px-5 py-4 border-b border-border gap-2">
               <h2 className="font-bold">{editingId ? "給与を編集" : "給与を追加"}（{month.slice(0, 7)}）</h2>
               <button onClick={() => setShowForm(false)} className="p-1 rounded hover:bg-muted">
                 <X className="size-5" />
@@ -557,7 +557,7 @@ export default function PayrollPage({
                 />
               </div>
 
-              <div className="flex items-center justify-between rounded-lg bg-muted/40 px-4 py-3 text-sm">
+              <div className="flex flex-wrap items-center justify-between rounded-lg bg-muted/40 px-4 py-3 text-sm gap-2">
                 <span className="text-muted-foreground">差引支給額</span>
                 <span className={"font-bold tabular-nums " + (formNet < 0 ? "text-destructive" : "")}>
                   {formatCurrency(formNet)}

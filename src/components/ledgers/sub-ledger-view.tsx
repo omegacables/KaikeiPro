@@ -154,7 +154,7 @@ export function SubLedgerView({
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-end gap-3">
-        <div className="w-80">
+        <div className="w-full sm:w-80">
           <label className="block text-xs font-bold text-muted-foreground mb-1">
             <Search className="inline size-3 mr-1" />
             相手先を検索（名前の一部でも探せます）

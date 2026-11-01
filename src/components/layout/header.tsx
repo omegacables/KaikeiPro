@@ -154,7 +154,7 @@ export function Header() {
     <header className="sticky top-0 z-10 bg-card/80 backdrop-blur-md border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
       {/* ページ本体と同じ幅・同じ中央寄せにする。
           ヘッダーだけ画面幅いっぱいだと、広い画面で右端がそろわない */}
-      <div className="flex items-center justify-between gap-2 max-w-7xl mx-auto w-full min-w-0">
+      <div className="flex flex-wrap items-center justify-between gap-2 max-w-7xl mx-auto w-full min-w-0">
       <div className="flex items-center gap-2 sm:gap-4 min-w-0 flex-1">
         {/* モバイル用ハンバーガー（サイドバードロワーを開く） */}
         <button

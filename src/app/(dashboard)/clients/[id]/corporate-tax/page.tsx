@@ -304,7 +304,7 @@ function InputsCard({ view, clientId, canWrite, onSaved }: { view: CorporateRetu
 
   return (
     <Card className="p-4 space-y-4 print:hidden" onKeyDown={handleBarKeyNav}>
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <h3 className="font-bold text-sm">申告の入力（この期）</h3>
         <Button size="sm" variant="ghost" onClick={() => setOpen((v) => !v)}>
           {open ? "閉じる" : "開く"}

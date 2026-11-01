@@ -1266,7 +1266,7 @@ export function LedgerBrowser({ mode = "books" }: { mode?: "books" | "tax" }) {
           />
           <div className="relative bg-card rounded-xl shadow-2xl border border-border max-w-2xl w-full mx-4 max-h-[90vh] flex flex-col">
             {/* Header */}
-            <div className="flex items-center justify-between px-5 py-3 border-b border-border shrink-0">
+            <div className="flex flex-wrap items-center justify-between px-5 py-3 border-b border-border shrink-0 gap-2">
               <h3 className="text-sm font-bold text-foreground flex items-center gap-2">
                 <ImageIcon className="size-4 text-primary" />
                 領収書プレビュー

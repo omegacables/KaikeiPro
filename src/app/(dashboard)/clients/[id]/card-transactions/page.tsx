@@ -289,7 +289,7 @@ export default function CardTransactionsPage({
       {/* Payment form */}
       {showPaymentForm && (
         <Card className="mb-6 border-primary/30 p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
             <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
               <Calendar className="size-5 text-primary" />
               月次引き落とし仕訳（未払金 / 普通預金）
@@ -298,7 +298,7 @@ export default function CardTransactionsPage({
               <X className="size-4" />
             </button>
           </div>
-          <div className="grid grid-cols-3 gap-4 mb-4" onKeyDown={handleBarKeyNav}>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4" onKeyDown={handleBarKeyNav}>
             <div>
               <label className="text-xs text-muted-foreground font-bold block mb-1">カード</label>
               <select
@@ -345,7 +345,7 @@ export default function CardTransactionsPage({
       {/* Import form */}
       {showImportForm && (
         <Card className="mb-6 border-primary/30 p-6">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
             <h3 className="text-lg font-bold text-foreground flex items-center gap-2">
               <FileText className="size-5 text-primary" />
               CSVデータ取込
@@ -420,7 +420,7 @@ export default function CardTransactionsPage({
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-4 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-6">
         <Card className="p-4">
           <div className="flex items-center gap-2 mb-1">
             <AlertCircle className="size-4 text-warning" />

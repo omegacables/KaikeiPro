@@ -126,7 +126,7 @@ function ClientsPageContent() {
       {/* New Client Form */}
       {showNewForm && (
         <Card className="mb-6 p-6 border-primary/30">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between mb-4 gap-2">
             <h3 className="text-lg font-bold text-foreground">新規顧問先登録</h3>
             <button
               onClick={() => {

@@ -272,7 +272,7 @@ export default function FirmsPage() {
                 {/* Expanded: Members */}
                 {isExpanded && (
                   <div className="border-t border-border px-4 pb-4 pt-3">
-                    <div className="flex items-center justify-between mb-3">
+                    <div className="flex flex-wrap items-center justify-between mb-3 gap-2">
                       <h5 className="text-sm font-bold text-foreground flex items-center gap-2">
                         <Users className="size-4 text-primary" />
                         メンバー

@@ -41,7 +41,7 @@ export default function ClientSettingsPage() {
   return (
     <>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex flex-wrap items-center justify-between mb-6 gap-2">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <Settings className="size-6 text-primary" />

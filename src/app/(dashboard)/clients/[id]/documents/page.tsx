@@ -275,7 +275,7 @@ function DocumentDropzone({ clientId, onUploaded }: { clientId: string; onUpload
           {errorItems.map((item) => (
             <div
               key={item.id}
-              className="flex items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs"
+              className="flex flex-wrap items-center justify-between rounded-lg border border-destructive/30 bg-destructive/5 px-3 py-1.5 text-xs gap-2"
             >
               <span className="text-foreground truncate">
                 {item.name}
@@ -332,7 +332,7 @@ export default function DocumentsPage() {
   return (
     <>
       {/* Page Header */}
-      <div className="flex items-center justify-between mb-6 gap-4">
+      <div className="flex flex-wrap items-center justify-between mb-6 gap-4">
         <div>
           <h1 className="text-2xl font-bold text-foreground flex items-center gap-2">
             <FileCheck className="size-6 text-primary" />

@@ -1051,7 +1051,7 @@ export default function SettingsPage() {
           {activeTab === "members" && (
             <Card>
               <CardHeader>
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <CardTitle>メンバー管理</CardTitle>
                   <Button size="sm" onClick={() => setShowInviteForm((v) => !v)}>
                     <Users className="size-4" />
@@ -1062,7 +1062,7 @@ export default function SettingsPage() {
               <CardContent>
                 {selfService && (
                   <div className="mb-6 p-4 rounded-lg border-2 border-primary bg-primary/5">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex flex-wrap items-center justify-between mb-2 gap-2">
                       <div>
                         <h4 className="font-bold text-foreground flex items-center gap-2">
                           <Shield className="size-4 text-primary" />
@@ -1116,7 +1116,7 @@ export default function SettingsPage() {
                 {showInviteForm && (
                   <div className="mb-6 p-4 rounded-lg border border-primary/30 bg-primary/5">
                     <h4 className="font-bold text-foreground mb-3">新規メンバー招待</h4>
-                    <div className="grid grid-cols-3 gap-4 mb-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
                       <div>
                         <label className="block text-sm font-medium text-foreground mb-1">名前</label>
                         <input type="text" value={inviteData.name} onChange={(e) => setInviteData({ ...inviteData, name: e.target.value })} className="w-full bg-card border border-border rounded-lg px-3 py-2 text-sm" />
@@ -1538,7 +1538,7 @@ export default function SettingsPage() {
                           {provider.connected && !isEditing && !isDisconnecting && (
                             <div className="px-4 pb-4 pt-0">
                               <div className="rounded-lg bg-card border border-border p-3">
-                                <div className="grid grid-cols-4 gap-4 text-xs">
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs">
                                   <div>
                                     <span className="text-muted-foreground">APIキー</span>
                                     <p className="font-mono text-foreground mt-0.5">
@@ -1758,7 +1758,7 @@ export default function SettingsPage() {
                                 </div>
 
                                 {/* Connect button */}
-                                <div className="flex items-center justify-between">
+                                <div className="flex flex-wrap items-center justify-between gap-2">
                                   <p className="text-xs text-muted-foreground">
                                     {connectionForm.api_key && connectionForm.agreed
                                       ? "接続の準備ができました"
@@ -1808,7 +1808,7 @@ export default function SettingsPage() {
               {false && (
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <CardTitle>登録口座</CardTitle>
                     <Button size="sm" onClick={() => setShowBankForm(!showBankForm)}>
                       <Plus className="size-4" />
@@ -1997,7 +1997,7 @@ export default function SettingsPage() {
               {/* Credit card management panel */}
               <Card>
                 <CardHeader>
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
                     <CardTitle>登録クレジットカード</CardTitle>
                     <Button size="sm" onClick={() => setShowCardForm(!showCardForm)}>
                       <Plus className="size-4" />
