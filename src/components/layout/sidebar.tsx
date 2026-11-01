@@ -33,6 +33,7 @@ import {
   X,
   Percent,
   Package,
+  Repeat,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuth } from "@/components/providers/auth-provider";
@@ -54,6 +55,7 @@ const NAV_GROUPS: NavGroup[] = [
     icon: Calculator,
     items: [
       { href: "/journals", label: "仕訳入力", icon: Calculator },
+      { href: "/recurring", label: "定期仕訳", icon: Repeat },
       { href: "/documents", label: "証憑管理", icon: FileCheck },
       { href: "/payments", label: "入金消込", icon: Wallet },
       // 銀行連携は一旦非表示（コードは残す。仕訳入力ページのCSV取込で代替）

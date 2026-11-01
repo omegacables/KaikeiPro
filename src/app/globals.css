@@ -263,3 +263,29 @@ input[type="month"]::-webkit-calendar-picker-indicator:hover {
   -moz-appearance: textfield;
   appearance: textfield;
 }
+
+/* AIが回答中・分析中の文字に、ゆっくり光が流れる（src/components/ai-inbox/thinking.tsx）。
+   文字の色は前景色と補助の文字色の間なので、薄すぎて読めなくなることはない */
+.ai-shimmer {
+  background: linear-gradient(90deg, var(--color-muted-foreground) 0%, var(--color-foreground) 50%, var(--color-muted-foreground) 100%);
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: ai-shimmer 2.2s linear infinite;
+}
+@keyframes ai-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ai-shimmer {
+    animation: none;
+    color: var(--color-muted-foreground);
+    background: none;
+  }
+}

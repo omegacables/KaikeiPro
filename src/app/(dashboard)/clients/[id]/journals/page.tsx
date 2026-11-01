@@ -5,14 +5,10 @@ import { useParams } from "next/navigation";
 import {
   Calculator,
   Plus,
-  Upload,
   Loader2,
   X,
   Trash2,
-  Camera,
-  FileText,
   Check,
-  Receipt,
   FileSpreadsheet,
   Download,
   AlertTriangle,
@@ -41,8 +37,8 @@ import {
   type JournalCsvSuggestion,
 } from "@/actions/journal-csv-ai";
 import { getAccounts } from "@/actions/accounts";
-import { uploadReceipt } from "@/actions/receipt-storage";
-import { processReceiptOcr } from "@/actions/ocr";
+import { AiInbox, type InboxTable } from "@/components/ai-inbox/ai-inbox";
+import type { StatementSuggestion } from "@/actions/ai-inbox";
 import { useAuth } from "@/components/providers/auth-provider";
 import Link from "next/link";
 import { DateInput } from "@/components/ui/date-input";
@@ -55,6 +51,7 @@ import { PartnerInput } from "@/components/ui/partner-input";
 import { defaultTaxCategory, taxCategoryInfo } from "@/lib/tax-category";
 import { useClientRole } from "@/lib/use-client-role";
 import { handleBarKeyNav } from "@/lib/key-nav";
+import { withholdingOnFee, FEE_ACCOUNT, pickWithholdingAccount } from "@/lib/withholding";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -82,83 +79,6 @@ export default function JournalsPage() {
     getJournalPatterns(id).then(setPatterns).catch(() => setPatterns([]));
   }, [id]);
 
-  // ---- Receipt upload state (multi-file) ----
-  type ReceiptItem = {
-    id: string;
-    file: File;
-    previewUrl: string | null;
-    status: "pending" | "uploading" | "done" | "error";
-    error?: string;
-  };
-  const [receiptItems, setReceiptItems] = useState<ReceiptItem[]>([]);
-  const [receiptUploading, setReceiptUploading] = useState(false);
-  const [receiptDragOver, setReceiptDragOver] = useState(false);
-  const [receiptSummary, setReceiptSummary] = useState<{ done: number; failed: number } | null>(null);
-  // 読み取りが終わった写真ごとの件数（1枚の写真に何枚のレシートがあったか）
-  const [readCounts, setReadCounts] = useState<{ file: string; count: number }[]>([]);
-  const [ocrError, setOcrError] = useState<string | null>(null);
-  const receiptInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
-
-  const addReceiptFiles = (files: FileList | File[]) => {
-    const arr = Array.from(files);
-    if (arr.length === 0) return;
-    setReceiptSummary(null);
-    setReadCounts([]);
-    setReceiptItems((prev) => [
-      ...prev,
-      ...arr.map((file) => ({
-        id: crypto.randomUUID(),
-        file,
-        previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
-        status: "pending" as const,
-      })),
-    ]);
-  };
-
-  const handleReceiptFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) addReceiptFiles(e.target.files);
-    // 同じファイル/写真を続けて選択できるよう値をリセット
-    e.target.value = "";
-  };
-
-  const handleRemoveReceiptItem = (itemId: string) => {
-    setReceiptItems((prev) => {
-      const target = prev.find((p) => p.id === itemId);
-      if (target?.previewUrl) URL.revokeObjectURL(target.previewUrl);
-      return prev.filter((p) => p.id !== itemId);
-    });
-  };
-
-  const handleClearAllReceipts = () => {
-    receiptItems.forEach((it) => {
-      if (it.previewUrl) URL.revokeObjectURL(it.previewUrl);
-    });
-    setReceiptItems([]);
-    setReceiptSummary(null);
-    if (receiptInputRef.current) receiptInputRef.current.value = "";
-    if (cameraInputRef.current) cameraInputRef.current.value = "";
-  };
-
-  const handleReceiptDragOver = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setReceiptDragOver(true);
-  }, []);
-
-  const handleReceiptDragLeave = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setReceiptDragOver(false);
-  }, []);
-
-  const handleReceiptDrop = useCallback((e: React.DragEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setReceiptDragOver(false);
-    if (e.dataTransfer.files) addReceiptFiles(e.dataTransfer.files);
-  }, []);
-
   // ---- CSV/Excel AI解析インポート state ----
   type EditableJournalSuggestion = JournalCsvSuggestion & { selected: boolean };
   const [importFile, setImportFile] = useState<File | null>(null);
@@ -170,43 +90,8 @@ export default function JournalsPage() {
   const [importResult, setImportResult] = useState<JournalImportResult | null>(null);
   const importInputRef = useRef<HTMLInputElement>(null);
 
-  const parseFileToRows = async (file: File): Promise<{ header: string[]; rows: string[][] }> => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    if (ext === "csv") {
-      const text = await file.text();
-      const lines = text.replace(/﻿/g, "").split(/\r?\n/).filter((l) => l.trim());
-      if (lines.length === 0) return { header: [], rows: [] };
-      const splitCsv = (line: string) => line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-      return { header: splitCsv(lines[0]), rows: lines.slice(1).map(splitCsv) };
-    }
-    if (ext === "xlsx" || ext === "xlsm") {
-      const ExcelJS = (await import("exceljs")).default;
-      const buffer = await file.arrayBuffer();
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buffer);
-      const sheet = wb.worksheets[0];
-      if (!sheet) return { header: [], rows: [] };
-      const allRows: string[][] = [];
-      sheet.eachRow((row) => {
-        const values = row.values as unknown[];
-        const cols: string[] = [];
-        for (let i = 1; i < values.length; i++) {
-          const x = values[i];
-          if (x == null) cols.push("");
-          else if (x instanceof Date) cols.push(x.toISOString().slice(0, 10));
-          else cols.push(String(x));
-        }
-        allRows.push(cols);
-      });
-      if (allRows.length === 0) return { header: [], rows: [] };
-      return { header: allRows[0], rows: allRows.slice(1) };
-    }
-    throw new Error("対応形式: .csv / .xlsx");
-  };
-
-  const handleImportFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // AIの取込箱から渡された仕訳の表（CSV・Excel）をAIで解析する
+  const analyzeJournalTable = async (file: File, table: InboxTable) => {
     setImportFile(file);
     setImportParseError(null);
     setImportResult(null);
@@ -215,9 +100,8 @@ export default function JournalsPage() {
 
     setImportAnalyzing(true);
     try {
-      const { header, rows } = await parseFileToRows(file);
-      if (rows.length === 0) throw new Error("有効なデータ行が見つかりません");
-      const analysis = await analyzeJournalCsv(id, header, rows);
+      if (table.rows.length === 0) throw new Error("有効なデータ行が見つかりません");
+      const analysis = await analyzeJournalCsv(id, table.header, table.rows);
       setImportSuggestions(
         analysis.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 }))
       );
@@ -270,8 +154,10 @@ export default function JournalsPage() {
   };
 
   // ---- 銀行CSV AIインポート state ----
-  type EditableSuggestion = BankCsvSuggestion & { selected: boolean };
+  // statementLineId: 通帳・カード明細のPDFから読んだ行（登録したら行を仕訳済みにする）
+  type EditableSuggestion = BankCsvSuggestion & { selected: boolean; statementLineId?: string };
   const [bankFile, setBankFile] = useState<File | null>(null);
+  const [bankKind, setBankKind] = useState<"bank" | "card">("bank");
   const [bankAnalyzing, setBankAnalyzing] = useState(false);
   const [bankSuggestions, setBankSuggestions] = useState<EditableSuggestion[]>([]);
   const [bankWarnings, setBankWarnings] = useState<string[]>([]);
@@ -283,47 +169,10 @@ export default function JournalsPage() {
   const [reconcileMsg, setReconcileMsg] = useState<string | null>(null);
   const bankInputRef = useRef<HTMLInputElement>(null);
 
-  const parseBankFile = async (file: File): Promise<{ header: string[]; rows: string[][] }> => {
-    const ext = file.name.split(".").pop()?.toLowerCase();
-    if (ext === "csv") {
-      const text = await file.text();
-      const lines = text.replace(/﻿/g, "").split(/\r?\n/).filter((l) => l.trim());
-      if (lines.length === 0) return { header: [], rows: [] };
-      const splitCsv = (line: string) => line.split(",").map((c) => c.trim().replace(/^"|"$/g, ""));
-      return {
-        header: splitCsv(lines[0]),
-        rows: lines.slice(1).map(splitCsv),
-      };
-    }
-    if (ext === "xlsx" || ext === "xlsm") {
-      const ExcelJS = (await import("exceljs")).default;
-      const buffer = await file.arrayBuffer();
-      const wb = new ExcelJS.Workbook();
-      await wb.xlsx.load(buffer);
-      const sheet = wb.worksheets[0];
-      if (!sheet) return { header: [], rows: [] };
-      const allRows: string[][] = [];
-      sheet.eachRow((row) => {
-        const values = row.values as unknown[];
-        const cols: string[] = [];
-        for (let i = 1; i < values.length; i++) {
-          const x = values[i];
-          if (x == null) cols.push("");
-          else if (x instanceof Date) cols.push(x.toISOString().slice(0, 10));
-          else cols.push(String(x));
-        }
-        allRows.push(cols);
-      });
-      if (allRows.length === 0) return { header: [], rows: [] };
-      return { header: allRows[0], rows: allRows.slice(1) };
-    }
-    throw new Error("対応形式: .csv / .xlsx");
-  };
-
-  const handleBankFileSelect = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
+  // AIの取込箱から渡された通帳・カード明細の表（CSV・Excel）をAIで解析する
+  const analyzeBankTable = async (file: File, table: InboxTable, kind: "bank" | "card") => {
     setBankFile(file);
+    setBankKind(kind);
     setBankSuggestions([]);
     setBankWarnings([]);
     setBankParseError(null);
@@ -331,10 +180,8 @@ export default function JournalsPage() {
 
     setBankAnalyzing(true);
     try {
-      const { header, rows } = await parseBankFile(file);
-      if (rows.length === 0) throw new Error("有効なデータ行が見つかりません");
-
-      const analysis = await analyzeBankCsv(id, header, rows);
+      if (table.rows.length === 0) throw new Error("有効なデータ行が見つかりません");
+      const analysis = await analyzeBankCsv(id, table.header, table.rows, { kind });
       setBankSuggestions(
         analysis.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 }))
       );
@@ -344,6 +191,19 @@ export default function JournalsPage() {
     } finally {
       setBankAnalyzing(false);
     }
+  };
+
+  // 通帳・カード明細のPDF（AIの取込箱で行を読み取り、仕訳の候補にしたもの）を表に出す
+  const showStatementSuggestions = (
+    file: File,
+    res: { suggestions: StatementSuggestion[]; warnings: string[]; subtype: "bank" | "card" }
+  ) => {
+    setBankFile(file);
+    setBankKind(res.subtype);
+    setBankParseError(null);
+    setBankResult(null);
+    setBankSuggestions(res.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 })));
+    setBankWarnings(res.warnings);
   };
 
   const handleClearBank = () => {
@@ -375,13 +235,14 @@ export default function JournalsPage() {
           creditAccountCode: s.creditAccountCode,
           amount: s.amount,
           description: s.memo,
+          statementLineId: s.statementLineId ?? null,
         }))
       );
       setBankResult(result);
 
       // 入金消込連携（オプトイン）: 入金(in)行を対象に、取引先を推定して
       // 強マッチの未払い請求書がある場合のみ payments/allocation を作成。
-      if (reconcileOnImport) {
+      if (reconcileOnImport && bankKind === "bank") {
         const deposits = selected
           .filter((s) => s.direction === "in")
           .map((s) => ({ date: s.date, amount: s.amount, description: s.memo || s.description }));
@@ -406,58 +267,6 @@ export default function JournalsPage() {
     } finally {
       setBankImporting(false);
     }
-  };
-
-  const handleReceiptUpload = async () => {
-    if (receiptItems.length === 0 || !user?.id) return;
-    setReceiptUploading(true);
-    setReceiptSummary(null);
-    setOcrError(null);
-
-    let doneCount = 0;
-    let failedCount = 0;
-
-    // 順次処理（並列実行はVercel Functionタイムアウト/レート制限の原因になるため避ける）
-    for (const item of receiptItems) {
-      // status=uploading
-      setReceiptItems((prev) =>
-        prev.map((p) => (p.id === item.id ? { ...p, status: "uploading", error: undefined } : p))
-      );
-
-      try {
-        const formData = new FormData();
-        formData.append("file", item.file);
-        formData.append("client_id", id);
-        formData.append("uploaded_by", user.id);
-        const result = await uploadReceipt(formData);
-
-        // OCR/仕訳はバックグラウンド（await しない）
-        if (item.file.type.startsWith("image/") || item.file.type === "application/pdf") {
-          const fileName = item.file.name;
-          processReceiptOcr(result.id)
-            .then((r) => setReadCounts((prev) => [...prev, { file: fileName, count: r.photo_count ?? 1 }]))
-            .catch((err) => {
-              const msg = err instanceof Error ? err.message : "OCR処理に失敗しました";
-              console.error("OCR/仕訳エラー:", msg);
-              setOcrError(msg);
-            });
-        }
-
-        // アップロード成功 → 欄に残してローディング表示せず即時に消す。
-        // 以降の読取・判定は証憑管理の「処理中」セクションで確認できる。
-        setReceiptItems((prev) => prev.filter((p) => p.id !== item.id));
-        doneCount++;
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : "アップロードに失敗しました";
-        setReceiptItems((prev) =>
-          prev.map((p) => (p.id === item.id ? { ...p, status: "error", error: msg } : p))
-        );
-        failedCount++;
-      }
-    }
-
-    setReceiptSummary({ done: doneCount, failed: failedCount });
-    setReceiptUploading(false);
   };
 
   // Load accounts from DB
@@ -833,257 +642,21 @@ export default function JournalsPage() {
             仕訳入力
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            仕訳の手入力・領収書からのAI仕訳・CSV/銀行明細の取込
+            写真・PDF・CSV・Excel をAIで取り込む／仕訳の手入力
           </p>
         </div>
       </div>
 
-      {/* 領収書アップロード（複数ファイル対応） */}
-      <Card className="mb-6 border-dashed border-primary/40">
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between gap-2">
-            <CardTitle className="text-base flex items-center gap-2">
-              <Receipt className="size-5 text-primary" />
-              領収書アップロード
-              {receiptItems.length > 0 && (
-                <span className="text-xs font-normal text-muted-foreground">
-                  （{receiptItems.length}件）
-                </span>
-              )}
-            </CardTitle>
-            {receiptItems.length > 0 && !receiptUploading && (
-              <button
-                onClick={handleClearAllReceipts}
-                className="text-xs text-muted-foreground hover:text-destructive"
-              >
-                すべてクリア
-              </button>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <input
-            ref={receiptInputRef}
-            type="file"
-            accept="image/jpeg,image/png,application/pdf"
-            multiple
-            onChange={handleReceiptFileSelect}
-            className="hidden"
-          />
-          {/* モバイルのカメラ撮影用（capture でリアカメラを起動） */}
-          <input
-            ref={cameraInputRef}
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={handleReceiptFileSelect}
-            className="hidden"
-          />
+      {/* AIで取り込む（写真・PDF・CSV・Excel をまとめて入れる1つの箱） */}
+      <AiInbox
+        clientId={id}
+        canWrite={clientRole?.canWrite ?? true}
+        onTable={(kind, file, table) => (kind === "journal" ? analyzeJournalTable(file, table) : analyzeBankTable(file, table, kind))}
+        onStatement={showStatementSuggestions}
+      />
 
-          <div className="flex flex-col md:flex-row gap-4">
-            <div className="flex-1 min-w-0">
-              {/* Drop zone（常時表示、追加可能） */}
-              <div
-                className={cn(
-                  "flex items-center justify-center gap-3 p-4 cursor-pointer transition-all rounded-lg",
-                  "border-2 border-dashed",
-                  receiptDragOver
-                    ? "border-primary bg-primary/10"
-                    : "border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
-                )}
-                onClick={() => receiptInputRef.current?.click()}
-                onDragOver={handleReceiptDragOver}
-                onDragLeave={handleReceiptDragLeave}
-                onDrop={handleReceiptDrop}
-              >
-                <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                  <Upload className="size-5" />
-                </div>
-                <div>
-                  <p className="text-sm font-medium text-foreground">
-                    {receiptItems.length > 0
-                      ? "ファイルを追加（クリックまたはドラッグ&ドロップ）"
-                      : "クリックまたはドラッグ&ドロップで選択（複数可）"}
-                  </p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    JPG, PNG, PDF対応 / 各最大10MB / 1PDF内の複数レシートも自動分割
-                  </p>
-                </div>
-              </div>
-
-              {/* 写真を撮る（スマホでカメラ起動。PCでもファイル選択にフォールバック） */}
-              <button
-                type="button"
-                onClick={() => cameraInputRef.current?.click()}
-                className="mt-2 w-full flex items-center justify-center gap-2 p-2.5 rounded-lg border border-primary/40 bg-primary/5 text-primary text-sm font-medium hover:bg-primary/10 transition-colors sm:hidden"
-              >
-                <Camera className="size-4" />
-                写真を撮る
-              </button>
-
-              {/* ファイル一覧 */}
-              {receiptItems.length > 0 && (
-                <ul className="mt-3 space-y-2 max-h-60 overflow-y-auto">
-                  {receiptItems.map((item) => (
-                    <li
-                      key={item.id}
-                      className={cn(
-                        "flex items-center gap-3 p-2 rounded-lg border",
-                        item.status === "done"
-                          ? "border-emerald-500/30 bg-emerald-500/5"
-                          : item.status === "error"
-                          ? "border-destructive/30 bg-destructive/5"
-                          : item.status === "uploading"
-                          ? "border-primary/30 bg-primary/5"
-                          : "border-border bg-muted/30"
-                      )}
-                    >
-                      {item.previewUrl ? (
-                        <img
-                          src={item.previewUrl}
-                          alt=""
-                          className="size-10 object-cover rounded shrink-0"
-                        />
-                      ) : (
-                        <FileText className="size-8 text-primary shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-medium truncate">{item.file.name}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {(item.file.size / 1024).toFixed(0)} KB
-                          {item.error && ` — ${item.error}`}
-                        </p>
-                      </div>
-                      <div className="shrink-0 flex items-center gap-1.5">
-                        {item.status === "uploading" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-primary/10 text-primary border border-primary/20">
-                            <Loader2 className="size-3 animate-spin" />
-                            処理中
-                          </span>
-                        ) : item.status === "done" ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-success border border-emerald-500/20">
-                            <Check className="size-3" />
-                            完了
-                          </span>
-                        ) : item.status === "error" ? (
-                          <>
-                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-destructive/10 text-destructive border border-destructive/20">
-                              <AlertTriangle className="size-3" />
-                              エラー
-                            </span>
-                            <button
-                              onClick={() => handleRemoveReceiptItem(item.id)}
-                              className="size-5 rounded-full bg-destructive/10 text-destructive flex items-center justify-center hover:bg-destructive/20"
-                            >
-                              <X className="size-3" />
-                            </button>
-                          </>
-                        ) : (
-                          <>
-                            {receiptUploading && (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-muted/40 text-muted-foreground border border-border">
-                                待機中
-                              </span>
-                            )}
-                            {!receiptUploading && (
-                              <button
-                                onClick={() => handleRemoveReceiptItem(item.id)}
-                                className="size-6 rounded-full bg-foreground/70 text-background flex items-center justify-center"
-                              >
-                                <X className="size-3.5" />
-                              </button>
-                            )}
-                          </>
-                        )}
-                      </div>
-                    </li>
-                  ))}
-                </ul>
-              )}
-            </div>
-
-            {/* Upload button */}
-            <div className="flex items-end shrink-0">
-              <Button
-                size="sm"
-                onClick={handleReceiptUpload}
-                disabled={receiptItems.length === 0 || receiptUploading}
-              >
-                {receiptUploading ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" />
-                    処理中...
-                  </>
-                ) : (
-                  <>
-                    <Upload className="size-4" />
-                    {receiptItems.length > 1 ? `${receiptItems.length}件アップロード` : "アップロード"}
-                  </>
-                )}
-              </Button>
-            </div>
-          </div>
-
-          {receiptItems.length > 0 && (
-            <p className="mt-3 text-xs text-muted-foreground">
-              ※ 発行（自社発行）／受領（取引先から受取）の区分はAIが書類から自動判定します。判定結果は証憑管理で確認・修正できます。
-            </p>
-          )}
-
-          {/* Summary */}
-          {ocrError && (
-            <div className="mt-3 p-2.5 rounded-lg flex items-start gap-2 bg-destructive/10 border border-destructive/20">
-              <AlertTriangle className="size-4 shrink-0 text-destructive mt-0.5" />
-              <div className="flex-1 min-w-0">
-                <p className="text-sm font-semibold text-destructive">OCR処理エラー</p>
-                <p className="text-xs text-destructive/80 break-all">{ocrError}</p>
-              </div>
-              <button onClick={() => setOcrError(null)} className="shrink-0 text-destructive/60 hover:text-destructive">
-                <X className="size-3.5" />
-              </button>
-            </div>
-          )}
-          {receiptSummary && (
-            <div className={cn(
-              "mt-3 p-2.5 rounded-lg flex items-center justify-between",
-              receiptSummary.failed > 0
-                ? "bg-amber-500/10 border border-amber-500/20"
-                : "bg-emerald-500/10 border border-emerald-500/20"
-            )}>
-              <div className="flex items-center gap-2">
-                {receiptSummary.failed > 0 ? (
-                  <AlertTriangle className="size-4 shrink-0 text-warning" />
-                ) : (
-                  <Check className="size-4 shrink-0 text-success" />
-                )}
-                <p className="text-sm">
-                  {receiptSummary.done} 件アップロード完了
-                  {receiptSummary.failed > 0 && ` / ${receiptSummary.failed} 件失敗`}
-                  {receiptSummary.done > 0 && " — 証憑管理の「処理中」で読取・判定中です"}
-                </p>
-              </div>
-              <Link
-                href={`/clients/${id}/receipts`}
-                className="text-xs font-bold text-primary hover:underline shrink-0"
-              >
-                領収書管理で確認 →
-              </Link>
-            </div>
-          )}
-          {readCounts.length > 0 && (
-            <div className="mt-2 rounded-lg border border-primary/30 bg-primary/5 px-3 py-1.5 text-xs text-foreground space-y-0.5">
-              {readCounts.map((r, k) => (
-                <p key={k}>
-                  「{r.file}」から <b>{r.count}件</b> のレシート・書類を読み取りました。
-                  {r.count > 1 && " 写っている枚数と合っているか確かめてください。"}
-                </p>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      {/* CSV/Excel AI仕訳インポート */}
+      {/* CSV/Excel AI仕訳インポート（AIで取り込む箱に仕訳の表を入れたとき） */}
+      {(importFile || importResult) && (
       <Card className="mb-6 border-dashed border-primary/40">
         <CardHeader className="pb-3">
           <div className="flex items-center justify-between gap-2">
@@ -1109,13 +682,7 @@ export default function JournalsPage() {
           </p>
         </CardHeader>
         <CardContent>
-          <input
-            ref={importInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xlsm"
-            onChange={handleImportFileSelect}
-            className="hidden"
-          />
+
 
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 min-w-0">
@@ -1139,24 +706,7 @@ export default function JournalsPage() {
                     </button>
                   )}
                 </div>
-              ) : (
-                <div
-                  className="flex items-center justify-center gap-3 p-6 cursor-pointer transition-all rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
-                  onClick={() => importInputRef.current?.click()}
-                >
-                  <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Upload className="size-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      クリックしてCSV / Excelファイルを選択
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      フォーマット自由 / AIが列を自動判別・勘定科目を解決
-                    </p>
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
 
             <div className="flex items-end shrink-0">
@@ -1344,30 +894,28 @@ export default function JournalsPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
-      {/* 銀行取引CSV → AI仕訳 */}
+      {/* 通帳・カード明細 → AI仕訳（AIで取り込む箱に CSV・Excel・PDF の明細を入れたとき） */}
+      {(bankFile || bankResult) && (
       <Card className="mb-6 border-dashed border-primary/40">
         <CardHeader className="pb-3">
           <CardTitle className="text-base flex items-center gap-2">
             <Banknote className="size-5 text-primary" />
-            銀行取引CSV
+            {bankKind === "card" ? "カード明細" : "銀行明細"}
             <span className="inline-flex items-center gap-1 text-xs font-normal text-primary bg-primary/10 rounded px-1.5 py-0.5">
               <Sparkles className="size-3" />
               AI仕訳
             </span>
           </CardTitle>
           <p className="text-muted-foreground text-xs mt-1">
-            銀行明細のCSV/Excel（フォーマット任意・最大50行）をアップロードすると、AIが摘要を解析して仕訳を自動提案します。
+            {bankKind === "card"
+              ? "カードの利用明細からAIが仕訳の候補を作りました（相手は未払金）。確かめて、登録する行を選んでください。"
+              : "通帳・入出金明細からAIが仕訳の候補を作りました。確かめて、登録する行を選んでください（CSVは1回50行まで）。"}
           </p>
         </CardHeader>
         <CardContent>
-          <input
-            ref={bankInputRef}
-            type="file"
-            accept=".csv,.xlsx,.xlsm"
-            onChange={handleBankFileSelect}
-            className="hidden"
-          />
+
 
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 min-w-0">
@@ -1391,35 +939,18 @@ export default function JournalsPage() {
                     </button>
                   )}
                 </div>
-              ) : (
-                <div
-                  className="flex items-center justify-center gap-3 p-6 cursor-pointer transition-all rounded-lg border-2 border-dashed border-muted-foreground/30 bg-muted/20 hover:border-primary/50 hover:bg-muted/30"
-                  onClick={() => bankInputRef.current?.click()}
-                >
-                  <div className="size-10 rounded-full bg-primary/10 flex items-center justify-center text-primary shrink-0">
-                    <Upload className="size-5" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">
-                      銀行明細CSV / Excel ファイルを選択
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-0.5">
-                      列の並びは自由 / 日付・摘要・金額が含まれていればAIが自動マッピング
-                    </p>
-                  </div>
-                </div>
-              )}
+              ) : null}
             </div>
 
             <div className="flex flex-col items-stretch justify-end shrink-0 gap-2">
-              <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
+              {bankKind === "bank" && <label className="flex items-center gap-1.5 text-xs text-muted-foreground cursor-pointer">
                 <input
                   type="checkbox"
                   checked={reconcileOnImport}
                   onChange={(e) => setReconcileOnImport(e.target.checked)}
                 />
                 入金行を入金消込にも登録
-              </label>
+              </label>}
               <Button
                 size="sm"
                 onClick={handleBankImport}
@@ -1604,6 +1135,7 @@ export default function JournalsPage() {
           )}
         </CardContent>
       </Card>
+      )}
 
       {/* 新規仕訳フォーム（常時表示） */}
       <Card className="mb-6 border-primary/30">
@@ -1781,6 +1313,39 @@ export default function JournalsPage() {
                     </tr>
                   </tbody>
                 </table>
+                </div>
+              );
+            })()}
+
+            {/* 個人への報酬（士業・デザイナー・講師など）は、源泉徴収税を差し引いて払う */}
+            {(() => {
+              const fee = debitLines.find((l) => l.account && FEE_ACCOUNT.test(accountName(l.account)) && parseAmount(l.amount) > 0);
+              const wAcc = pickWithholdingAccount(accounts);
+              if (!fee || creditLines.some((l) => l.account && wAcc && l.account === wAcc.id)) return null;
+              const tax = withholdingOnFee(parseAmount(fee.amount));
+              const payIdx = creditLines.findIndex((l) => l.account && parseAmount(l.amount) > tax);
+              return (
+                <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-info">
+                  <span>
+                    「{accountName(fee.account)}」を個人に払うときは、源泉徴収税 <b className="font-mono">{formatCurrency(tax)}</b>（10.21%。100万円を超える部分は20.42%）を差し引きます。
+                  </span>
+                  {wAcc && payIdx >= 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCreditLines((prev) => [
+                          ...prev.map((l, i) => (i === payIdx ? { ...l, amount: String(parseAmount(l.amount) - tax) } : l)),
+                          { ...newLine(), account: wAcc.id, amount: String(tax) },
+                        ]);
+                        setMemos((prev) => (prev.length < creditLines.length + 1 ? [...prev, ""] : prev));
+                      }}
+                      className="rounded-md bg-info px-2.5 py-1 text-xs font-bold text-info-foreground hover:opacity-90"
+                    >
+                      預り金として差し引く
+                    </button>
+                  ) : (
+                    <span className="text-xs">（{wAcc ? "支払う側の行の金額を先に入れてください" : "勘定科目に「預り金」がありません"}）</span>
+                  )}
                 </div>
               );
             })()}

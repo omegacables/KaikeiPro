@@ -120,7 +120,7 @@ export async function processReceiptOcr(
       {
         text: `${isPdf ? "このPDF" : "この画像"}に含まれる領収書・書類を全て読み取り、以下のJSON形式で返してください。値が不明な場合はnullにしてください。JSONのみ返し、説明文は不要です。
 
-{"receipts":[{"box":[上,左,下,右],"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"適格請求書発行事業者の登録番号 T+13桁のみ。無ければnull","document_number":"請求書番号・領収書No等の一般書類番号（登録番号以外）。無ければnull","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|purchase_order|goods_receipt|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","confidence":0.0-1.0}]}
+{"receipts":[{"box":[上,左,下,右],"date":"YYYY-MM-DD","vendor_name":"店名・発行者","amount_total":合計金額数値,"amount_tax_excluded":税抜金額数値,"tax_amount":税額数値,"tax_rate":税率小数,"currency":"JPY等","items":["品目"],"invoice_number":"適格請求書発行事業者の登録番号 T+13桁のみ。無ければnull","document_number":"請求書番号・領収書No等の一般書類番号（登録番号以外）。無ければnull","document_type":"qualified_invoice|category_invoice|receipt|statement|delivery_note|purchase_order|goods_receipt|estimate|contract|other","payment_method":"cash|card|e_money|bank_transfer|null","direction":"issued|received","guest_count":人数数値またはnull,"withholding_tax":源泉徴収税額数値またはnull,"sales_report":true|false,"sales_breakdown":{"cash":数値,"card":数値,"e_money":数値,"other":数値,"rate10":数値,"rate8":数値}またはnull,"legibility":"clear|partly_unclear|unreadable","unclear_fields":["読み取りにくかった項目"],"confidence":0.0-1.0}]}
 
 document_typeの判定基準:
 - qualified_invoice: T+13桁の登録番号がある請求書
@@ -146,6 +146,14 @@ direction（自社「${clientName || "名称不明"}」基準）:
 - received: 取引先から受領（宛名に自社名、または判断不能）
 
 payment_method: cash=現金/釣銭あり、card=クレジット/デビット、e_money=電子マネー/QR決済、bank_transfer=振込
+
+追加の項目:
+- guest_count: 飲食店のレシートに「人数」「客数」「お客様○名」などの印字があればその数。無ければ null（推測しない）
+- withholding_tax: 請求書・支払調書に「源泉徴収税額」「源泉所得税」の記載があればその額。無ければ null
+- sales_report: レジ締め・Zレポート・売上日報・精算レポートなど、自社の売上を集計した書類なら true（このとき direction は issued）。それ以外は false
+- sales_breakdown: sales_report が true のとき、税込の売上を入金の方法ごと（cash=現金、card=クレジット、e_money=電子マネー・QR、other=売掛・その他）と、税率ごと（rate10=10%、rate8=軽減8%）に。読めない欄は 0。sales_report が false なら null
+- legibility: 文字がはっきり読めるなら clear、一部がぼやけ・かすれ・影・写りきっていない箇所があるなら partly_unclear、日付や金額が読めないなら unreadable
+- unclear_fields: 読み取りに自信がない項目の名前（例: "金額", "日付", "店名", "登録番号"）。無ければ []
 
 複数のレシートが写っている場合はreceipts配列を複数要素にしてください（写真の左上から右下へ、読む順に並べる）。
 box: そのレシートが${isPdf ? "ページ" : "画像"}のどこに写っているか。全体を縦横0〜1000とした [上端, 左端, 下端, 右端] の整数。1件だけで全体に写っているなら [0,0,1000,1000]。`,
@@ -261,6 +269,16 @@ box: そのレシートが${isPdf ? "ページ" : "画像"}のどこに写って
         amount_jpy: amountJpy,
         document_type: documentType,
         box: parseBox(parsed.box),
+        guest_count: positiveInt(parsed.guest_count),
+        withholding_tax: positiveNumber(parsed.withholding_tax),
+        sales_report: parsed.sales_report === true ? true : undefined,
+        sales_breakdown: parsed.sales_report === true ? parseSalesBreakdown(parsed.sales_breakdown) : undefined,
+        legibility: ["clear", "partly_unclear", "unreadable"].includes(parsed.legibility as string)
+          ? (parsed.legibility as OcrResult["legibility"])
+          : undefined,
+        unclear_fields: Array.isArray(parsed.unclear_fields)
+          ? (parsed.unclear_fields as unknown[]).filter((x): x is string => typeof x === "string").slice(0, 10)
+          : undefined,
       };
       return { ocrResult, detectedPayment, documentType };
     };
@@ -344,8 +362,8 @@ box: そのレシートが${isPdf ? "ページ" : "画像"}のどこに写って
       const updateData: Record<string, unknown> = {
         ocr_result: ocrResult as unknown as import("@/types/database").Json,
         status: "ocr_done",
-        // AI判定: 発行(自社発行) / 受領(取引先から受領)。不明時は received
-        direction: parsed.direction === "issued" ? "issued" : "received",
+        // AI判定: 発行(自社発行) / 受領(取引先から受領)。不明時は received。売上日報は自社の売上なので発行
+        direction: parsed.direction === "issued" || parsed.sales_report === true ? "issued" : "received",
         document_type: documentType ?? null,
       };
       if (!receipt.payment_method && detectedPayment) {
@@ -362,6 +380,19 @@ box: そのレシートが${isPdf ? "ページ" : "画像"}のどこに写って
       }
 
       console.log(`[ocr] OCR完了 (${i + 1}/${receiptsArray.length}): ${currentId}`);
+
+      // 仕訳にしない書類: 読み取れないもの（推測の金額で仕訳を作らない）、明細書（行ごとに仕訳にする。
+      // 合計で1本の仕訳を作ると二重計上になる）、見積書・契約書（お金が動いていない）。
+      // これらは AIの取込箱の要確認ボックスで聞くか、明細の取込で仕訳にする
+      const skipJournal =
+        ocrResult.legibility === "unreadable" ||
+        documentType === "statement" ||
+        documentType === "estimate" ||
+        documentType === "contract";
+      if (skipJournal) {
+        console.log(`[ocr] 仕訳を作らない書類のため提案を省略 (${currentId}): ${ocrResult.legibility ?? ""} ${documentType ?? ""}`);
+        continue;
+      }
 
       // 仕訳提案は別途 try/catch — 失敗しても OCR 結果は保持する
       try {
@@ -435,6 +466,28 @@ export async function updateOcrResult(
     .eq("id", receiptId);
 
   return merged;
+}
+
+/** 1以上の整数（人数など）。それ以外は undefined */
+function positiveInt(v: unknown): number | undefined {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 1 && n <= 10_000 ? Math.floor(n) : undefined;
+}
+
+/** 0より大きい数（税額など）。それ以外は undefined */
+function positiveNumber(v: unknown): number | undefined {
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? Math.round(n) : undefined;
+}
+
+function parseSalesBreakdown(v: unknown): OcrResult["sales_breakdown"] {
+  if (!v || typeof v !== "object") return undefined;
+  const o = v as Record<string, unknown>;
+  const num = (k: string) => {
+    const n = Number(o[k]);
+    return Number.isFinite(n) && n > 0 ? Math.round(n) : 0;
+  };
+  return { cash: num("cash"), card: num("card"), e_money: num("e_money"), other: num("other"), rate10: num("rate10"), rate8: num("rate8") };
 }
 
 /** AIが返したレシートの位置 [上, 左, 下, 右]（0〜1000）を確かめる。おかしければ持たない */

@@ -194,6 +194,25 @@ export interface OcrResult {
   /** 同じ写真から読み取ったうちの何件目か・全部で何件か */
   photo_index?: number;
   photo_count?: number;
+  /** 飲食のレシートに印字された人数・客数（交際費の1人当たりの判定に使う） */
+  guest_count?: number;
+  /** 読み取りやすさ。unreadable は金額などが読めない、partly_unclear は一部がぼやけている */
+  legibility?: "clear" | "partly_unclear" | "unreadable";
+  /** 読み取りにくかった項目（例: ["金額", "日付"]） */
+  unclear_fields?: string[];
+  /** 請求書に書かれた源泉徴収税額（士業・デザイナーなど個人への報酬） */
+  withholding_tax?: number;
+  /** レジ締め・売上日報など、自社の1日（期間）の売上の集計 */
+  sales_report?: boolean;
+  /** 売上日報の内訳（税込）。入金の方法ごと・税率ごと */
+  sales_breakdown?: {
+    cash?: number;
+    card?: number;
+    e_money?: number;
+    other?: number;
+    rate10?: number;
+    rate8?: number;
+  };
 }
 
 // ===== 明細書の行データ =====
@@ -224,6 +243,8 @@ export interface AiJournalSuggestion {
   lines: AiJournalLine[];
   confidence: number;
   reasoning?: string;
+  /** 判断に迷った点の、利用者への短い質問（無ければ null）。AIの取込箱の要確認に出す */
+  question?: string | null;
 }
 
 export interface AiJournalLine {
@@ -233,6 +254,10 @@ export interface AiJournalLine {
   credit_amount: number;
   tax_category?: string;
   tax_rate?: number;
+  /** 交際費の区分・参加人数・相手（src/lib/entertainment.ts） */
+  entertainment_kind?: string | null;
+  attendees?: number | null;
+  attendee_note?: string | null;
 }
 
 // ===== 銀行口座 =====

@@ -27,10 +27,13 @@ function inferPlClassification(
   name: string
 ): PlClassification | null {
   if (category === "revenue") {
+    // 固定資産の売却益は特別利益（売上高に入れると営業利益が膨らむ）
+    if (/固定資産売却益/.test(name)) return "extraordinary_gain";
     if (/利息|配当|雑収入|為替差益|有価証券/.test(name)) return "non_op_revenue";
     return "sales";
   }
   if (category === "expense") {
+    if (/固定資産売却損|固定資産除却損/.test(name)) return "extraordinary_loss";
     if (/法人税|住民税|事業税/.test(name)) return "tax";
     if (/仕入|売上原価|期首商品|期末商品/.test(name)) return "cogs";
     if (/支払利息|為替差損|有価証券|手形売却損/.test(name)) return "non_op_expense";

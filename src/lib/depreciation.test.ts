@@ -5,6 +5,7 @@ import {
   serviceMonths,
   rateInfo,
   straightLineOnlyReason,
+  usedAssetUsefulLife,
   type ScheduleAsset,
   type SchedulePeriod,
 } from "./depreciation";
@@ -273,3 +274,37 @@ describe("特別償却不足額の繰越", () => {
   });
 });
 
+describe("中古資産の耐用年数（簡便法）", () => {
+  const years = (statutory: number, elapsedMonths: number) => usedAssetUsefulLife(statutory, elapsedMonths)?.years;
+
+  it("一部を経過: （法定耐用年数 − 経過年数）＋ 経過年数 × 20%。月数で計算して1年未満は切り捨て", () => {
+    // 普通自動車6年・経過2年6か月: (72 − 30) + 30 × 0.2 = 48か月 → 4年
+    expect(usedAssetUsefulLife(6, 30)).toEqual({ years: 4, months: 48, fullyElapsed: false });
+    // 6年・経過3年: 36 + 7.2 = 43.2か月 → 3年
+    expect(usedAssetUsefulLife(6, 36)).toEqual({ years: 3, months: 43.2, fullyElapsed: false });
+    // 木造の建物22年・経過10年: 144 + 24 = 168か月 → 14年
+    expect(years(22, 120)).toBe(14);
+    // 経過1か月でも、端数の切り捨てで1年短くなる: 119 + 0.2 = 119.2か月 → 9年
+    expect(years(10, 1)).toBe(9);
+    // 経過していなければ法定耐用年数のまま
+    expect(years(6, 0)).toBe(6);
+  });
+
+  it("全部を経過: 法定耐用年数 × 20%。2年に満たなければ2年", () => {
+    // 木造の建物22年・経過25年: 22 × 0.2 = 4.4年 → 4年
+    expect(usedAssetUsefulLife(22, 300)).toEqual({ years: 4, months: 52.8, fullyElapsed: true });
+    // ちょうど法定耐用年数を経過したときも「全部を経過」
+    expect(usedAssetUsefulLife(6, 72)?.fullyElapsed).toBe(true);
+    // 普通自動車6年・経過7年: 1.2年 → 1年 → 2年
+    expect(years(6, 84)).toBe(2);
+    // 軽自動車4年・経過4年: 0.8年 → 2年
+    expect(years(4, 48)).toBe(2);
+  });
+
+  it("読み取れない入力は計算しない", () => {
+    expect(usedAssetUsefulLife(0, 10)).toBeNull();
+    expect(usedAssetUsefulLife(6, -1)).toBeNull();
+    expect(usedAssetUsefulLife(6, 1.5)).toBeNull();
+    expect(usedAssetUsefulLife(Number.NaN, 10)).toBeNull();
+  });
+});

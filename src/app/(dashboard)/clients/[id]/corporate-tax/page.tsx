@@ -144,7 +144,16 @@ export default function CorporateTaxPage() {
             <div className="flex flex-wrap gap-x-6 gap-y-1 text-muted-foreground">
               <span>当期利益 <b className="text-foreground font-mono">{fmt(view.books.netIncome)}</b></span>
               <span>「法人税」を含む費用科目 <b className="text-foreground font-mono">{fmt(view.books.taxExpenseBooked)}</b></span>
-              <span>交際費 <b className="text-foreground font-mono">{fmt(view.books.entertainment)}</b></span>
+              <span>
+                交際費 <b className="text-foreground font-mono">{fmt(view.books.entertainment)}</b>
+                {view.books.entertainmentUnderLimit > 0 && (
+                  <>（科目の額 {fmt(view.books.entertainmentBook)} − 1人当たり基準額以下の飲食 {fmt(view.books.entertainmentUnderLimit)}）</>
+                )}
+                {view.books.entertainmentDiningFromBooks !== null && <>・うち接待飲食費 <b className="text-foreground font-mono">{fmt(view.books.entertainmentDiningFromBooks)}</b></>}
+                <a href={`/clients/${id}/settings?tab=entertainment`} className="ml-1 text-primary underline underline-offset-2">
+                  交際費の明細・設定
+                </a>
+              </span>
               <span>償却超過額 <b className="text-foreground font-mono">{fmt(view.books.depreciationExcess)}</b>・認容額 <b className="text-foreground font-mono">{fmt(view.books.depreciationAllowed)}</b>（固定資産台帳）</span>
             </div>
           </Card>
@@ -324,11 +333,12 @@ function InputsCard({ view, clientId, canWrite, onSaved }: { view: CorporateRetu
               {money(f.withholdingTax, (n) => setF({ ...f, withholdingTax: n }))}
             </label>
             <label>
-              {label("接待飲食費", "（50%基準と比べるとき）")}
+              {label("接待飲食費", view.books.entertainmentDiningFromBooks !== null ? "（空なら帳簿の区分の合計）" : "（50%基準と比べるとき）")}
               <AmountInput
                 value={f.entertainmentDining == null ? "" : String(f.entertainmentDining)}
                 onChange={(v) => setF({ ...f, entertainmentDining: v === "" ? null : toNum(v) })}
                 className={cn(fieldCls, "text-right")}
+                placeholder={view.books.entertainmentDiningFromBooks !== null ? view.books.entertainmentDiningFromBooks.toLocaleString() : undefined}
                 disabled={disabled}
               />
             </label>

@@ -27,7 +27,8 @@ const R = "台帳・取引先";
 const M = "マスタ・設定";
 
 export const FEATURES: Feature[] = [
-  { label: "仕訳入力", reading: "しわけにゅうりょく", path: "/journals", where: D, keywords: ["新規仕訳", "仕訳登録", "手入力", "CSV取込", "銀行明細", "一括登録", "連想"] },
+  { label: "仕訳入力", reading: "しわけにゅうりょく", path: "/journals", where: D, keywords: ["新規仕訳", "仕訳登録", "手入力", "CSV取込", "銀行明細", "一括登録", "連想", "AIで取り込む", "通帳PDF", "カード明細", "要確認ボックス", "AIに相談", "チャット", "音声入力", "源泉徴収", "売上日報", "レジ締め"] },
+  { label: "定期仕訳", reading: "ていきしわけ", path: "/recurring", where: D, keywords: ["くり返し", "繰り返し", "毎月", "自動作成", "家賃", "リース料", "顧問料", "保険料", "役員報酬", "ローン返済", "サブスク", "家賃収入"] },
   { label: "証憑管理", reading: "しょうひょうかんり", path: "/documents", where: D, keywords: ["証憑", "アップロード", "OCR", "読み取り", "スキャン"] },
   { label: "領収書・請求書（受領）", reading: "りょうしゅうしょせいきゅうしょじゅりょう", path: "/documents?tab=received", where: `${D} ＞ 証憑管理`, keywords: ["領収書", "レシート", "受け取った請求書", "経費"] },
   { label: "領収書・請求書（発行）", reading: "りょうしゅうしょせいきゅうしょはっこう", path: "/documents?tab=issued", where: `${D} ＞ 証憑管理`, keywords: ["請求書", "請求書作成", "インボイス", "発行"] },
@@ -70,6 +71,7 @@ export const FEATURES: Feature[] = [
   { label: "私的利用の按分", reading: "してきりようのあんぶん", path: "/allocations", where: M, keywords: ["按分", "家事按分", "役員の私的利用", "家事関連費"] },
   { label: "決算月の設定", reading: "けっさんづきのせってい", path: "/settings?tab=fiscal", where: `${M} ＞ 設定`, keywords: ["決算月", "事業年度", "決算月の変更"] },
   { label: "消費税の設定", reading: "しょうひぜいのせってい", path: "/settings?tab=tax", where: `${M} ＞ 設定`, keywords: ["課税事業者", "免税事業者", "本則課税", "簡易課税", "税率別内訳"] },
+  { label: "交際費・業種の設定", reading: "こうさいひぎょうしゅのせってい", path: "/settings?tab=entertainment", where: `${M} ＞ 設定`, keywords: ["交際費", "接待交際費", "会議費", "1人当たり", "1万円", "業種", "接待飲食費", "別表十五", "損金不算入"] },
   { label: "e-Tax の提出情報", reading: "いーたっくすのていしゅつじょうほう", path: "/settings?tab=etax", where: `${M} ＞ 設定`, keywords: ["e-Tax", "税務署", "利用者識別番号", "法人番号"] },
   { label: "給与の設定", reading: "きゅうよのせってい", path: "/settings?tab=payroll", where: `${M} ＞ 設定`, keywords: ["給料日"] },
   { label: "会社書類", reading: "かいしゃしょるい", path: "/settings?tab=company_documents", where: `${M} ＞ 設定`, keywords: ["定款", "登記簿", "議事録", "許認可"] },

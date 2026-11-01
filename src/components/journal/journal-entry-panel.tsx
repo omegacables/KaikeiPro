@@ -53,6 +53,7 @@ const SOURCE_LABEL: Record<string, string> = {
   card: "カード",
   payment: "入金消込",
   closing: "決算",
+  recurring: "定期仕訳",
 };
 
 export function JournalEntryPanel({

@@ -167,6 +167,10 @@ export async function updateJournalEntryWithLines(
     purchase_use?: "taxable" | "non_taxable" | "common" | null;
     /** 売上の事業区分（簡易課税、1〜6）。省略したら今の行の値を引き継ぐ */
     business_type?: number | null;
+    /** 交際費の区分・参加人数・相手（src/lib/entertainment.ts）。省略したら今の行の値を引き継ぐ */
+    entertainment_kind?: JournalLineInsert["entertainment_kind"];
+    attendees?: number | null;
+    attendee_note?: string | null;
   }[]
 ): Promise<void> {
   const clientId = await resolveClientIdForRecord("journal_entries", id);
@@ -204,10 +208,17 @@ export async function updateJournalEntryWithLines(
   // 同じ位置で同じ科目の行、無ければ同じ科目の最初の行の値を使う
   const { data: oldLines } = await admin
     .from("journal_entry_lines")
-    .select("account_id, purchase_use, business_type, sort_order")
+    .select("account_id, purchase_use, business_type, entertainment_kind, attendees, attendee_note, sort_order")
     .eq("journal_entry_id", id)
     .order("sort_order");
-  type Old = { account_id: string; purchase_use: "taxable" | "non_taxable" | "common" | null; business_type: number | null };
+  type Old = {
+    account_id: string;
+    purchase_use: "taxable" | "non_taxable" | "common" | null;
+    business_type: number | null;
+    entertainment_kind: JournalLineInsert["entertainment_kind"];
+    attendees: number | null;
+    attendee_note: string | null;
+  };
   const olds = (oldLines ?? []) as Old[];
   const inherit = (l: (typeof lines)[number], i: number): Old | undefined =>
     (olds[i]?.account_id === l.account_id ? olds[i] : undefined) ?? olds.find((o) => o.account_id === l.account_id);
@@ -234,6 +245,11 @@ export async function updateJournalEntryWithLines(
             : null,
         business_type:
           type === "revenue" ? (l.business_type !== undefined ? l.business_type : prev?.business_type ?? null) : null,
+        // 交際費の区分・人数は費用の行にだけ残す
+        entertainment_kind:
+          type === "expenses" ? (l.entertainment_kind !== undefined ? l.entertainment_kind : prev?.entertainment_kind ?? null) : null,
+        attendees: type === "expenses" ? (l.attendees !== undefined ? l.attendees : prev?.attendees ?? null) : null,
+        attendee_note: type === "expenses" ? (l.attendee_note !== undefined ? l.attendee_note : prev?.attendee_note ?? null) : null,
       };
     })
     .filter((l) => l.account_id && (l.debit_amount > 0 || l.credit_amount > 0));

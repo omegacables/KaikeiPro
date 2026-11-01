@@ -33,6 +33,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { corporateTaxXml } from "@/lib/etax-hojin-xml";
 import { missingFilerInfo } from "@/lib/etax-xml";
 import { loadFiler } from "@/lib/etax-filer";
+import { loadEntertainmentForReturn } from "@/actions/entertainment";
 import { getDepreciationBook } from "@/actions/assets";
 import { getShareholderRegister } from "@/actions/shareholders";
 
@@ -67,7 +68,18 @@ export type CorporateReturnView = {
   /** 前期の申告から引き継いだか */
   carriedFromPrior: boolean;
   /** 帳簿から集めた数字 */
-  books: { netIncome: number; taxExpenseBooked: number; entertainment: number; depreciationExcess: number; depreciationAllowed: number };
+  books: {
+    netIncome: number;
+    taxExpenseBooked: number;
+    entertainment: number;
+    /** 交際費の科目の帳簿の額と、うち1人当たり基準額以下の飲食として除いた額 */
+    entertainmentBook: number;
+    entertainmentUnderLimit: number;
+    /** 帳簿の行に付けた接待飲食費の合計（区分を付けていなければ null） */
+    entertainmentDiningFromBooks: number | null;
+    depreciationExcess: number;
+    depreciationAllowed: number;
+  };
   result: CorporateTaxReturn;
 };
 
@@ -158,7 +170,15 @@ const emptyInputs = (clientCapital: number | null): CorporateReturnInputs => ({
 
 /** 帳簿（試算表・固定資産台帳）から、申告書に使う数字を集める */
 async function loadBooks(clientId: string, p: { startDate: string; endDate: string }) {
-  const [tb, dep] = await Promise.all([getTrialBalance(clientId, p.startDate, p.endDate), getDepreciationBook(clientId, p.startDate)]);
+  const [tb, dep, ent] = await Promise.all([
+    getTrialBalance(clientId, p.startDate, p.endDate),
+    getDepreciationBook(clientId, p.startDate),
+    // 交際費の区分が読めなくても申告書は出す（区分を使わない従来の計算になる）
+    loadEntertainmentForReturn(clientId, p.startDate, p.endDate).catch((e) => {
+      console.error("[corporate-tax-return] 交際費の区分の集計に失敗:", e);
+      return { underLimit: 0, dining: null, noFixedDeduction: false };
+    }),
+  ]);
   let netIncome = 0;
   let taxExpenseBooked = 0;
   let entertainment = 0;
@@ -173,7 +193,12 @@ async function loadBooks(clientId: string, p: { startDate: string; endDate: stri
   return {
     netIncome,
     taxExpenseBooked,
-    entertainment,
+    // 1人当たり基準額以下の飲食は、交際費の科目に付けていても交際費等から除く（src/actions/entertainment.ts）
+    entertainment: entertainment - ent.underLimit,
+    entertainmentBook: entertainment,
+    entertainmentUnderLimit: ent.underLimit,
+    entertainmentDiningFromBooks: ent.dining,
+    entertainmentNoFixedDeduction: ent.noFixedDeduction,
     retainedEarnings: { opening: re ? -re.prevBalance : 0, closingBeforeIncome: re ? -re.currentBalance : 0 },
     depreciation: {
       excess: dep.totals.excess,
@@ -205,7 +230,9 @@ async function compute(clientId: string, p: { startDate: string; endDate: string
     netIncome: books.netIncome,
     taxExpenseBooked: books.taxExpenseBooked,
     entertainment: books.entertainment,
-    entertainmentDining: inputs.entertainmentDining,
+    // 画面で接待飲食費を入れていればそれを、無ければ帳簿の行に付けた区分の合計を使う
+    entertainmentDining: inputs.entertainmentDining ?? books.entertainmentDiningFromBooks,
+    entertainmentNoFixedDeduction: books.entertainmentNoFixedDeduction,
     depreciation: books.depreciation,
     creditAssets: books.creditAssets,
     withholdingTax: inputs.withholdingTax,
@@ -286,6 +313,9 @@ export async function getCorporateTaxReturn(clientId: string, periodKey?: string
       netIncome: books.netIncome,
       taxExpenseBooked: books.taxExpenseBooked,
       entertainment: books.entertainment,
+      entertainmentBook: books.entertainmentBook,
+      entertainmentUnderLimit: books.entertainmentUnderLimit,
+      entertainmentDiningFromBooks: books.entertainmentDiningFromBooks,
       depreciationExcess: books.depreciation.excess,
       depreciationAllowed: books.depreciation.allowed,
     },

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange, Bot, Users, FileCheck2, KeyRound } from "lucide-react";
+import { Settings, Percent, FolderArchive, Shield, Banknote, CalendarRange, Bot, Users, FileCheck2, KeyRound, Wine } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { TaxPageContent } from "../tax/content";
 import { CompanyDocumentsPageContent } from "../company-documents/content";
@@ -12,12 +12,14 @@ import { AiSettingsContent } from "./ai-settings";
 import { MembersSettingsContent } from "./members-settings";
 import { EtaxSettingsContent } from "./etax-settings";
 import { ApiKeysSettingsContent } from "./api-keys-settings";
+import { EntertainmentSettingsContent } from "./entertainment-settings";
 
-type SettingsTab = "fiscal" | "tax" | "etax" | "payroll" | "company_documents" | "members" | "ai" | "api_keys" | "audit";
+type SettingsTab = "fiscal" | "tax" | "entertainment" | "etax" | "payroll" | "company_documents" | "members" | "ai" | "api_keys" | "audit";
 
 const tabs: { key: SettingsTab; label: string; icon: typeof Settings }[] = [
   { key: "fiscal", label: "決算月", icon: CalendarRange },
   { key: "tax", label: "消費税計算", icon: Percent },
+  { key: "entertainment", label: "交際費・業種", icon: Wine },
   { key: "etax", label: "e-Tax", icon: FileCheck2 },
   { key: "payroll", label: "給与", icon: Banknote },
   { key: "company_documents", label: "会社書類", icon: FolderArchive },
@@ -46,7 +48,7 @@ export default function ClientSettingsPage() {
             設定
           </h1>
           <p className="text-muted-foreground text-sm mt-1">
-            決算月・消費税計算・e-Tax の提出情報・給与・会社書類（定款・議事録・台帳など）・メンバーと権限・AIの利用・外部連携（APIキー）・監査ログをまとめて管理します。
+            決算月・消費税計算・交際費と業種の決まり・e-Tax の提出情報・給与・会社書類（定款・議事録・台帳など）・メンバーと権限・AIの利用・外部連携（APIキー）・監査ログをまとめて管理します。
           </p>
         </div>
       </div>
@@ -75,6 +77,7 @@ export default function ClientSettingsPage() {
         <FiscalMonthSettingsContent onOpenDocuments={() => setActiveTab("company_documents")} />
       )}
       {activeTab === "tax" && <TaxPageContent hideHeader />}
+      {activeTab === "entertainment" && <EntertainmentSettingsContent />}
       {activeTab === "etax" && <EtaxSettingsContent />}
       {activeTab === "payroll" && <PayrollSettingsContent />}
       {activeTab === "company_documents" && <CompanyDocumentsPageContent hideHeader />}

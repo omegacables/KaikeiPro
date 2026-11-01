@@ -35,7 +35,9 @@ const MAX_ROWS = 50;
 export async function analyzeBankCsv(
   clientId: string,
   headerRow: string[],
-  dataRows: string[][]
+  dataRows: string[][],
+  /** kind: "card" はクレジットカードの利用明細（相手は預金ではなく未払金） */
+  options: { kind?: "bank" | "card" } = {}
 ): Promise<BankCsvAnalysis> {
   if (dataRows.length === 0) {
     return { suggestions: [], warnings: ["データ行がありません"] };
@@ -85,7 +87,7 @@ export async function analyzeBankCsv(
     .map((row, i) => `${i}: ${row.join(",")}`)
     .join("\n");
 
-  const prompt = `あなたは経理AIアシスタントです。以下の銀行明細CSVから日本の複式簿記の仕訳を提案してください。
+  const prompt = `あなたは経理AIアシスタントです。以下の${options.kind === "card" ? "クレジットカード利用明細" : "銀行明細"}CSVから日本の複式簿記の仕訳を提案してください。
 
 【利用可能な勘定科目（コード | 名称）】
 ${accountList}${learnedBlock}
@@ -108,8 +110,14 @@ ${dataText}
 8. 信頼度 0.0〜1.0
 
 【複式簿記のルール】
-- **出金（"out"）**: 銀行口座から減る = 借方は費用科目、貸方は預金科目（通常は 1110 普通預金）
-- **入金（"in"）**: 銀行口座に増える = 借方は預金科目（1110 等）、貸方は収益科目または前受金等
+${
+  options.kind === "card"
+    ? `- これは**クレジットカードの利用明細**です。預金ではなく「未払金」を使います
+- **利用（"out"）**: 借方は費用科目、貸方は 未払金
+- **返金・取消（"in"）**: 借方は 未払金、貸方は元の費用科目`
+    : `- **出金（"out"）**: 銀行口座から減る = 借方は費用科目、貸方は預金科目（通常は 1110 普通預金）
+- **入金（"in"）**: 銀行口座に増える = 借方は預金科目（1110 等）、貸方は収益科目または前受金等`
+}
 - 摘要から取引内容を推測し、最も適切な科目を選んでください
 - 不明確な場合は信頼度を低くし、汎用的な科目（雑費・雑収入）を使用
 
@@ -219,6 +227,8 @@ export type BankImportRow = {
   creditAccountCode: string;
   amount: number;
   description?: string | null;
+  /** 通帳・カード明細のPDFから読んだ行（statement_lines）。仕訳を作ったら行を仕訳済みにする */
+  statementLineId?: string | null;
 };
 
 export type BankImportResult = {
@@ -321,6 +331,16 @@ export async function importBankJournalEntries(
       await supabase.from("journal_entries").delete().eq("id", entry.id);
       errors.push({ row: lineNo, message: `仕訳明細作成エラー: ${linesErr.message}` });
       continue;
+    }
+
+    // 通帳・カード明細のPDFから読んだ行なら、その行を仕訳済みにして仕訳とつなぐ（この顧問先の行だけ）
+    if (r.statementLineId) {
+      await supabase
+        .from("statement_lines")
+        .update({ status: "journalized", journal_entry_id: entry.id })
+        .eq("id", r.statementLineId)
+        .eq("client_id", clientId)
+        .eq("status", "pending");
     }
 
     // 学習: 摘要 → (借方/貸方) を記録（ユーザーが選択・確定した行＝ground truth）

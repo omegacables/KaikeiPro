@@ -151,6 +151,10 @@ export interface Database {
           blue_return_deduction: 650000 | 550000 | 100000 | null;
           ai_share_company_info: boolean;
           ai_share_personal_info: boolean;
+          /** 業種（src/lib/entertainment.ts の IndustryCode）。null は業種欄から推し量る */
+          industry: string | null;
+          /** 交際費の設定（src/lib/entertainment.ts の EntertainmentSettings） */
+          entertainment_settings: Json;
           is_active: boolean;
           created_at: string;
           updated_at: string;
@@ -185,6 +189,8 @@ export interface Database {
           blue_return_deduction?: 650000 | 550000 | 100000 | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
+          industry?: string | null;
+          entertainment_settings?: Json;
           is_active?: boolean;
           created_at?: string;
           updated_at?: string;
@@ -219,6 +225,8 @@ export interface Database {
           blue_return_deduction?: 650000 | 550000 | 100000 | null;
           ai_share_company_info?: boolean;
           ai_share_personal_info?: boolean;
+          industry?: string | null;
+          entertainment_settings?: Json;
           is_active?: boolean;
           updated_at?: string;
         };
@@ -1236,10 +1244,14 @@ export interface Database {
           entry_date: string;
           description: string | null;
           status: "draft" | "confirmed" | "locked";
-          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api";
+          source: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api" | "recurring";
           receipt_id: string | null;
           raqto_source_id: string | null;
           external_id: string | null;
+          /** この仕訳を作った定期仕訳（定期仕訳を消すと null） */
+          recurring_journal_id: string | null;
+          /** 定期仕訳の対象月（YYYY-MM） */
+          recurring_month: string | null;
           metadata: Json | null;
           needs_review: boolean;
           review_status: "unreviewed" | "confirmed" | "needs_fix" | "question";
@@ -1256,10 +1268,12 @@ export interface Database {
           entry_date: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api" | "recurring";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
           external_id?: string | null;
+          recurring_journal_id?: string | null;
+          recurring_month?: string | null;
           metadata?: Json | null;
           needs_review?: boolean;
           review_status?: "unreviewed" | "confirmed" | "needs_fix" | "question";
@@ -1276,10 +1290,12 @@ export interface Database {
           entry_date?: string;
           description?: string | null;
           status?: "draft" | "confirmed" | "locked";
-          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api";
+          source?: "manual" | "ai" | "import" | "raqto" | "bank" | "closing" | "card" | "payment" | "loan" | "api" | "recurring";
           receipt_id?: string | null;
           raqto_source_id?: string | null;
           external_id?: string | null;
+          recurring_journal_id?: string | null;
+          recurring_month?: string | null;
           metadata?: Json | null;
           needs_review?: boolean;
           review_status?: "unreviewed" | "confirmed" | "needs_fix" | "question";
@@ -1304,6 +1320,13 @@ export interface Database {
             referencedRelation: "receipts";
             referencedColumns: ["id"];
           },
+          {
+            foreignKeyName: "journal_entries_recurring_journal_id_fkey";
+            columns: ["recurring_journal_id"];
+            isOneToOne: false;
+            referencedRelation: "recurring_journals";
+            referencedColumns: ["id"];
+          },
         ];
       };
       journal_entry_lines: {
@@ -1320,6 +1343,11 @@ export interface Database {
           sort_order: number;
           purchase_use: "taxable" | "non_taxable" | "common" | null;
           business_type: number | null;
+          /** 交際費の区分（src/lib/entertainment.ts の EntertainmentKind） */
+          entertainment_kind: "dining" | "dining_under_limit" | "gift" | "golf" | "condolence" | "other" | null;
+          /** 飲食の参加人数と相手（1人当たり基準額以下の飲食を交際費から除くときの記録） */
+          attendees: number | null;
+          attendee_note: string | null;
         };
         Insert: {
           id?: string;
@@ -1334,6 +1362,9 @@ export interface Database {
           sort_order?: number;
           purchase_use?: "taxable" | "non_taxable" | "common" | null;
           business_type?: number | null;
+          entertainment_kind?: "dining" | "dining_under_limit" | "gift" | "golf" | "condolence" | "other" | null;
+          attendees?: number | null;
+          attendee_note?: string | null;
         };
         Update: {
           id?: string;
@@ -1348,6 +1379,9 @@ export interface Database {
           sort_order?: number;
           purchase_use?: "taxable" | "non_taxable" | "common" | null;
           business_type?: number | null;
+          entertainment_kind?: "dining" | "dining_under_limit" | "gift" | "golf" | "condolence" | "other" | null;
+          attendees?: number | null;
+          attendee_note?: string | null;
         };
         Relationships: [
           {
@@ -1388,6 +1422,67 @@ export interface Database {
           template_data?: Json;
         };
         Relationships: [];
+      };
+      recurring_journals: {
+        Row: {
+          id: string;
+          client_id: string;
+          name: string;
+          /** 作る仕訳の摘要（空なら名前） */
+          description: string | null;
+          /** 明細 [{account_id, sub_account_id, debit_amount, credit_amount, tax_category, purchase_use?, business_type?}] */
+          lines: Json;
+          /** 計上日（1〜31、0＝末日） */
+          day_of_month: number;
+          /** 最初の月（YYYY-MM） */
+          start_month: string;
+          /** 最後の月（YYYY-MM）。null は終わりなし */
+          end_month: string | null;
+          /** 何か月ごとか（1＝毎月、3＝四半期、12＝毎年） */
+          interval_months: number;
+          is_active: boolean;
+          last_generated_month: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          name: string;
+          description?: string | null;
+          lines?: Json;
+          day_of_month?: number;
+          start_month: string;
+          end_month?: string | null;
+          interval_months?: number;
+          is_active?: boolean;
+          last_generated_month?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+        };
+        Update: {
+          name?: string;
+          description?: string | null;
+          lines?: Json;
+          day_of_month?: number;
+          start_month?: string;
+          end_month?: string | null;
+          interval_months?: number;
+          is_active?: boolean;
+          last_generated_month?: string | null;
+          updated_at?: string;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "recurring_journals_client_id_fkey";
+            columns: ["client_id"];
+            isOneToOne: false;
+            referencedRelation: "clients";
+            referencedColumns: ["id"];
+          },
+        ];
       };
       ai_journal_patterns: {
         Row: {
@@ -1615,6 +1710,16 @@ export interface Database {
           special_treatment: "depreciation" | "tax_credit" | null;
           business_ratio: number;
           note: string | null;
+          /** 売却・除却（082）。disposed_at が手放した日 */
+          disposal_type: "sale" | "retire" | null;
+          sale_price: number | null;
+          sale_account_id: string | null;
+          sale_tax_category: string | null;
+          disposal_journal_entry_id: string | null;
+          /** 中古資産（082）。耐用年数の簡便法の入力 */
+          is_used: boolean;
+          used_statutory_life: number | null;
+          used_elapsed_months: number | null;
         };
         Insert: {
           id?: string;
@@ -1636,6 +1741,14 @@ export interface Database {
           special_treatment?: "depreciation" | "tax_credit" | null;
           business_ratio?: number;
           note?: string | null;
+          disposal_type?: "sale" | "retire" | null;
+          sale_price?: number | null;
+          sale_account_id?: string | null;
+          sale_tax_category?: string | null;
+          disposal_journal_entry_id?: string | null;
+          is_used?: boolean;
+          used_statutory_life?: number | null;
+          used_elapsed_months?: number | null;
         };
         Update: {
           id?: string;
@@ -1656,6 +1769,14 @@ export interface Database {
           special_treatment?: "depreciation" | "tax_credit" | null;
           business_ratio?: number;
           note?: string | null;
+          disposal_type?: "sale" | "retire" | null;
+          sale_price?: number | null;
+          sale_account_id?: string | null;
+          sale_tax_category?: string | null;
+          disposal_journal_entry_id?: string | null;
+          is_used?: boolean;
+          used_statutory_life?: number | null;
+          used_elapsed_months?: number | null;
         };
         Relationships: [];
       };
@@ -1854,6 +1975,59 @@ export interface Database {
           is_manual?: boolean;
           journal_entry_id?: string | null;
           note?: string | null;
+        };
+        Relationships: [];
+      };
+      ai_inbox_items: {
+        Row: {
+          id: string;
+          client_id: string;
+          kind: "receipt" | "statement" | "table" | "consult" | "other";
+          reason: "unreadable" | "unclear" | "low_confidence" | "entertainment" | "duplicate" | "withholding" | "unknown_document" | "consult" | "other";
+          status: "open" | "resolved" | "dismissed";
+          title: string | null;
+          question: string;
+          options: Json;
+          messages: Json;
+          receipt_id: string | null;
+          journal_entry_id: string | null;
+          file_name: string | null;
+          created_by: string | null;
+          created_at: string;
+          updated_at: string;
+          resolved_at: string | null;
+        };
+        Insert: {
+          id?: string;
+          client_id: string;
+          kind?: "receipt" | "statement" | "table" | "consult" | "other";
+          reason?: "unreadable" | "unclear" | "low_confidence" | "entertainment" | "duplicate" | "withholding" | "unknown_document" | "consult" | "other";
+          status?: "open" | "resolved" | "dismissed";
+          title?: string | null;
+          question: string;
+          options?: Json;
+          messages?: Json;
+          receipt_id?: string | null;
+          journal_entry_id?: string | null;
+          file_name?: string | null;
+          created_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          resolved_at?: string | null;
+        };
+        Update: {
+          kind?: "receipt" | "statement" | "table" | "consult" | "other";
+          reason?: "unreadable" | "unclear" | "low_confidence" | "entertainment" | "duplicate" | "withholding" | "unknown_document" | "consult" | "other";
+          status?: "open" | "resolved" | "dismissed";
+          title?: string | null;
+          question?: string;
+          options?: Json;
+          messages?: Json;
+          receipt_id?: string | null;
+          journal_entry_id?: string | null;
+          file_name?: string | null;
+          updated_at?: string;
+          resolved_at?: string | null;
         };
         Relationships: [];
       };

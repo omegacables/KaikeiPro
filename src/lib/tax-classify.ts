@@ -178,6 +178,20 @@ const RULES: Rule[] = [
   // ---- 売上側（収益）----
   {
     side: "sales",
+    account: /社会保険診療|保険診療収入/,
+    code: "sales_exempt",
+    strength: "strong",
+    reason: "社会保険診療（健康保険などの療養の給付）は非課税売上です。自由診療・自費の物販は課税です",
+  },
+  {
+    side: "sales",
+    account: /介護保険収入|介護報酬/,
+    code: "sales_exempt",
+    strength: "hint",
+    reason: "介護保険のサービスは非課税売上です（利用者の選んだ特別なサービス・食費の一部などは課税）",
+  },
+  {
+    side: "sales",
     account: /受取利息|受取利子|有価証券利息/,
     code: "sales_exempt",
     strength: "strong",

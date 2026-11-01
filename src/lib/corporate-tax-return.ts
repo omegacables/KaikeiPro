@@ -16,6 +16,7 @@
  */
 
 import { computeInvestmentCredit, type CreditAsset, type InvestmentCredit } from "@/lib/investment-credit";
+import { capitalClass, entertainmentLimit } from "@/lib/entertainment";
 
 export const SME_CAPITAL_LIMIT = 100_000_000;
 
@@ -79,6 +80,8 @@ export type CorporateInput = {
   entertainment: number;
   /** うち接待飲食費（入力があれば50%基準と比べる） */
   entertainmentDining: number | null;
+  /** 大法人の100%子会社など、資本金が1億円以下でも定額控除（800万円）を使えない法人（顧問先の交際費の設定） */
+  entertainmentNoFixedDeduction?: boolean;
   /** 固定資産台帳の償却超過額・認容額、期首・期末の繰越償却超過額 */
   depreciation: { excess: number; allowed: number; openingExcess: number; closingExcess: number };
   /** 法人税額から控除する所得税額 */
@@ -204,10 +207,15 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
   const interimAll = interimNationalLocal + i.interim.enterprise;
 
   // ===================== 別表十五 交際費等 =====================
-  const fixedLimit = isSme ? Math.min(i.entertainment, Math.floor((8_000_000 * m) / 12)) : 0;
-  const diningLimit = i.entertainmentDining !== null ? Math.floor((i.entertainmentDining * 50) / 100) : 0;
-  const entLimit = Math.max(fixedLimit, diningLimit);
-  const entDisallowed = pos(i.entertainment - entLimit);
+  // 資本金1億円以下は800万円の定額控除と接待飲食費の50%の有利な方、1億円超は50%だけ、100億円超は0（src/lib/entertainment.ts）
+  const entClass = capitalClass(i.capital, i.entertainmentNoFixedDeduction ?? false);
+  const { fixedLimit, diningLimit, limit: entLimit, disallowed: entDisallowed } = entertainmentLimit({
+    total: i.entertainment,
+    dining: i.entertainmentDining,
+    months: m,
+    cls: entClass,
+  });
+  if (entClass === "mega" && i.entertainment > 0) warnings.push("資本金が100億円を超えるため、交際費等は全額を損金不算入としています。");
 
   // ===================== 別表四 所得の金額の計算 =====================
   // 列: ①総額 ②留保 ③社外流出
@@ -609,7 +617,7 @@ export function computeCorporateTaxReturn(i: CorporateInput): CorporateTaxReturn
     rows: [
       c1("1", "支出交際費等の額", i.entertainment, "交際費の科目の当期の額"),
       c1("2", "支出接待飲食費損金算入基準額（接待飲食費×50%）", i.entertainmentDining === null ? null : diningLimit),
-      c1("3", `中小法人等の定額控除限度額（800万円×${m}/12 と（1）の少ない方）`, isSme ? fixedLimit : null),
+      c1("3", `中小法人等の定額控除限度額（800万円×${m}/12 と（1）の少ない方）`, entClass === "sme" ? fixedLimit : null),
       c1("4", "損金算入限度額（有利な方）", entLimit),
       c1("5", "損金不算入額", entDisallowed, "別表四「8」へ"),
     ],

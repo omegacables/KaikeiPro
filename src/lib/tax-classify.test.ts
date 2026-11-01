@@ -87,3 +87,11 @@ describe("自動の仕訳で保存する税区分", () => {
     expect(resolveTaxCategory("assets", "普通預金", "", null)).toBeNull();
   });
 });
+
+describe("医療・介護の売上", () => {
+  it("社会保険診療は非課税売上・自由診療は課税のまま", () => {
+    expect(s("revenue", "社会保険診療収入", "4月分 社保")).toMatchObject({ code: "sales_exempt", strength: "strong" });
+    expect(s("revenue", "介護保険収入", "国保連 4月分")).toMatchObject({ code: "sales_exempt", strength: "hint" });
+    expect(s("revenue", "自由診療収入", "インプラント")?.code).not.toBe("sales_exempt");
+  });
+});

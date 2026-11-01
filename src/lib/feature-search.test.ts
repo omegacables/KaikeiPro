@@ -39,4 +39,11 @@ describe("機能を探す", () => {
     expect(featureHref(f, "abc")).toBe("/clients/abc/tax-summary?view=table");
     expect(featureHref(FEATURES.find((x) => x.label === "ダッシュボード")!, "abc")).toBe("/dashboard");
   });
+
+  it("定期仕訳は名前・読み・取引の言葉（家賃・リース料など）で探せる", () => {
+    expect(labels("定期")[0]).toBe("定期仕訳");
+    expect(labels("teiki")[0]).toBe("定期仕訳");
+    expect(labels("家賃")).toContain("定期仕訳");
+    expect(labels("リース料")).toContain("定期仕訳");
+  });
 });

@@ -38,6 +38,10 @@
  *
  * ■ 少額減価償却資産（中小企業者等の特例、取得価額30万円未満、年300万円まで）
  *   使い始めた期に取得価額の全額を損金にする。
+ *
+ * ■ 中古資産の耐用年数（簡便法）… usedAssetUsefulLife
+ *
+ * 売却・除却の仕訳は src/lib/asset-disposal.ts。
  */
 
 export type DepreciationMethod = "straight_line" | "declining_balance" | "lump_sum" | "small_immediate";
@@ -389,6 +393,26 @@ export function buildDepreciationSchedule(
     firstPeriod = false;
   }
   return rows;
+}
+
+/**
+ * 中古資産の見積耐用年数（簡便法。耐用年数省令3条1項2号、耐用年数通達1-5-1〜）。
+ *   法定耐用年数の全部を経過した資産 … 法定耐用年数 × 20%
+ *   一部を経過した資産             … （法定耐用年数 − 経過年数）＋ 経過年数 × 20%
+ * 年数は月数で計算し、1年未満の端数は切り捨て、2年に満たないときは2年とする。
+ * 20% は ÷5 なので、月数を5倍した整数で計算して小数の誤差を出さない。
+ * 読み取れない入力（法定耐用年数が1年未満、経過月数が負・小数）は null。
+ */
+export function usedAssetUsefulLife(
+  statutoryLife: number,
+  elapsedMonths: number
+): { years: number; months: number; fullyElapsed: boolean } | null {
+  if (!Number.isInteger(statutoryLife) || statutoryLife < 1) return null;
+  if (!Number.isInteger(elapsedMonths) || elapsedMonths < 0) return null;
+  const life = statutoryLife * 12;
+  const fullyElapsed = elapsedMonths >= life;
+  const months5 = fullyElapsed ? life : (life - elapsedMonths) * 5 + elapsedMonths;
+  return { years: Math.max(MIN_USEFUL_LIFE, Math.floor(months5 / 60)), months: months5 / 5, fullyElapsed };
 }
 
 /** 法律で定額法しか使えない資産（建物は1998年4月以後、建物附属設備・構築物は2016年4月以後の取得。無形固定資産） */

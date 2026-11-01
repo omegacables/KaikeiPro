@@ -8,6 +8,8 @@ import {
 import { lookupLearnedRules, recordLearnedRule } from "./learned-rules";
 import { TAX_CATEGORY_LIST, sanitizeTaxCategory } from "@/lib/tax-category";
 import { classifyEntryLines } from "@/lib/tax-classify-db";
+import { loadEntertainmentContext } from "@/lib/entertainment-db";
+import { isEntertainmentAccount, isEntertainmentKind } from "@/lib/entertainment";
 
 /**
  * AIに渡す税区分の一覧。
@@ -104,6 +106,18 @@ export async function generateJournalSuggestion(
         .join("\n")
     : "";
 
+  // 交際費の決まり（業種・1人当たりの基準額・この会社の決まり）。src/lib/entertainment.ts
+  const ent = await loadEntertainmentContext(supabase, receipt.client_id, ocrResult.date ?? new Date().toISOString().slice(0, 10));
+  const sb = ocrResult.sales_breakdown;
+  const extraOcr = [
+    ocrResult.guest_count ? `\n- 人数（レシートの印字）: ${ocrResult.guest_count}名` : "",
+    ocrResult.withholding_tax ? `\n- 源泉徴収税額: ${ocrResult.withholding_tax}円` : "",
+    ocrResult.sales_report && sb
+      ? `\n- 売上日報（税込）: 現金 ${sb.cash ?? 0} / クレジット ${sb.card ?? 0} / 電子マネー・QR ${sb.e_money ?? 0} / 売掛・その他 ${sb.other ?? 0}（税率10% ${sb.rate10 ?? 0}・軽減8% ${sb.rate8 ?? 0}）`
+      : "",
+    memo ? `\n- 利用者のメモ: ${memo}` : "",
+  ].join("");
+
   const ocrSection = `## OCR結果
 - 日付: ${ocrResult.date ?? "不明"}
 - ${isIssued ? "宛先（売上先）" : "取引先（支払先）"}: ${ocrResult.vendor_name ?? "不明"}
@@ -113,7 +127,7 @@ export async function generateJournalSuggestion(
 - 税率: ${ocrResult.tax_rate != null ? `${ocrResult.tax_rate * 100}%` : "不明"}
 - 品目: ${ocrResult.items?.join(", ") ?? "不明"}
 - インボイス番号: ${ocrResult.invoice_number ?? "なし"}
-- ${isIssued ? "入金方法" : "支払方法"}: ${receipt.payment_method ?? "不明"}${forexNote}${learnedHint}`;
+- ${isIssued ? "入金方法" : "支払方法"}: ${receipt.payment_method ?? "不明"}${forexNote}${extraOcr}${learnedHint}`;
 
   // 受領（経費・仕入側）の仕訳プロンプト
   const receivedPrompt = `あなたは日本の会計仕訳の専門家です。これは「取引先から受領した」証憑です。経費・仕入として仕訳を提案してください。
@@ -141,6 +155,16 @@ ${accountList}
    - コンビニ(消耗品) → 消耗品費
    - 電気・ガス・水道 → 水道光熱費
    - 家賃 → 地代家賃
+   - 交際費・会議費・福利厚生費などの判断は、下の「この会社の交際費の決まり」を優先すること
+4-2. 飲食・贈答の行には entertainment_kind と attendees を付ける:
+   - 取引先などとの飲食で、人数が分かり 1人当たりの額（費用の行の額 ÷ 人数）が基準額以下 → 科目は「${ent.settings.underLimitAccount}」、entertainment_kind="dining_under_limit"、attendees=人数
+   - 取引先などとの飲食で基準額を超える、または人数が分からない → 接待交際費、entertainment_kind="dining"、attendees=人数（不明なら null）。人数が分からないときは question で「どなたと何人か」を聞く
+   - 社内の人だけの飲食は基準額以下でも除けない（全員参加なら福利厚生費・一部なら接待交際費）。社内か取引先か分からなければ question で聞く
+   - 贈答（お中元・お歳暮・手土産）→ gift、ゴルフ・旅行の招待 → golf、慶弔・見舞い → condolence、その他の交際費 → other
+   - 飲食・交際費以外の行は entertainment_kind も attendees も null
+4-3. 源泉徴収税額がある請求書（士業・デザイナー・講師など個人への報酬）:
+   - 借方 支払報酬（または支払手数料・外注費。科目一覧にある方）に報酬の総額（税込）
+   - 貸方 預り金（源泉所得税）（科目一覧に無ければ 預り金）に源泉徴収税額、残り（差引の支払額）を支払方法の科目に
 5. 摘要(description)には支払方法を括弧書きで末尾に付ける:
    - cash → （現金）
    - card → （カード）
@@ -160,6 +184,9 @@ ${TAX_CATEGORY_PROMPT}
    - 摘要に原通貨金額とレートを記載（例: 「$40.98 @150.32」）
    - 海外取引は消費税がかからないため、仮払消費税は計上しない
 
+## この会社の交際費の決まり
+${ent.prompt}
+
 以下のJSON形式で回答してください:
 {
   "description": "摘要（取引先名 + 内容の簡潔な説明 + 支払方法）例: 'Amazon 書籍購入（カード）'",
@@ -171,11 +198,14 @@ ${TAX_CATEGORY_PROMPT}
       "debit_amount": 数値,
       "credit_amount": 0,
       "tax_category": "一覧のコード または null",
-      "tax_rate": 0.10
+      "tax_rate": 0.10,
+      "entertainment_kind": "dining|dining_under_limit|gift|golf|condolence|other または null",
+      "attendees": 人数またはnull
     }
   ],
   "confidence": 0.0-1.0,
-  "reasoning": "この仕訳にした理由の簡潔な説明"
+  "reasoning": "この仕訳にした理由の簡潔な説明",
+  "question": "判断に迷った点があれば、利用者への短い質問（敬語・1文）。迷いが無ければ null"
 }
 
 JSONのみ返してください。`;
@@ -207,6 +237,10 @@ ${accountList}
    - 金額は全て円換算後の値を使用すること
    - 摘要に原通貨金額とレートを記載（例: 「$40.98 @150.32」）
    - 海外取引（輸出免税等）は消費税の扱いに注意し、不明な場合は仮受消費税を計上しない
+6. 売上日報（レジ締め・Zレポート）の場合:
+   - 借方は入金の方法ごとに分ける（現金 → 現金、クレジット・電子マネー・QR → 売掛金、売掛・その他 → 売掛金）
+   - 貸方の売上高は税率ごとに行を分け、10%は sales_10、軽減8%は sales_08_reduced。仮受消費税はそれぞれの税率で分ける
+   - 摘要は「○月○日 売上（レジ締め）」の形
 
 以下のJSON形式で回答してください:
 {
@@ -223,7 +257,8 @@ ${accountList}
     }
   ],
   "confidence": 0.0-1.0,
-  "reasoning": "この仕訳にした理由の簡潔な説明"
+  "reasoning": "この仕訳にした理由の簡潔な説明",
+  "question": "判断に迷った点があれば、利用者への短い質問（敬語・1文）。迷いが無ければ null"
 }
 
 JSONのみ返してください。`;
@@ -292,7 +327,12 @@ async function autoCreateJournalFromSuggestion(
   const balanced = totalDebit > 0 && Math.abs(totalDebit - totalCredit) < 1;
   const ocrTotal = ocr?.amount_jpy ?? ocr?.amount_total ?? null;
   const amountsReconcile = ocrTotal == null ? true : Math.abs(totalDebit - ocrTotal) < 1;
-  const needsReview = suggestion.confidence < 0.7 || !balanced || !amountsReconcile;
+  // 交際費の飲食で人数が分からないもの、AIが質問を残したものも人手で確かめる
+  const entertainmentUnknown = suggestion.lines.some(
+    (l) => isEntertainmentAccount(l.account_name) && l.entertainment_kind === "dining" && !l.attendees
+  );
+  const needsReview =
+    suggestion.confidence < 0.7 || !balanced || !amountsReconcile || entertainmentUnknown || Boolean(suggestion.question);
 
   // 仕訳エントリー作成
   const { data: entry, error: entryError } = await admin
@@ -323,6 +363,9 @@ async function autoCreateJournalFromSuggestion(
     credit_amount: line.credit_amount,
     tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
+    entertainment_kind: isEntertainmentKind(line.entertainment_kind) ? line.entertainment_kind : null,
+    attendees: Number.isInteger(line.attendees) && (line.attendees as number) > 0 && (line.attendees as number) <= 10_000 ? (line.attendees as number) : null,
+    attendee_note: typeof line.attendee_note === "string" && line.attendee_note.trim() ? line.attendee_note.trim().slice(0, 500) : null,
     sort_order: i,
   }));
 
@@ -653,6 +696,9 @@ JSONのみ返してください。`;
     credit_amount: line.credit_amount,
     tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
+    entertainment_kind: isEntertainmentKind(line.entertainment_kind) ? line.entertainment_kind : null,
+    attendees: Number.isInteger(line.attendees) && (line.attendees as number) > 0 && (line.attendees as number) <= 10_000 ? (line.attendees as number) : null,
+    attendee_note: typeof line.attendee_note === "string" && line.attendee_note.trim() ? line.attendee_note.trim().slice(0, 500) : null,
     sort_order: i,
   }));
 
@@ -878,6 +924,9 @@ JSONのみ返してください。`;
     credit_amount: line.credit_amount,
     tax_category: sanitizeTaxCategory(line.tax_category),
     tax_rate: line.tax_rate ?? null,
+    entertainment_kind: isEntertainmentKind(line.entertainment_kind) ? line.entertainment_kind : null,
+    attendees: Number.isInteger(line.attendees) && (line.attendees as number) > 0 && (line.attendees as number) <= 10_000 ? (line.attendees as number) : null,
+    attendee_note: typeof line.attendee_note === "string" && line.attendee_note.trim() ? line.attendee_note.trim().slice(0, 500) : null,
     sort_order: i,
   }));
 
