@@ -15,8 +15,9 @@ import { BorderBeam } from "border-beam";
 import { Upload, Camera, Check, AlertTriangle, FileText, FileSpreadsheet, MessageCircleQuestion, Inbox, ChevronRight, X, History } from "lucide-react";
 import { Card } from "@/components/ui/card";
 import { cn, formatCurrency } from "@/lib/utils";
-import { uploadReceipt, getReceiptThumbnailUrls } from "@/actions/receipt-storage";
+import { getReceiptThumbnailUrls } from "@/actions/receipt-storage";
 import {
+  uploadInboxFile,
   triageInboxDocument,
   processInboxReceipt,
   processInboxStatement,
@@ -30,6 +31,7 @@ import { inboxFileKind, splitTable, classifyTable, MAX_DOCUMENT_BYTES, INBOX_REA
 import { decodeText, gridFromText, gridsFromExcel } from "@/lib/payroll-file";
 import { AiOrb, AiWorkingLine, STAGE_ORB, useDocTheme } from "./thinking";
 import { InboxChat } from "./inbox-chat";
+import { unwrap } from "./unwrap";
 
 type Stage = "waiting" | "upload" | "triage" | "read" | "statement" | "table" | "done" | "review" | "error";
 
@@ -122,7 +124,7 @@ export function AiInbox({
 
   const loadItems = useCallback(async () => {
     try {
-      const list = await listInboxItems(clientId, { includeClosed: showClosed });
+      const list = unwrap(await listInboxItems(clientId, { includeClosed: showClosed }));
       setItems(list);
       const ids = list.map((i) => i.receiptId).filter(Boolean) as string[];
       if (ids.length) setThumbs(await getReceiptThumbnailUrls(clientId, ids).catch(() => ({})));
@@ -148,7 +150,7 @@ export function AiInbox({
       if (table.rows.length === 0) throw new Error("データの行が見つかりませんでした");
       // 見出しで分かれば、AIに聞かずに決める
       let tk: TableKind = classifyTable(table.header);
-      if (tk === "unknown") tk = await classifyInboxTable(clientId, table.header, table.rows.slice(0, 8));
+      if (tk === "unknown") tk = unwrap(await classifyInboxTable(clientId, table.header, table.rows.slice(0, 8)));
       if (tk === "payroll") {
         patch(q.id, { stage: "done", label: "給与台帳", message: "給与台帳の表です。給与台帳の画面で取り込めます。", link: { href: `/clients/${clientId}/payroll`, text: "給与台帳を開く" } });
         return;
@@ -170,16 +172,28 @@ export function AiInbox({
     const fd = new FormData();
     fd.append("file", file);
     fd.append("client_id", clientId);
-    const saved = await uploadReceipt(fd);
+    const saved = unwrap(await uploadInboxFile(fd));
+    const dup = saved.duplicate;
+    if (dup?.processed) {
+      // 同じ写真・PDFは取込済み。読み取り直さず、前の取込の中身を知らせる
+      const what = [dup.date, dup.vendor, dup.amount != null ? formatCurrency(dup.amount) : null].filter(Boolean).join("・");
+      patch(q.id, {
+        stage: "done",
+        label: "取込済み",
+        message: `この${kind === "pdf" ? "PDF" : "写真"}は${dup.uploadedAt ? ` ${dup.uploadedAt.slice(0, 10)} に` : "すでに"}取り込まれています${what ? `（${what}）` : ""}。${dup.journalized ? "仕訳も作成済みです。" : "仕訳はまだありません。"}`,
+        link: { href: `/clients/${clientId}/documents`, text: "証憑管理で見る" },
+      });
+      return;
+    }
 
     patch(q.id, { stage: "triage" });
-    const triage = await triageInboxDocument(saved.id);
+    const triage = unwrap(await triageInboxDocument(saved.receiptId));
     patch(q.id, { label: triage.label });
 
     if (triage.kind === "statement") {
       patch(q.id, { stage: "statement" });
       const subtype = triage.subtype ?? "bank";
-      const res = await processInboxStatement(saved.id, subtype);
+      const res = unwrap(await processInboxStatement(saved.receiptId, subtype));
       onStatement(q.file, { ...res, subtype });
       patch(q.id, {
         stage: "done",
@@ -193,7 +207,7 @@ export function AiInbox({
     }
 
     patch(q.id, { stage: "read" });
-    const results = await processInboxReceipt(saved.id, q.file.name, memo.trim() || null);
+    const results = unwrap(await processInboxReceipt(saved.receiptId, q.file.name, memo.trim() || null));
     const review = results.filter((r) => r.itemId).length;
     patch(q.id, {
       stage: review > 0 ? "review" : "done",

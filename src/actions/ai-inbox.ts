@@ -16,10 +16,12 @@ import { getGeminiModel, callGemini, extractJson, INJECTION_GUARD } from "@/lib/
 import { createServerSupabaseClient, createAdminSupabaseClient } from "@/lib/supabase";
 import { assertClientAccess, resolveClientIdForRecord } from "@/lib/authz";
 import { downloadReceiptImage, getReceiptImageUrl } from "./receipt-storage";
+import { normalizePaymentMethod, storeReceiptFile, supabaseReceiptIO } from "@/lib/receipt-upload";
+import { analyzeJournalCsv, type JournalCsvAnalysis } from "./journal-csv-ai";
 import { processReceiptOcr, updateOcrResult } from "./ocr";
 import { generateJournalSuggestion } from "./ai-journal";
 import { extractStatementTransactions } from "./statement-lines";
-import { analyzeBankCsv, type BankCsvSuggestion } from "./bank-csv-ai";
+import { analyzeBankCsv, type BankCsvSuggestion, type BankCsvAnalysis } from "./bank-csv-ai";
 import { updateJournalEntryWithLines, deleteJournalEntries } from "./journals";
 import { loadEntertainmentContext } from "@/lib/entertainment-db";
 import { isEntertainmentKind, perPersonLimit } from "@/lib/entertainment";
@@ -45,7 +47,7 @@ export type DocumentTriage = {
  * 写真・PDFが何の書類かを、軽いモデルで先に見分ける。
  * 明細書を領収書として読むと合計で1本の仕訳になり、領収書を明細書として読むと行がばらけるため、読む前に分ける。
  */
-export async function triageInboxDocument(receiptId: string): Promise<DocumentTriage> {
+async function triageInboxDocumentImpl(receiptId: string): Promise<DocumentTriage> {
   const clientId = await resolveClientIdForRecord("receipts", receiptId);
   const admin = createAdminSupabaseClient();
   const { data: receipt } = await admin.from("receipts").select("image_path, ocr_result").eq("id", receiptId).single();
@@ -120,7 +122,7 @@ type EntryWithLines = {
  * 証憑を読み取って仕訳を作り、迷った点・読み取りにくい点を要確認ボックスに入れる。
  * 1枚の写真に複数のレシートがあれば、分けた証憑ごとに結果を返す。
  */
-export async function processInboxReceipt(receiptId: string, fileName: string, memo?: string | null): Promise<InboxReceiptResult[]> {
+async function processInboxReceiptImpl(receiptId: string, fileName: string, memo?: string | null): Promise<InboxReceiptResult[]> {
   const clientId = await resolveClientIdForRecord("receipts", receiptId);
   const db = await createServerSupabaseClient();
   const {
@@ -229,7 +231,7 @@ export type StatementSuggestion = BankCsvSuggestion & { statementLineId: string 
 /**
  * 明細書のPDF・写真から取引の行を読み、銀行CSVと同じ形の仕訳の候補にする（画面の「銀行明細」の表で確かめて登録）。
  */
-export async function processInboxStatement(
+async function processInboxStatementImpl(
   receiptId: string,
   subtype: "bank" | "card"
 ): Promise<{ suggestions: StatementSuggestion[]; warnings: string[]; lineCount: number }> {
@@ -259,7 +261,7 @@ export async function processInboxStatement(
 // ---------------------------------------------------------------------------
 
 /** 見出しで見分けられない表を、最初の数行を見てAIに見分けてもらう */
-export async function classifyInboxTable(clientId: string, header: string[], sample: string[][]): Promise<TableKind> {
+async function classifyInboxTableImpl(clientId: string, header: string[], sample: string[][]): Promise<TableKind> {
   await assertClientAccess(clientId);
   const quick = classifyTable(header);
   if (quick !== "unknown") return quick;
@@ -335,7 +337,7 @@ function toItem(r: ItemRow): InboxItem {
   };
 }
 
-export async function listInboxItems(clientId: string, opts: { includeClosed?: boolean } = {}): Promise<InboxItem[]> {
+async function listInboxItemsImpl(clientId: string, opts: { includeClosed?: boolean } = {}): Promise<InboxItem[]> {
   await assertClientAccess(clientId);
   const db = await createServerSupabaseClient();
   let q = db.from("ai_inbox_items").select(ITEM_COLUMNS).eq("client_id", clientId).order("created_at", { ascending: false }).limit(100);
@@ -355,7 +357,7 @@ export type InboxItemDetail = InboxItem & {
   } | null;
 };
 
-export async function getInboxItemDetail(itemId: string): Promise<InboxItemDetail> {
+async function getInboxItemDetailImpl(itemId: string): Promise<InboxItemDetail> {
   const db = await createServerSupabaseClient();
   const { data, error } = await db.from("ai_inbox_items").select(ITEM_COLUMNS).eq("id", itemId).maybeSingle();
   if (error) throw new Error(error.message);
@@ -397,7 +399,7 @@ async function loadJournal(entryId: string): Promise<InboxItemDetail["journal"]>
   };
 }
 
-export async function setInboxItemStatus(itemId: string, status: "open" | "resolved" | "dismissed"): Promise<void> {
+async function setInboxItemStatusImpl(itemId: string, status: "open" | "resolved" | "dismissed"): Promise<void> {
   const db = await createServerSupabaseClient();
   const { data: item } = await db.from("ai_inbox_items").select("id, journal_entry_id").eq("id", itemId).maybeSingle();
   if (!item) throw new Error("要確認の項目が見つかりません");
@@ -413,7 +415,7 @@ export async function setInboxItemStatus(itemId: string, status: "open" | "resol
 }
 
 /** 重複していた証憑と、その証憑から作った仕訳を消す（利用者がボタンで選んだときだけ） */
-export async function deleteInboxDuplicate(itemId: string): Promise<void> {
+async function deleteInboxDuplicateImpl(itemId: string): Promise<void> {
   const db = await createServerSupabaseClient();
   const { data: item } = await db.from("ai_inbox_items").select("id, client_id, receipt_id, journal_entry_id").eq("id", itemId).maybeSingle();
   if (!item) throw new Error("要確認の項目が見つかりません");
@@ -437,7 +439,7 @@ export async function deleteInboxDuplicate(itemId: string): Promise<void> {
 }
 
 /** 証憑を指定しない相談（「この支払いは何の科目？」など）を始める */
-export async function startInboxConsult(clientId: string, text: string): Promise<InboxItem> {
+async function startInboxConsultImpl(clientId: string, text: string): Promise<InboxItem> {
   await assertClientAccess(clientId);
   const body = text.trim().slice(0, 2000);
   if (!body) throw new Error("相談の内容を入れてください");
@@ -459,7 +461,7 @@ export async function startInboxConsult(clientId: string, text: string): Promise
     .select("id")
     .single();
   if (error || !data) throw new Error(error?.message ?? "相談を始められませんでした");
-  return answerInboxItem(data.id as string, body);
+  return answerInboxItemImpl(data.id as string, body);
 }
 
 type AiAnswer = {
@@ -490,7 +492,7 @@ const TAX_PROMPT = TAX_CATEGORY_LIST.map((c) => `- ${c.code}: ${c.name}`).join("
  * 利用者の答えを受け取り、AIが返事をして、必要なら仕訳を直す。
  * 直した結果（貸借・科目・締めた年度）は既存の仕訳の更新処理で確かめる。直せなかったときは理由を返事に足す。
  */
-export async function answerInboxItem(itemId: string, text: string): Promise<InboxItem> {
+async function answerInboxItemImpl(itemId: string, text: string): Promise<InboxItem> {
   const answer = text.trim().slice(0, 2000);
   if (!answer) throw new Error("答えを入れてください");
   const db = await createServerSupabaseClient();
@@ -689,4 +691,122 @@ ${answer}
     .single();
   if (upErr || !updated) throw new Error(upErr?.message ?? "会話を保存できませんでした");
   return toItem(updated as ItemRow);
+}
+
+// ---------------------------------------------------------------------------
+// 6. 画面から呼ぶ入口（失敗の理由を画面に出す）
+// ---------------------------------------------------------------------------
+//
+// サーバーの処理で投げた例外は、本番では「An error occurred in the Server Components render…」という
+// 英語の決まり文句に置き換わり、理由（重複・AIの利用枠切れなど）が利用者に届かない。
+// 取込箱から呼ぶ処理は、例外を { ok: false, error } にして返す。
+
+export type ActionResult<T> = { ok: true; data: T } | { ok: false; error: string };
+
+async function toResult<T>(what: string, fn: () => Promise<T>): Promise<ActionResult<T>> {
+  try {
+    return { ok: true, data: await fn() };
+  } catch (e) {
+    console.error(`[ai-inbox] ${what}に失敗しました:`, e);
+    return { ok: false, error: e instanceof Error && e.message ? e.message : `${what}に失敗しました` };
+  }
+}
+
+export type InboxUpload = {
+  receiptId: string;
+  /** 同じファイルが登録済みだったとき、その証憑の中身（読み取り済みなら processed=true） */
+  duplicate: { uploadedAt: string | null; date: string | null; vendor: string | null; amount: number | null; processed: boolean; journalized: boolean } | null;
+};
+
+/**
+ * 証憑のファイルを保存する。同じファイルが登録済みなら止めずに、その証憑を返す
+ * （読み取りがまだなら続けて読み取り、済んでいれば「取込済み」と知らせる）
+ */
+async function uploadInboxFileImpl(formData: FormData): Promise<InboxUpload> {
+  const file = formData.get("file") as File | null;
+  const clientId = String(formData.get("client_id") ?? "");
+  if (!file || file.size === 0) throw new Error("ファイルが選択されていません");
+  const db = await createServerSupabaseClient();
+  const {
+    data: { user },
+  } = await db.auth.getUser();
+  if (!user) throw new Error("ログインが切れています。もう一度ログインしてください");
+  await assertClientAccess(clientId);
+  const saved = await storeReceiptFile(supabaseReceiptIO(db, createAdminSupabaseClient()), {
+    clientId,
+    userId: user.id,
+    file: { bytes: new Uint8Array(await file.arrayBuffer()), type: file.type, size: file.size, name: file.name },
+    paymentMethod: normalizePaymentMethod(null),
+    direction: "received",
+    onDuplicate: "return",
+  });
+  if (!saved.duplicate) return { receiptId: saved.id, duplicate: null };
+  const { data: r } = await db.from("receipts").select("status, uploaded_at, ocr_result").eq("id", saved.id).maybeSingle();
+  const ocr = (r?.ocr_result ?? null) as OcrResult | null;
+  const { count } = await db.from("journal_entries").select("id", { count: "exact", head: true }).eq("receipt_id", saved.id);
+  return {
+    receiptId: saved.id,
+    duplicate: {
+      uploadedAt: (r?.uploaded_at as string | null) ?? null,
+      date: ocr?.date ?? null,
+      vendor: ocr?.vendor_name ?? null,
+      amount: ocr?.amount_jpy ?? ocr?.amount_total ?? null,
+      processed: r?.status !== "uploaded" && r?.status !== "processing",
+      journalized: (count ?? 0) > 0,
+    },
+  };
+}
+
+export async function uploadInboxFile(formData: FormData): Promise<ActionResult<InboxUpload>> {
+  return toResult("アップロード", () => uploadInboxFileImpl(formData));
+}
+export async function triageInboxDocument(receiptId: string): Promise<ActionResult<DocumentTriage>> {
+  return toResult("書類の見分け", () => triageInboxDocumentImpl(receiptId));
+}
+export async function processInboxReceipt(receiptId: string, fileName: string, memo?: string | null): Promise<ActionResult<InboxReceiptResult[]>> {
+  return toResult("読み取り", () => processInboxReceiptImpl(receiptId, fileName, memo));
+}
+export async function processInboxStatement(
+  receiptId: string,
+  subtype: "bank" | "card"
+): Promise<ActionResult<{ suggestions: StatementSuggestion[]; warnings: string[]; lineCount: number }>> {
+  return toResult("明細の読み取り", () => processInboxStatementImpl(receiptId, subtype));
+}
+export async function classifyInboxTable(clientId: string, header: string[], sample: string[][]): Promise<ActionResult<TableKind>> {
+  return toResult("表の見分け", () => classifyInboxTableImpl(clientId, header, sample));
+}
+export async function analyzeInboxJournalTable(clientId: string, header: string[], rows: string[][]): Promise<ActionResult<JournalCsvAnalysis>> {
+  return toResult("仕訳の表の解析", () => analyzeJournalCsv(clientId, header, rows));
+}
+export async function analyzeInboxBankTable(
+  clientId: string,
+  header: string[],
+  rows: string[][],
+  kind: "bank" | "card"
+): Promise<ActionResult<BankCsvAnalysis>> {
+  return toResult("明細の解析", () => analyzeBankCsv(clientId, header, rows, { kind }));
+}
+export async function listInboxItems(clientId: string, opts: { includeClosed?: boolean } = {}): Promise<ActionResult<InboxItem[]>> {
+  return toResult("要確認の読み込み", () => listInboxItemsImpl(clientId, opts));
+}
+export async function getInboxItemDetail(itemId: string): Promise<ActionResult<InboxItemDetail>> {
+  return toResult("要確認の読み込み", () => getInboxItemDetailImpl(itemId));
+}
+export async function setInboxItemStatus(itemId: string, status: "open" | "resolved" | "dismissed"): Promise<ActionResult<null>> {
+  return toResult("状態の変更", async () => {
+    await setInboxItemStatusImpl(itemId, status);
+    return null;
+  });
+}
+export async function deleteInboxDuplicate(itemId: string): Promise<ActionResult<null>> {
+  return toResult("削除", async () => {
+    await deleteInboxDuplicateImpl(itemId);
+    return null;
+  });
+}
+export async function startInboxConsult(clientId: string, text: string): Promise<ActionResult<InboxItem>> {
+  return toResult("相談", () => startInboxConsultImpl(clientId, text));
+}
+export async function answerInboxItem(itemId: string, text: string): Promise<ActionResult<InboxItem>> {
+  return toResult("AIの返事", () => answerInboxItemImpl(itemId, text));
 }

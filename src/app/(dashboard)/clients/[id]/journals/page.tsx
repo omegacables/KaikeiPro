@@ -26,19 +26,15 @@ import {
   type JournalImportResult,
 } from "@/actions/journals";
 import {
-  analyzeBankCsv,
   importBankJournalEntries,
   type BankCsvSuggestion,
   type BankImportResult,
 } from "@/actions/bank-csv-ai";
 import { reconcileBankDeposits } from "@/actions/deposit-csv-ai";
-import {
-  analyzeJournalCsv,
-  type JournalCsvSuggestion,
-} from "@/actions/journal-csv-ai";
+import { type JournalCsvSuggestion } from "@/actions/journal-csv-ai";
 import { getAccounts } from "@/actions/accounts";
 import { AiInbox, type InboxTable } from "@/components/ai-inbox/ai-inbox";
-import type { StatementSuggestion } from "@/actions/ai-inbox";
+import { analyzeInboxJournalTable, analyzeInboxBankTable, type StatementSuggestion } from "@/actions/ai-inbox";
 import { useAuth } from "@/components/providers/auth-provider";
 import Link from "next/link";
 import { DateInput } from "@/components/ui/date-input";
@@ -101,7 +97,9 @@ export default function JournalsPage() {
     setImportAnalyzing(true);
     try {
       if (table.rows.length === 0) throw new Error("有効なデータ行が見つかりません");
-      const analysis = await analyzeJournalCsv(id, table.header, table.rows);
+      const res = await analyzeInboxJournalTable(id, table.header, table.rows);
+      if (!res.ok) throw new Error(res.error);
+      const analysis = res.data;
       setImportSuggestions(
         analysis.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 }))
       );
@@ -181,7 +179,9 @@ export default function JournalsPage() {
     setBankAnalyzing(true);
     try {
       if (table.rows.length === 0) throw new Error("有効なデータ行が見つかりません");
-      const analysis = await analyzeBankCsv(id, table.header, table.rows, { kind });
+      const res = await analyzeInboxBankTable(id, table.header, table.rows, kind);
+      if (!res.ok) throw new Error(res.error);
+      const analysis = res.data;
       setBankSuggestions(
         analysis.suggestions.map((s) => ({ ...s, selected: s.confidence >= 0.5 }))
       );

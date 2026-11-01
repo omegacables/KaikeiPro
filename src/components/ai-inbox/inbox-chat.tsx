@@ -23,6 +23,7 @@ import {
 } from "@/actions/ai-inbox";
 import { INBOX_REASON_LABELS } from "@/lib/inbox";
 import { AiOrb, AiWorkingLine, useDocTheme } from "./thinking";
+import { unwrap } from "./unwrap";
 import { VoiceInputButton } from "./voice-input";
 
 export function InboxChat({
@@ -55,7 +56,7 @@ export function InboxChat({
   const load = useCallback(async (id: string) => {
     setLoading(true);
     try {
-      const d = await getInboxItemDetail(id);
+      const d = unwrap(await getInboxItemDetail(id));
       setDetail(d);
       setMessages(d.messages);
     } catch (e) {
@@ -96,7 +97,7 @@ export function InboxChat({
     setText("");
     setMessages((m) => [...m, { role: "user", text: body, at: new Date().toISOString() }]);
     try {
-      const item = currentId ? await answerInboxItem(currentId, body) : await startInboxConsult(clientId, body);
+      const item = unwrap(currentId ? await answerInboxItem(currentId, body) : await startInboxConsult(clientId, body));
       if (!currentId) setCurrentId(item.id);
       setMessages(item.messages);
       await load(item.id);
@@ -119,8 +120,8 @@ export function InboxChat({
     setBusy(kind);
     setError(null);
     try {
-      if (kind === "delete") await deleteInboxDuplicate(currentId);
-      else await setInboxItemStatus(currentId, "dismissed");
+      if (kind === "delete") unwrap(await deleteInboxDuplicate(currentId));
+      else unwrap(await setInboxItemStatus(currentId, "dismissed"));
       onChanged();
       onClose();
     } catch (e) {
